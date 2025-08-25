@@ -1,0 +1,10 @@
+# Dockerfile.sidecar
+FROM python:3.9-slim
+
+WORKDIR /scripts
+
+COPY update_subscription.py /scripts/update_subscription.py
+
+RUN pip install --no-cache-dir requests pyyaml
+
+CMD ["bash", "-c", "while true; do python3 /scripts/update_subscription.py; sleep 3600; done"]

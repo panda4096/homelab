@@ -1,0 +1,36 @@
+
+# -------------------------------
+# Deployment：运行 Clash 容器
+# -------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clash
+  template:
+    metadata:
+      labels:
+        app: clash
+    spec:
+      containers:
+      - name: clash
+        image: butcoder/clash-mmdb:latest
+        imagePullPolicy: Always
+        # command: ["tail", "-f", "/dev/null"]
+        ports:
+        - containerPort: 7890
+          protocol: TCP
+        - containerPort: 7891
+          protocol: TCP
+        volumeMounts:
+        - name: clash-config
+          mountPath: /root/.config/clash/config.yaml
+          subPath: config.yaml
+      volumes:
+      - name: clash-config
+        configMap:
+          name: clash-config

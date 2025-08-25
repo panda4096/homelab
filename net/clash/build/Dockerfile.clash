@@ -1,0 +1,16 @@
+# 使用官方 Clash 镜像作为基础
+
+FROM dreamacro/clash:latest
+
+
+# 创建 GeoIP 目录
+RUN mkdir -p /root/.config/clash/GeoIP
+
+# 将本地 Country.mmdb 拷贝到容器
+COPY Country.mmdb /root/.config/clash/GeoIP/Country.mmdb
+
+# 工作目录
+WORKDIR /root/.config/clash
+
+# 容器启动默认命令保持不变
+CMD ["clash", "-d", "/root/.config/clash"]
