@@ -1,0 +1,26 @@
+# Source of truth: node inventory.
+#
+# NOTE: Do not store secrets in this repo.
+cluster: homelab-k3s
+api_endpoint: gz.butcoder.com
+nodes:
+  gz:
+    ssh: "ssh gz.butcoder.com"
+    role: server
+    region: gz
+    public_ip: "106.55.163.135"
+    # private_ip: ""
+    # os: ""
+    # cpu: ""
+    # mem: ""
+    # notes: ""
+  sg:
+    ssh: "ssh sg.butcoder.com"
+    role: agent
+    region: sg
+    public_ip: "43.156.60.56"
+    # private_ip: ""
+    # os: ""
+    # cpu: ""
+    # mem: ""
+    # notes: ""

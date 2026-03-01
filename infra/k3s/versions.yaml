@@ -1,0 +1,21 @@
+# Source of truth: component versions + important paths.
+#
+# Any upgrade/change should update this file first, and be referenced by a change record in infra/changes/.
+k3s:
+  # Empty string means "install latest stable" and then record the actual version after installation.
+  version: "v1.34.4+k3s1"
+  data_dir: /var/lib/rancher/k3s
+kilo:
+  version: "0.6.0"
+  crds_url: "https://raw.githubusercontent.com/squat/kilo/0.6.0/manifests/crds.yaml"
+  crds_path: "infra/k3s/manifests/kilo-crds.yaml"
+  manifest_url: "https://raw.githubusercontent.com/squat/kilo/0.6.0/manifests/kilo-k3s.yaml"
+  manifest_path: "infra/k3s/manifests/kilo-k3s.yaml"
+ingress:
+  controller: "ingress-nginx"
+  chart:
+    repo: "https://kubernetes.github.io/ingress-nginx"
+    name: "ingress-nginx/ingress-nginx"
+    # Pin the chart version used in the cluster and record it here.
+    version: "4.14.3"
+  values_path: "infra/k3s/values/ingress-nginx.yaml"
