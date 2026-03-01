@@ -16,6 +16,7 @@
 ## 文档与配置入口
 
 - Runbook（SOP）：`infra/集群搭建.md`
+- 网络架构：`infra/network.md`
 - 节点库存（主数据）：`infra/inventory/hosts.yaml`
 - 版本锁定（主数据）：`infra/k3s/versions.yaml`
 - kubeconfig（本地私密文件，gitignore）：`infra/.secrets/homelab-k3s.yaml`（刷新：`bash infra/k3s/scripts/fetch-kubeconfig.sh`）
