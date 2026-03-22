@@ -1,11 +1,18 @@
 # Helm values for ingress-nginx (keep in git; install/upgrade must reference this file).
 controller:
+  kind: DaemonSet
   replicaCount: 1
+  containerPort:
+    http: 80
+    https: 443
+  dnsPolicy: ClusterFirstWithHostNet
+  hostNetwork: true
+  reportNodeInternalIp: true
   ingressClassResource:
     name: nginx
     default: true
   service:
-    type: NodePort
+    enabled: false
   config:
     proxy-read-timeout: "3600"
     proxy-send-timeout: "3600"

@@ -21,7 +21,7 @@
 - [ ] `kubectl get nodes -o wide`：全部 Ready
 - [ ] `kubectl get pods -A -o wide`：核心组件健康
 - [ ] 磁盘空间充足（尤其是 master）
-- [ ] 端口/安全组检查（见 `infra/ports.md`）
+- [ ] 端口/安全组检查（见 `infra/03-端口与安全组.md`）
 
 ## 4. 变更内容（引用 repo 文件路径）
 

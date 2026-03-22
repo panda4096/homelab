@@ -2,7 +2,7 @@
 
 - 日期：2026-03-02
 - 状态：Done
-- 关联文档：`infra/集群搭建.md`
+- 关联文档：`infra/02-集群搭建.md`
 
 ## 1. 目的与范围
 
@@ -61,4 +61,3 @@ kubectl label node vm-0-11-ubuntu node-role.kubernetes.io/worker- || true
 
 - 结果：`kubectl get nodes` 已显示 `master/worker`
 - 后续：如果未来安装的组件依赖 `control-plane` label，可按回滚步骤恢复
-

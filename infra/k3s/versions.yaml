@@ -18,4 +18,5 @@ ingress:
     name: "ingress-nginx/ingress-nginx"
     # Pin the chart version used in the cluster and record it here.
     version: "4.14.3"
-  values_path: "infra/k3s/values/ingress-nginx.yaml"
+    package_path: "infra/platform/ingress-nginx/charts/ingress-nginx-4.14.3.tgz"
+  values_path: "infra/platform/ingress-nginx/values.yaml"

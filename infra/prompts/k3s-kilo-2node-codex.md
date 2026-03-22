@@ -19,8 +19,8 @@
 
 - 库存：`infra/inventory/hosts.yaml`
 - 版本锁定：`infra/k3s/versions.yaml`
-- Runbook：`infra/集群搭建.md`
-- 端口清单：`infra/ports.md`
+- Runbook：`infra/02-集群搭建.md`
+- 端口清单：`infra/03-端口与安全组.md`
 - 变更单模板：`infra/changes/_template.md`
 
 执行规则（必须）：
@@ -40,7 +40,7 @@
 - `ssh gz.butcoder.com`、`ssh sg.butcoder.com` 分别采集：
   - OS/内核/磁盘/根分区 rw
   - 安装基础包：curl/ca-certificates/jq/sqlite3
-- 把采集命令与摘要输出写入变更单与 `infra/集群搭建.md` 的“安装记录”
+- 把采集命令与摘要输出写入变更单与 `infra/02-集群搭建.md` 的“安装记录”
 
 ## B. 安装 k3s server（gz，自定义 CNI）
 
@@ -62,7 +62,7 @@
 - 验证：
   - `kubectl -n kube-system get ds,pods -o wide | grep -i kilo`
   - `kubectl get pods -A -o wide`
-- 用 `ss -lunp`/`wg show` 确认 WireGuard 监听端口，更新到 `infra/ports.md`
+- 用 `ss -lunp`/`wg show` 确认 WireGuard 监听端口，更新到 `infra/03-端口与安全组.md`
 - 如 Kilo 自动选择了私网 IP 作为 endpoint（跨地域不可达），在两端节点设置：
   - `kilo.squat.ai/force-endpoint=<PUBLIC_IP>:51820`，并重建 Kilo Pod
 
@@ -93,9 +93,9 @@
 
 - 安装/验证 helm
 - `helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && helm repo update`
-- `helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx -f infra/k3s/values/ingress-nginx.yaml --version <PINNED>`
+- `helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx -f infra/platform/ingress-nginx/values.yaml --version <PINNED>`
 - 回填 `infra/k3s/versions.yaml` 的 `ingress.chart.version`
-- 在 `infra/集群搭建.md` 写清：
+- 在 `infra/02-集群搭建.md` 写清：
   - ingress-nginx 维护到 2026-03 的风险
   - 版本锁定策略
   - 迁移预案（Traefik / NGINX Inc / Gateway API）
@@ -110,4 +110,4 @@
 - `kubectl get nodes -o wide`
 - `kubectl get pods -A -o wide`（核心组件 + kilo + ingress-nginx）
 - 跨节点 PodIP/ClusterIP 测试的命令与结果摘要
-- `infra/ports.md` 中的端口清单已补齐（含实测 UDP 端口）
+- `infra/03-端口与安全组.md` 中的端口清单已补齐（含实测 UDP 端口）
