@@ -1,4 +1,4 @@
-# 04-监控平台（VictoriaMetrics，ClusterIP-only）
+# 04-监控与Dashboard维护（VictoriaMetrics，ClusterIP-only）
 
 本阶段目标：先把集群监控基础设施跑起来，让你可以在 Grafana 中看到 **node / pod / workload** 相关指标；不对公网暴露，不走 Ingress。
 
@@ -28,9 +28,12 @@
 - 平台层入口：`infra/platform/monitoring/README.md`
 - chart：`infra/platform/monitoring/charts/victoria-metrics-k8s-stack-0.72.5.tgz`
 - values：`infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml`
+- 自定义 dashboard：`infra/platform/monitoring/grafana/`
 - 版本锁定：`infra/k3s/versions.yaml`
 - 变更记录：`infra/changes/20260323-monitoring-bootstrap.md`
+- dashboard 托管变更：`infra/changes/20260323-grafana-api-managed-dashboards.md`
 - 本地 Grafana 凭据：`infra/.secrets/grafana-admin.env`
+- 本地 Grafana API 凭据：`infra/.secrets/grafana-api.env`
 
 ## 3. 调度与资源策略
 
@@ -221,7 +224,122 @@ ssh gz.butcoder.com 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm history monitorin
 ssh gz.butcoder.com 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm status monitoring -n monitoring'
 ```
 
-## 8. 部署注意事项
+## 8. Dashboard 维护模型
+
+Grafana dashboard 分两类维护：
+
+- **系统预设 dashboard**
+  - 来源：`victoria-metrics-k8s-stack` chart 自带
+  - 继续由 Helm / chart 管理
+  - 不在 repo 里单独导出维护
+- **自定义 dashboard**
+  - 来源：你在 Grafana Web 新建或 agent 直接生成
+  - 不接入 Helm provisioning / sidecar / Git Sync
+  - 改为 **Grafana HTTP API + repo 回收**
+
+这样做的边界：
+
+- `helm upgrade monitoring` 只管 Grafana 实例、datasource、系统预设 dashboard
+- 自定义 dashboard 独立于 Helm release
+- Web 可以直接调 dashboard
+- agent 可以把 Web 改动回收进 repo，并从 repo 再推回 Grafana
+
+### 8.1 Grafana Folder 约定
+
+- `Infra`
+  - 基础设施级 dashboard
+  - 例如：`Global Nodes`
+- `Apps`
+  - 业务应用 dashboard
+  - 例如：某个 app 的 Overview / Errors / Latency
+
+### 8.2 repo 目录约定
+
+- `infra/platform/monitoring/grafana/README.md`
+- `infra/platform/monitoring/grafana/_meta/index.yaml`
+- `infra/platform/monitoring/grafana/infra/`
+- `infra/platform/monitoring/grafana/apps/`
+- `infra/platform/monitoring/grafana/scripts/`
+
+### 8.3 自定义 dashboard 托管接口
+
+主清单文件：
+
+- `infra/platform/monitoring/grafana/_meta/index.yaml`
+
+固定字段：
+
+- `folders[*].key`
+- `folders[*].uid`
+- `folders[*].title`
+- `folders[*].description`
+- `dashboards[*].key`
+- `dashboards[*].uid`
+- `dashboards[*].folder`
+- `dashboards[*].path`
+- `dashboards[*].tags`
+
+约定：
+
+- `uid` 必须稳定
+- 一个 JSON 文件只对应一个 dashboard
+- 所有自定义 dashboard 都打 `managed-by-repo` tag
+
+## 9. Dashboard 日常维护流程
+
+### 9.1 新建 dashboard
+
+1. 在 Grafana Web 里进入 `Infra` 或 `Apps` Folder
+2. 新建 dashboard，并设置稳定 UID（例如 `infra-global-nodes`）
+3. 调整到满意后，让 agent 执行导出脚本
+4. JSON 回收到 repo，并补齐 `index.yaml`
+5. 写变更单
+
+### 9.2 Web 微调后回收 repo
+
+```bash
+source infra/.secrets/grafana-api.env
+bash infra/platform/monitoring/grafana/scripts/export-dashboard.sh infra-global-nodes
+```
+
+如果要整组回收：
+
+```bash
+source infra/.secrets/grafana-api.env
+bash infra/platform/monitoring/grafana/scripts/export-folder.sh infra
+```
+
+### 9.3 repo 改完推回 Grafana
+
+```bash
+source infra/.secrets/grafana-api.env
+bash infra/platform/monitoring/grafana/scripts/apply-dashboard.sh infra-global-nodes
+```
+
+或者整组：
+
+```bash
+source infra/.secrets/grafana-api.env
+bash infra/platform/monitoring/grafana/scripts/apply-folder.sh infra
+```
+
+### 9.4 当前第一张自定义 dashboard
+
+- Folder：`Infra`
+- Dashboard：`Global Nodes`
+- UID：`infra-global-nodes`
+- JSON：`infra/platform/monitoring/grafana/infra/global-nodes.json`
+
+用途：
+
+- 多节点 CPU 利用率
+- 多节点内存利用率
+- 多节点根分区使用率
+- 多节点网络收发速率
+- 多节点 Pod 数量
+- CPU / 内存 requests 与 allocatable 占比
+
+## 10. 部署注意事项
 
 - 本次首次部署时，`docker.io` / `registry.k8s.io` / `quay.io` 的镜像拉取在 `gz` 上失败。
 - 处理方式：
@@ -230,7 +348,7 @@ ssh gz.butcoder.com 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm status monitoring
   - 在 `gz` 执行 `sudo k3s ctr -n k8s.io images import <tar>`
 - 这一步已记录在变更单；后续若扩容或重建 `gz`，需要优先检查镜像拉取是否正常。
 
-## 9. 快速排障
+## 11. 快速排障
 
 Pod 没起来时，按下面顺序查：
 
@@ -269,7 +387,14 @@ curl -G 'http://127.0.0.1:8428/prometheus/api/v1/query' \
 
 若还是 PodIP 或 Pod 名，说明 node-exporter 的 scrape relabel 没生效，检查 `infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml` 里的 `prometheus-node-exporter.vmScrape.spec`。
 
-## 10. 后续扩展
+如果是自定义 dashboard API 同步失败，优先检查：
+
+- `kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80` 是否正在运行
+- `infra/.secrets/grafana-api.env` 是否存在且凭据正确
+- `curl "$GRAFANA_URL/api/health"` 是否返回正常
+- dashboard `uid` 是否已在 `infra/platform/monitoring/grafana/_meta/index.yaml` 注册
+
+## 12. 后续扩展
 
 本阶段稳定后，再新增：
 

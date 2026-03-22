@@ -1,0 +1,20 @@
+---
+folders:
+- key: infra
+  uid: infra
+  title: Infra
+  description: Infrastructure dashboards
+- key: apps
+  uid: apps
+  title: Apps
+  description: Application dashboards
+dashboards:
+- key: global-nodes
+  title: Global Nodes
+  folder: infra
+  uid: infra-global-nodes
+  path: infra/platform/monitoring/grafana/infra/global-nodes.json
+  tags:
+  - infra
+  - managed-by-repo
+  - nodes
