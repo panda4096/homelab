@@ -11,6 +11,7 @@
 ## 当前组件
 
 - ingress-nginx：`infra/platform/ingress-nginx/`
+- monitoring：`infra/platform/monitoring/`
 
 ## 维护约定
 

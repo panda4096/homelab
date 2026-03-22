@@ -1,0 +1,215 @@
+fullnameOverride: monitoring
+
+global:
+  clusterLabel: cluster
+
+victoria-metrics-operator:
+  enabled: true
+  operator:
+    disable_prometheus_converter: false
+
+defaultDashboards:
+  enabled: true
+
+defaultRules:
+  create: true
+  groups:
+    etcd:
+      create: false
+    kubernetesSystemControllerManager:
+      create: false
+    kubeScheduler:
+      create: false
+    kubernetesSystemScheduler:
+      create: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+vmsingle:
+  enabled: true
+  spec:
+    retentionPeriod: 30d
+    replicaCount: 1
+    nodeSelector:
+      region: gz
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+    serviceSpec:
+      spec:
+        type: ClusterIP
+    storage:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 20Gi
+
+vmagent:
+  enabled: true
+  spec:
+    selectAllByDefault: true
+    scrapeInterval: 20s
+    nodeSelector:
+      region: gz
+    externalLabels:
+      cluster: homelab-k3s
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    serviceSpec:
+      spec:
+        type: ClusterIP
+
+vmalert:
+  enabled: true
+  spec:
+    selectAllByDefault: true
+    nodeSelector:
+      region: gz
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    serviceSpec:
+      spec:
+        type: ClusterIP
+
+alertmanager:
+  enabled: true
+  spec:
+    replicaCount: 1
+    selectAllByDefault: true
+    nodeSelector:
+      region: gz
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    serviceSpec:
+      spec:
+        type: ClusterIP
+  config:
+    route:
+      receiver: blackhole
+    receivers:
+      - name: blackhole
+
+grafana:
+  enabled: true
+  testFramework:
+    enabled: false
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: local-path
+    size: 2Gi
+  nodeSelector:
+    region: gz
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+
+kube-state-metrics:
+  enabled: true
+  replicas: 1
+  nodeSelector:
+    region: gz
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+prometheus-node-exporter:
+  enabled: true
+  hostNetwork: false
+  service:
+    type: ClusterIP
+  vmScrape:
+    spec:
+      attach_metadata:
+        node: true
+      endpoints:
+        - port: metrics
+          relabelConfigs:
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_endpoint_node_name
+              regex: (.+)
+              targetLabel: node
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_endpointslice_endpoint_node_name
+              regex: (.+)
+              targetLabel: node
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_endpoint_node_name
+              regex: (.+)
+              targetLabel: nodename
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_endpointslice_endpoint_node_name
+              regex: (.+)
+              targetLabel: nodename
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_endpoint_node_name
+              regex: (.+)
+              targetLabel: instance
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_endpointslice_endpoint_node_name
+              regex: (.+)
+              targetLabel: instance
+          metricRelabelConfigs:
+            - action: drop
+              source_labels:
+                - mountpoint
+              regex: "/var/lib/kubelet/pods.+"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

@@ -20,3 +20,13 @@ ingress:
     version: "4.14.3"
     package_path: "infra/platform/ingress-nginx/charts/ingress-nginx-4.14.3.tgz"
   values_path: "infra/platform/ingress-nginx/values.yaml"
+monitoring:
+  stack: "victoria-metrics-k8s-stack"
+  namespace: "monitoring"
+  retention: "30d"
+  chart:
+    repo: "https://victoriametrics.github.io/helm-charts/"
+    name: "victoria-metrics-k8s-stack"
+    version: "0.72.5"
+    package_path: "infra/platform/monitoring/charts/victoria-metrics-k8s-stack-0.72.5.tgz"
+  values_path: "infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml"
