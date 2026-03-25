@@ -1,0 +1,110 @@
+{
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "targets": [{"expr": "count(count by (target_endpoint, module) (last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=~\"$probe_scope\",module=~\"$module\",target_endpoint=~\"$target_endpoint\"}[5m]) == 1))", "instant": true, "refId": "A"}],
+      "title": "Reachable Endpoint / Module Pairs",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "targets": [{"expr": "count(count by (target_endpoint, module) (last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=~\"$probe_scope\",module=~\"$module\",target_endpoint=~\"$target_endpoint\"}[5m]) == 0))", "instant": true, "refId": "A"}],
+      "title": "Unavailable Endpoint / Module Pairs",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "targets": [{"expr": "count(count by (target_endpoint) (last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=\"apiserver\",target_endpoint=~\"$target_endpoint\"}[5m]) == 0))", "instant": true, "refId": "A"}],
+      "title": "Unavailable API Endpoints",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "targets": [{"expr": "count(count by (target_endpoint) (last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=\"icmp\",target_endpoint=~\"$target_endpoint\"}[5m]) == 0))", "instant": true, "refId": "A"}],
+      "title": "Unavailable ICMP Targets",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 4},
+      "id": 5,
+      "options": {"displayMode": "gradient", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true},
+      "targets": [{"expr": "100 * avg by (target_endpoint, module) (last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=~\"$probe_scope\",module=~\"$module\",target_endpoint=~\"$target_endpoint\"}[5m]))", "instant": true, "legendFormat": "{{target_endpoint}} ({{module}})", "refId": "A"}],
+      "title": "Success Rate by Endpoint and Module",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 4},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=~\"$probe_scope\",module=~\"$module\",target_endpoint=~\"$target_endpoint\"}[5m])", "legendFormat": "{{target_endpoint}} ({{module}})", "refId": "A"}],
+      "title": "Endpoint Latency by Module",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 14},
+      "id": 7,
+      "options": {"showHeader": true},
+      "targets": [{"expr": "last_over_time(probe_http_status_code{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=~\"$probe_scope\",module=~\"$module\",target_endpoint=~\"$target_endpoint\"}[5m])", "format": "table", "instant": true, "refId": "A"}],
+      "title": "Latest HTTP Status Codes",
+      "transformations": [
+        {"id": "labelsToFields", "options": {"mode": "columns"}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"Value": "http_status_code"}}}
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 24},
+      "id": 8,
+      "options": {"showHeader": true},
+      "targets": [{"expr": "last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",probe_scope=~\"$probe_scope\",module=~\"$module\",target_endpoint=~\"$target_endpoint\"}[5m]) == 0", "format": "table", "instant": true, "refId": "A"}],
+      "title": "Latest Failing Endpoints",
+      "transformations": [
+        {"id": "labelsToFields", "options": {"mode": "columns"}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"Value": "probe_success"}}}
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["infra", "managed-by-repo", "network", "endpoints"],
+  "templating": {
+    "list": [
+      {"current": {"selected": true, "text": "VictoriaMetrics", "value": "VictoriaMetrics"}, "hide": 0, "includeAll": false, "label": "datasource", "name": "datasource", "options": [], "query": "prometheus", "refresh": 1, "type": "datasource"},
+      {"current": {"selected": true, "text": "homelab-k3s", "value": "homelab-k3s"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success, cluster)", "includeAll": true, "label": "cluster", "multi": false, "name": "cluster", "query": {"query": "label_values(probe_success, cluster)", "refId": "Cluster"}, "refresh": 2, "type": "query"},
+      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\"}, source_node)", "includeAll": true, "label": "source_node", "multi": true, "name": "source_node", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\"}, source_node)", "refId": "Source"}, "refresh": 2, "type": "query"},
+      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\"}, probe_scope)", "includeAll": true, "label": "probe_scope", "multi": true, "name": "probe_scope", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\"}, probe_scope)", "refId": "Scope"}, "refresh": 2, "type": "query"},
+      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\"}, module)", "includeAll": true, "label": "module", "multi": true, "name": "module", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\"}, module)", "refId": "Module"}, "refresh": 2, "type": "query"},
+      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\",probe_scope=~\"$probe_scope\",module=~\"$module\"}, target_endpoint)", "includeAll": true, "label": "target_endpoint", "multi": true, "name": "target_endpoint", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\",probe_scope=~\"$probe_scope\",module=~\"$module\"}, target_endpoint)", "refId": "Endpoint"}, "refresh": 2, "type": "query"}
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Endpoint Reachability",
+  "uid": "infra-endpoint-reachability",
+  "version": 1,
+  "weekStart": ""
+}

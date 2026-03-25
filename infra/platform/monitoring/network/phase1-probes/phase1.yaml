@@ -1,0 +1,187 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: network-probe-reconciler
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: network-probe-reconciler
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["operator.victoriametrics.com"]
+    resources: ["vmprobes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: network-probe-reconciler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: network-probe-reconciler
+subjects:
+  - kind: ServiceAccount
+    name: network-probe-reconciler
+    namespace: monitoring
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: network-blackbox-exporter
+  labels:
+    app.kubernetes.io/name: network-blackbox-exporter
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: network-blackbox-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: network-blackbox-exporter
+        app.kubernetes.io/part-of: network-monitoring
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: blackbox-exporter
+          image: quay.io/prometheus/blackbox-exporter:v0.28.0
+          args:
+            - --config.file=/etc/blackbox_exporter/blackbox.yml
+          ports:
+            - name: metrics
+              containerPort: 9115
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: ["NET_RAW"]
+          readinessProbe:
+            httpGet:
+              path: /-/healthy
+              port: metrics
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /etc/blackbox_exporter
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: blackbox-exporter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-blackbox-exporter
+  labels:
+    app.kubernetes.io/name: network-blackbox-exporter
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: network-blackbox-exporter
+  ports:
+    - name: metrics
+      port: 9115
+      targetPort: metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: network-blackbox-exporter
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  attach_metadata:
+    node: true
+  namespaceSelector:
+    matchNames: ["monitoring"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: network-blackbox-exporter
+  podMetricsEndpoints:
+    - port: metrics
+      relabelConfigs:
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: node
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: instance
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: network-probe-reconciler
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: network-monitoring
+        spec:
+          serviceAccountName: network-probe-reconciler
+          nodeSelector:
+            region: sg
+          restartPolicy: OnFailure
+          containers:
+            - name: reconciler
+              image: python:3.12-alpine
+              command: ["/usr/local/bin/python3", "/scripts/reconcile_network_probes.py"]
+              env:
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: network-probe-reconciler-script
+                defaultMode: 0555
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: network-probe-rules
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  groups:
+    - name: network-probes
+      rules:
+        - alert: HomelabNetworkProbeFailed
+          expr: max_over_time(probe_success{app_kubernetes_io_managed_by="network-probe-reconciler"}[2m]) == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "network probe failed"
+            description: "source={{ $labels.source_node }} target={{ $labels.target_node }} scope={{ $labels.probe_scope }} target_endpoint={{ $labels.target_endpoint }}"
+        - alert: HomelabApiserverProbeFailed
+          expr: max_over_time(probe_success{probe_scope="apiserver"}[2m]) == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "apiserver probe failed"
+            description: "source={{ $labels.source_node }} target={{ $labels.target_node }} endpoint={{ $labels.target_endpoint }}"

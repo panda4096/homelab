@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: network-wireguard-exporter
+  labels:
+    app.kubernetes.io/name: network-wireguard-exporter
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: network-wireguard-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: network-wireguard-exporter
+        app.kubernetes.io/part-of: network-monitoring
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: wireguard-exporter
+          image: mindflavor/prometheus-wireguard-exporter:3.6.6
+          args:
+            - -i
+            - kilo0
+            - -a
+            - "false"
+            - -v
+            - "false"
+            - -s
+            - "true"
+            - -r
+            - "true"
+          ports:
+            - name: metrics
+              containerPort: 9586
+              hostPort: 9586
+          securityContext:
+            allowPrivilegeEscalation: true
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              add: ["NET_ADMIN"]
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: network-wireguard-exporter
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  attach_metadata:
+    node: true
+  namespaceSelector:
+    matchNames: ["monitoring"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: network-wireguard-exporter
+  podMetricsEndpoints:
+    - port: metrics
+      relabelConfigs:
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: node
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: instance
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: kilo-metrics
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  attach_metadata:
+    node: true
+  namespaceSelector:
+    matchNames: ["kube-system"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kilo
+  podMetricsEndpoints:
+    - port: metrics
+      relabelConfigs:
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: node
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: instance
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: network-link-rules
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  groups:
+    - name: network-link-health
+      rules:
+        - alert: HomelabWireGuardHandshakeStale
+          expr: (time() - wireguard_latest_handshake_seconds{interface="kilo0"}) > 180 and wireguard_latest_handshake_seconds{interface="kilo0"} > 0
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "wireguard handshake stale"
+            description: "node={{ $labels.node }} interface={{ $labels.interface }} public_key={{ $labels.public_key }}"
+        - alert: HomelabSoftnetDropsHigh
+          expr: rate(node_softnet_dropped_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "softnet drops detected"
+            description: "instance={{ $labels.instance }}"
+        - alert: HomelabTcpRetransmitsHigh
+          expr: rate(node_netstat_Tcp_RetransSegs[5m]) > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "tcp retransmits high"
+            description: "instance={{ $labels.instance }}"
+        - alert: HomelabConntrackUsageHigh
+          expr: (node_nf_conntrack_entries / node_nf_conntrack_entries_limit) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "conntrack usage high"
+            description: "instance={{ $labels.instance }}"
+        - alert: HomelabKiloErrorsDetected
+          expr: increase(kilo_errors_total[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "kilo reported reconciliation errors"
+            description: "instance={{ $labels.instance }} event={{ $labels.event }}"

@@ -32,6 +32,18 @@
 - `Infra / Global Nodes`
   - UID：`infra-global-nodes`
   - 文件：`infra/platform/monitoring/grafana/infra/global-nodes.json`
+- `Infra / Inter-Node Network`
+  - UID：`infra-inter-node-network`
+  - 文件：`infra/platform/monitoring/grafana/infra/inter-node-network.json`
+- `Infra / Endpoint Reachability`
+  - UID：`infra-endpoint-reachability`
+  - 文件：`infra/platform/monitoring/grafana/infra/endpoint-reachability.json`
+- `Infra / WireGuard & Underlay`
+  - UID：`infra-wireguard-underlay`
+  - 文件：`infra/platform/monitoring/grafana/infra/wireguard-underlay.json`
+- `Infra / Node Network Health`
+  - UID：`infra-node-network-health`
+  - 文件：`infra/platform/monitoring/grafana/infra/node-network-health.json`
 
 ## 日常维护流程
 

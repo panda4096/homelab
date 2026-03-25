@@ -1,6 +1,6 @@
 # 04-监控与Dashboard维护（VictoriaMetrics，ClusterIP-only）
 
-本阶段目标：先把集群监控基础设施跑起来，让你可以在 Grafana 中看到 **node / pod / workload** 相关指标；不对公网暴露，不走 Ingress。
+本阶段目标：先把集群监控基础设施跑起来，让你可以在 Grafana 中看到 **node / pod / workload** 相关指标；不对公网暴露，不走 Ingress。网络探测与底层链路监控已独立到 `infra/05-网络探测与链路监控.md`。
 
 ## 1. 架构与范围
 
@@ -17,10 +17,10 @@
   - `node-exporter`
   - `vmalert`
   - `alertmanager`
-- 暂不包含：
-  - blackbox exporter
-  - ICMP/TCP/HTTP 探测
-  - 节点间延迟/链路质量探测
+- 本文不包含：
+  - blackbox exporter / VMProbe
+  - ICMP/TCP/HTTP 主动探测
+  - WireGuard/Kilo 底层链路监控
   - 任何公网暴露
 
 ## 2. 资产位置
@@ -32,6 +32,7 @@
 - 版本锁定：`infra/k3s/versions.yaml`
 - 变更记录：`infra/changes/20260323-monitoring-bootstrap.md`
 - dashboard 托管变更：`infra/changes/20260323-grafana-api-managed-dashboards.md`
+- 网络探测文档：`infra/05-网络探测与链路监控.md`
 - 本地 Grafana 凭据：`infra/.secrets/grafana-admin.env`
 - 本地 Grafana API 凭据：`infra/.secrets/grafana-api.env`
 

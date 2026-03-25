@@ -12,6 +12,7 @@
 
 - ingress-nginx：`infra/platform/ingress-nginx/`
 - monitoring：`infra/platform/monitoring/`
+- network monitoring：`infra/platform/monitoring/network/`
 
 ## 维护约定
 

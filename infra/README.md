@@ -19,6 +19,7 @@
 - `02` 集群搭建 Runbook：`infra/02-集群搭建.md`
 - `03` 端口与安全组：`infra/03-端口与安全组.md`
 - `04` 监控与 Dashboard 维护：`infra/04-监控与Dashboard维护.md`
+- `05` 网络探测与链路监控：`infra/05-网络探测与链路监控.md`
 
 > 说明：这里是“阅读/理解顺序”，不是“实际部署时间顺序”。实际创建顺序见 `infra/01-节点互联与网络架构.md` 开头的说明。
 
@@ -41,6 +42,8 @@
 - monitoring values：`infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml`
 - monitoring chart（vendored）：`infra/platform/monitoring/charts/victoria-metrics-k8s-stack-0.72.5.tgz`
 - monitoring 自定义 dashboard：`infra/platform/monitoring/grafana/README.md`
+- network monitoring 文档：`infra/05-网络探测与链路监控.md`
+- network monitoring 资产：`infra/platform/monitoring/network/README.md`
 - 应用层占位：`infra/apps/README.md`
 - 端口/安全组清单：`infra/03-端口与安全组.md`
 - 变更记录（每次必写）：`infra/changes/`

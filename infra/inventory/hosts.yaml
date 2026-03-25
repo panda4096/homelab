@@ -6,9 +6,12 @@ api_endpoint: gz.butcoder.com
 nodes:
   gz:
     ssh: "ssh gz.butcoder.com"
+    kubernetes_node_name: "vm-8-11-ubuntu"
     role: server
     region: gz
     public_ip: "106.55.163.135"
+    public_endpoint: "gz.butcoder.com"
+    apiserver_endpoint: true
     # private_ip: ""
     # os: ""
     # cpu: ""
@@ -16,9 +19,11 @@ nodes:
     # notes: ""
   sg:
     ssh: "ssh sg.butcoder.com"
+    kubernetes_node_name: "vm-0-11-ubuntu"
     role: agent
     region: sg
     public_ip: "43.156.60.56"
+    public_endpoint: "sg.butcoder.com"
     # private_ip: ""
     # os: ""
     # cpu: ""

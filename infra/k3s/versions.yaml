@@ -30,3 +30,17 @@ monitoring:
     version: "0.72.5"
     package_path: "infra/platform/monitoring/charts/victoria-metrics-k8s-stack-0.72.5.tgz"
   values_path: "infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml"
+  network:
+    docs_path: "infra/05-网络探测与链路监控.md"
+    manifests_path: "infra/platform/monitoring/network/"
+    blackbox_exporter:
+      image: "quay.io/prometheus/blackbox-exporter:v0.28.0"
+      config_path: "infra/platform/monitoring/network/phase1-probes/blackbox.yml"
+    wireguard_exporter:
+      image: "mindflavor/prometheus-wireguard-exporter:3.6.6"
+      manifests_path: "infra/platform/monitoring/network/phase2-link-metrics/"
+    dashboards:
+      inter_node_network_uid: "infra-inter-node-network"
+      endpoint_reachability_uid: "infra-endpoint-reachability"
+      wireguard_underlay_uid: "infra-wireguard-underlay"
+      node_network_health_uid: "infra-node-network-health"

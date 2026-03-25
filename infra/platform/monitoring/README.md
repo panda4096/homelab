@@ -13,9 +13,11 @@
 ## 资产位置
 
 - 说明文档：`infra/04-监控与Dashboard维护.md`
+- 网络监控文档：`infra/05-网络探测与链路监控.md`
 - chart：`infra/platform/monitoring/charts/victoria-metrics-k8s-stack-0.72.5.tgz`
 - values：`infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml`
 - dashboard 管理：`infra/platform/monitoring/grafana/README.md`
+- network manifests：`infra/platform/monitoring/network/README.md`
 - 版本锁定：`infra/k3s/versions.yaml` 的 `monitoring.*`
 - 首次落地变更单：`infra/changes/20260323-monitoring-bootstrap.md`
 
@@ -23,7 +25,7 @@
 
 - 所有监控相关编排只改 `values.yaml`，不在集群里手工漂移。
 - Grafana 管理员密码不入库，只保存在本地私密目录与集群 Secret。
-- 第一阶段仅部署 metrics / dashboard / alerting，不部署 blackbox 或跨节点探测。
+- 网络探测与底层链路指标独立到 `infra/platform/monitoring/network/`，不并入主 Helm values。
 - 自定义 dashboard 不进入 Helm provisioning；统一通过 Grafana API 脚本导入导出。
 
 ## 执行方式

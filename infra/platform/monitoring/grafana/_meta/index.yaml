@@ -18,3 +18,43 @@ dashboards:
   - infra
   - managed-by-repo
   - nodes
+- key: inter-node-network
+  title: Inter-Node Network
+  folder: infra
+  uid: infra-inter-node-network
+  path: infra/platform/monitoring/grafana/infra/inter-node-network.json
+  tags:
+  - infra
+  - managed-by-repo
+  - network
+  - probes
+- key: endpoint-reachability
+  title: Endpoint Reachability
+  folder: infra
+  uid: infra-endpoint-reachability
+  path: infra/platform/monitoring/grafana/infra/endpoint-reachability.json
+  tags:
+  - infra
+  - managed-by-repo
+  - network
+  - endpoints
+- key: wireguard-underlay
+  title: WireGuard & Underlay
+  folder: infra
+  uid: infra-wireguard-underlay
+  path: infra/platform/monitoring/grafana/infra/wireguard-underlay.json
+  tags:
+  - infra
+  - managed-by-repo
+  - network
+  - wireguard
+- key: node-network-health
+  title: Node Network Health
+  folder: infra
+  uid: infra-node-network-health
+  path: infra/platform/monitoring/grafana/infra/node-network-health.json
+  tags:
+  - infra
+  - managed-by-repo
+  - network
+  - node
