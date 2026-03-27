@@ -52,6 +52,30 @@ def sanitize_name(value):
     return value[:63].rstrip("-")
 
 
+def node_public_ip(metadata, status):
+    annotations = metadata.get("annotations", {})
+    explicit = annotations.get("homelab.panda/public-ip", "").strip()
+    if explicit:
+        return explicit
+
+    k3s_external = annotations.get("k3s.io/external-ip", "").strip()
+    if k3s_external:
+        return k3s_external.split(",")[0].strip()
+
+    for address in status.get("addresses", []):
+        if address.get("type") == "ExternalIP" and address.get("address"):
+            return address["address"]
+
+    return ""
+
+
+def service_cluster_ip(name):
+    service = kube_request("GET", f"/api/v1/namespaces/{NAMESPACE}/services/{name}")
+    if not service:
+        return ""
+    return service.get("spec", {}).get("clusterIP", "")
+
+
 def list_ready_nodes():
     response = kube_request("GET", "/api/v1/nodes")
     nodes = []
@@ -59,6 +83,7 @@ def list_ready_nodes():
         metadata = item.get("metadata", {})
         labels = metadata.get("labels", {})
         annotations = metadata.get("annotations", {})
+        status = item.get("status", {})
         name = metadata["name"]
         if labels.get("kubernetes.io/os") not in (None, "linux"):
             continue
@@ -75,6 +100,7 @@ def list_ready_nodes():
                 "name": name,
                 "region": labels.get("region", "unknown"),
                 "public_endpoint": annotations.get("homelab.panda/public-endpoint", ""),
+                "public_ip": node_public_ip(metadata, status),
                 "apiserver_endpoint": annotations.get("homelab.panda/apiserver-endpoint", "false").lower() == "true",
             }
         )
@@ -132,7 +158,8 @@ def vmprobe_obj(name, module, prober_url, target, labels):
 
 def desired_vmprobes(nodes, blackbox_pods):
     desired = {}
-    clusterip_target = f"http://network-blackbox-exporter.{NAMESPACE}.svc.cluster.local:9115/-/healthy"
+    clusterip = service_cluster_ip("network-blackbox-exporter")
+    clusterip_target = f"http://{clusterip}:9115/-/healthy" if clusterip else f"http://network-blackbox-exporter.{NAMESPACE}.svc.cluster.local:9115/-/healthy"
 
     for source in nodes:
         source_name = source["name"]
@@ -172,9 +199,25 @@ def desired_vmprobes(nodes, blackbox_pods):
                 }
                 desired[name] = vmprobe_obj(name, "http_2xx", prober_url, target_url, labels)
 
-            if target["public_endpoint"]:
+            public_http_target = ""
+            public_https_target = ""
+            icmp_target = ""
+            apiserver_target = ""
+
+            if target["public_ip"]:
+                public_http_target = f"http://{target['public_ip']}"
+                public_https_target = f"https://{target['public_ip']}"
+                icmp_target = target["public_ip"]
+                apiserver_target = f"https://{target['public_ip']}:6443/livez"
+            elif target["public_endpoint"]:
+                public_http_target = f"http://{target['public_endpoint']}"
+                public_https_target = f"https://{target['public_endpoint']}"
+                icmp_target = target["public_endpoint"]
+                apiserver_target = f"https://{target['public_endpoint']}:6443/livez"
+
+            if public_http_target and public_https_target:
                 for module, prefix in (("http_ingress_entry", "http"), ("https_ingress_entry", "https")):
-                    target_url = f"{prefix}://{target['public_endpoint']}"
+                    target_url = public_http_target if prefix == "http" else public_https_target
                     name = sanitize_name(f"netprobe-public-{prefix}-{source_name}-{target_name}")
                     labels = {
                         "source_node": source_name,
@@ -187,7 +230,6 @@ def desired_vmprobes(nodes, blackbox_pods):
                     }
                     desired[name] = vmprobe_obj(name, module, prober_url, target_url, labels)
 
-                icmp_target = target["public_endpoint"]
                 name = sanitize_name(f"netprobe-icmp-{source_name}-{target_name}")
                 labels = {
                     "source_node": source_name,
@@ -200,8 +242,8 @@ def desired_vmprobes(nodes, blackbox_pods):
                 }
                 desired[name] = vmprobe_obj(name, "icmp_ipv4", prober_url, icmp_target, labels)
 
-            if target["public_endpoint"] and target["apiserver_endpoint"]:
-                target_url = f"https://{target['public_endpoint']}:6443/livez"
+            if apiserver_target and target["apiserver_endpoint"]:
+                target_url = apiserver_target
                 name = sanitize_name(f"netprobe-apiserver-{source_name}-{target_name}")
                 labels = {
                     "source_node": source_name,

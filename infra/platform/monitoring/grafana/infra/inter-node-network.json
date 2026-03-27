@@ -1,130 +1,1157 @@
 {
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
   "editable": true,
+  "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
+  "links": [],
   "panels": [
     {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
-      "id": 1,
-      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
-      "targets": [{"expr": "sum(last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\"}[5m]))", "instant": true, "refId": "A"}],
-      "title": "Internal Probes OK",
-      "type": "stat"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
-      "id": 2,
-      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
-      "targets": [{"expr": "sum((last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\"}[5m])) == 0)", "instant": true, "refId": "A"}],
-      "title": "Internal Probes Failed",
-      "type": "stat"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
-      "id": 3,
-      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
-      "targets": [{"expr": "sum((last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"public\",module=~\"$module\"}[5m])) == 0)", "instant": true, "refId": "A"}],
-      "title": "Public Probes Failed",
-      "type": "stat"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
-      "id": 4,
-      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
-      "targets": [{"expr": "sum((last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"apiserver|icmp\",module=~\"$module\"}[5m])) == 0)", "instant": true, "refId": "A"}],
-      "title": "Control Plane / ICMP Failed",
-      "type": "stat"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
-      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
-      "id": 5,
-      "options": {"displayMode": "gradient", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true},
-      "targets": [{"expr": "100 * avg by (source_node, target_node) (last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\",target_node!=\"clusterip\"}[5m]))", "instant": true, "legendFormat": "{{source_node}} -> {{target_node}}", "refId": "A"}],
-      "title": "Internal Success by Direction",
-      "type": "bargauge"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
-      "id": 6,
-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
-      "targets": [{"expr": "avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\",target_node!=\"clusterip\"}[5m])", "legendFormat": "{{source_node}} -> {{target_node}}", "refId": "A"}],
-      "title": "Internal Latency by Direction",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
-      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 13},
-      "id": 7,
-      "options": {"displayMode": "gradient", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true},
-      "targets": [{"expr": "100 * avg by (source_node, target_node, probe_scope) (last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"public|apiserver|icmp\",module=~\"$module\"}[5m]))", "instant": true, "legendFormat": "{{source_node}} -> {{target_node}} ({{probe_scope}})", "refId": "A"}],
-      "title": "Public / API / ICMP Success by Direction",
-      "type": "bargauge"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 13},
-      "id": 8,
-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
-      "targets": [{"expr": "avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"public|apiserver|icmp\",module=~\"$module\"}[5m])", "legendFormat": "{{source_node}} -> {{target_node}} ({{probe_scope}})", "refId": "A"}],
-      "title": "Public / API / ICMP Latency",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {}, "overrides": []},
-      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 22},
-      "id": 9,
-      "options": {"showHeader": true},
-      "targets": [{"expr": "last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"$probe_scope\",module=~\"$module\"}[5m]) == 0", "format": "table", "instant": true, "refId": "A"}],
-      "title": "Latest Failing Probes",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "成功率(%)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "方向"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 14,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"icmp\",module=~\"$module\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"icmp\",module=~\"$module\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "ICMP 成功率（按方向）",
       "transformations": [
-        {"id": "labelsToFields", "options": {"mode": "columns"}},
-        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"Value": "probe_success"}}}
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "cluster": true,
+              "instance": true,
+              "job": true,
+              "module": true,
+              "probe_scope": true,
+              "prometheus": true,
+              "source_node": true,
+              "source_region": true,
+              "target_endpoint": true,
+              "target_node": true,
+              "target_region": true
+            },
+            "indexByName": {
+              "Value": 1,
+              "direction": 0
+            },
+            "renameByName": {
+              "Value": "成功率(%)",
+              "direction": "方向"
+            }
+          }
+        }
       ],
       "type": "table"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {}, "overrides": []},
-      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 31},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "成功率(%)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "方向"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "id": 13,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"apiserver\",module=~\"$module\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"apiserver\",module=~\"$module\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "API Server 成功率（按方向）",
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "cluster": true,
+              "instance": true,
+              "job": true,
+              "module": true,
+              "probe_scope": true,
+              "prometheus": true,
+              "source_node": true,
+              "source_region": true,
+              "target_endpoint": true,
+              "target_node": true,
+              "target_region": true
+            },
+            "indexByName": {
+              "Value": 1,
+              "direction": 0
+            },
+            "renameByName": {
+              "Value": "成功率(%)",
+              "direction": "方向"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "成功率(%)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "方向"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\",target_node!=\"clusterip\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\",target_node!=\"clusterip\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "内网节点间 Pod 探测成功率",
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "cluster": true,
+              "instance": true,
+              "job": true,
+              "module": true,
+              "probe_scope": true,
+              "prometheus": true,
+              "source_node": true,
+              "source_region": true,
+              "target_endpoint": true,
+              "target_node": true,
+              "target_region": true
+            },
+            "indexByName": {
+              "Value": 1,
+              "direction": 0
+            },
+            "renameByName": {
+              "Value": "成功率(%)",
+              "direction": "方向"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "成功率(%)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "方向"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"public\",module=~\"$module\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((100 * avg by (source_node, target_node) (avg_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"public\",module=~\"$module\"}[$__range]))), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "公网入口成功率（按方向）",
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "cluster": true,
+              "instance": true,
+              "job": true,
+              "module": true,
+              "probe_scope": true,
+              "prometheus": true,
+              "source_node": true,
+              "source_region": true,
+              "target_endpoint": true,
+              "target_node": true,
+              "target_region": true
+            },
+            "indexByName": {
+              "Value": 1,
+              "direction": 0
+            },
+            "renameByName": {
+              "Value": "成功率(%)",
+              "direction": "方向"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((avg_over_time(probe_icmp_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"icmp\",phase=\"rtt\"}[5m])), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((avg_over_time(probe_icmp_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"icmp\",phase=\"rtt\"}[5m])), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "legendFormat": "{{source_node}} -> {{target_node}} (icmp)",
+          "refId": "A"
+        }
+      ],
+      "title": "ICMP RTT（按方向）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"apiserver\",module=~\"$module\"}[5m])), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"apiserver\",module=~\"$module\"}[5m])), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "legendFormat": "{{source_node}} -> {{target_node}} (apiserver)",
+          "refId": "A"
+        }
+      ],
+      "title": "API Server 探测总耗时（按方向）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\",target_node!=\"clusterip\"}[5m])), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"internal\",module=~\"$module\",target_node!=\"clusterip\"}[5m])), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "legendFormat": "{{source_node}} -> {{target_node}}",
+          "refId": "A"
+        }
+      ],
+      "title": "内网节点间 Pod 探测总耗时",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join((avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"public\",module=~\"$module\"}[5m])), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((avg_over_time(probe_duration_seconds{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=\"public\",module=~\"$module\"}[5m])), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "legendFormat": "{{source_node}} -> {{target_node}} (public)",
+          "refId": "A"
+        }
+      ],
+      "title": "公网入口探测总耗时（按方向）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 9,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "expr": "label_join(((last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"$probe_scope\",module=~\"$module\"}[5m])) == 0), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join(((last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"$probe_scope\",module=~\"$module\"}[5m])) == 0), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Failing Probes",
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "probe_success"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
       "id": 10,
-      "options": {"footer": {"show": false}, "showHeader": true},
-      "targets": [{"expr": "last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"$probe_scope\",module=~\"$module\"}[5m])", "format": "table", "instant": true, "refId": "A"}],
+      "options": {
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "expr": "label_join((last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"$probe_scope\",module=~\"$module\"}[5m])), \"direction\", \" -> \", \"source_node\", \"target_node\") unless on(direction) label_join((last_over_time(probe_success{cluster=~\"$cluster\",source_node=~\"$source_node\",target_node=~\"$target_node\",probe_scope=~\"$probe_scope\",module=~\"$module\"}[5m])), \"direction\", \" -> \", \"source_node\", \"source_node\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
       "title": "Latest Probe State",
       "transformations": [
-        {"id": "labelsToFields", "options": {"mode": "columns"}},
-        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"Value": "probe_success"}}}
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "probe_success"
+            }
+          }
+        }
       ],
       "type": "table"
     }
   ],
+  "preload": false,
   "refresh": "30s",
-  "schemaVersion": 39,
-  "style": "dark",
-  "tags": ["infra", "managed-by-repo", "network", "probes"],
+  "schemaVersion": 42,
+  "tags": [
+    "infra",
+    "managed-by-repo",
+    "network",
+    "probes"
+  ],
   "templating": {
     "list": [
-      {"current": {"selected": true, "text": "VictoriaMetrics", "value": "VictoriaMetrics"}, "hide": 0, "includeAll": false, "label": "datasource", "name": "datasource", "options": [], "query": "prometheus", "refresh": 1, "type": "datasource"},
-      {"current": {"selected": true, "text": "homelab-k3s", "value": "homelab-k3s"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success, cluster)", "includeAll": true, "label": "cluster", "multi": false, "name": "cluster", "query": {"query": "label_values(probe_success, cluster)", "refId": "Cluster"}, "refresh": 2, "type": "query"},
-      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\"}, source_node)", "includeAll": true, "label": "source_node", "multi": true, "name": "source_node", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\"}, source_node)", "refId": "Source"}, "refresh": 2, "type": "query"},
-      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\"}, target_node)", "includeAll": true, "label": "target_node", "multi": true, "name": "target_node", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\"}, target_node)", "refId": "Target"}, "refresh": 2, "type": "query"},
-      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\"}, probe_scope)", "includeAll": true, "label": "probe_scope", "multi": true, "name": "probe_scope", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\"}, probe_scope)", "refId": "Scope"}, "refresh": 2, "type": "query"},
-      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(probe_success{cluster=~\"$cluster\"}, module)", "includeAll": true, "label": "module", "multi": true, "name": "module", "query": {"query": "label_values(probe_success{cluster=~\"$cluster\"}, module)", "refId": "Module"}, "refresh": 2, "type": "query"}
+      {
+        "current": {
+          "text": "VictoriaMetrics",
+          "value": "VictoriaMetrics"
+        },
+        "includeAll": false,
+        "label": "datasource",
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "homelab-k3s",
+          "value": "homelab-k3s"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(probe_success, cluster)",
+        "includeAll": true,
+        "label": "cluster",
+        "name": "cluster",
+        "options": [],
+        "query": {
+          "query": "label_values(probe_success, cluster)",
+          "refId": "Cluster"
+        },
+        "refresh": 2,
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(probe_success{cluster=~\"$cluster\"}, source_node)",
+        "includeAll": true,
+        "label": "source_node",
+        "multi": true,
+        "name": "source_node",
+        "options": [],
+        "query": {
+          "query": "label_values(probe_success{cluster=~\"$cluster\"}, source_node)",
+          "refId": "Source"
+        },
+        "refresh": 2,
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(probe_success{cluster=~\"$cluster\"}, target_node)",
+        "includeAll": true,
+        "label": "target_node",
+        "multi": true,
+        "name": "target_node",
+        "options": [],
+        "query": {
+          "query": "label_values(probe_success{cluster=~\"$cluster\"}, target_node)",
+          "refId": "Target"
+        },
+        "refresh": 2,
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(probe_success{cluster=~\"$cluster\"}, probe_scope)",
+        "includeAll": true,
+        "label": "probe_scope",
+        "multi": true,
+        "name": "probe_scope",
+        "options": [],
+        "query": {
+          "query": "label_values(probe_success{cluster=~\"$cluster\"}, probe_scope)",
+          "refId": "Scope"
+        },
+        "refresh": 2,
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(probe_success{cluster=~\"$cluster\"}, module)",
+        "includeAll": true,
+        "label": "module",
+        "multi": true,
+        "name": "module",
+        "options": [],
+        "query": {
+          "query": "label_values(probe_success{cluster=~\"$cluster\"}, module)",
+          "refId": "Module"
+        },
+        "refresh": 2,
+        "regexApplyTo": "value",
+        "type": "query"
+      }
     ]
   },
-  "time": {"from": "now-6h", "to": "now"},
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
   "timezone": "browser",
   "title": "Inter-Node Network",
   "uid": "infra-inter-node-network",
-  "version": 1,
   "weekStart": ""
 }

@@ -11,7 +11,7 @@ metadata:
   name: network-probe-reconciler
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods"]
+    resources: ["nodes", "pods", "services"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["operator.victoriametrics.com"]
     resources: ["vmprobes"]

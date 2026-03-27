@@ -3,58 +3,205 @@
   "graphTooltip": 1,
   "panels": [
     {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "targets": [
-        {"expr": "rate(node_network_receive_drop_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])", "legendFormat": "rx drop {{instance}} / {{device}}", "refId": "A"},
-        {"expr": "rate(node_network_transmit_drop_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])", "legendFormat": "tx drop {{instance}} / {{device}}", "refId": "B"}
+        {
+          "expr": "rate(node_network_receive_drop_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])",
+          "legendFormat": "rx drop {{instance}} / {{device}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(node_network_transmit_drop_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])",
+          "legendFormat": "tx drop {{instance}} / {{device}}",
+          "refId": "B"
+        }
       ],
       "title": "NIC Drops",
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "id": 2,
-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "targets": [
-        {"expr": "rate(node_network_receive_errs_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])", "legendFormat": "rx err {{instance}} / {{device}}", "refId": "A"},
-        {"expr": "rate(node_network_transmit_errs_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])", "legendFormat": "tx err {{instance}} / {{device}}", "refId": "B"}
+        {
+          "expr": "rate(node_network_receive_errs_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])",
+          "legendFormat": "rx err {{instance}} / {{device}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(node_network_transmit_errs_total{cluster=~\"$cluster\",instance=~\"$node\",device=~\"$device\"}[5m])",
+          "legendFormat": "tx err {{instance}} / {{device}}",
+          "refId": "B"
+        }
       ],
       "title": "NIC Errors",
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "id": 3,
-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
-      "targets": [{"expr": "rate(node_softnet_dropped_total{cluster=~\"$cluster\",instance=~\"$node\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(node_softnet_dropped_total{cluster=~\"$cluster\",instance=~\"$node\"}[5m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Softnet Dropped",
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "id": 4,
-      "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
-      "targets": [{"expr": "rate(node_netstat_Tcp_RetransSegs{cluster=~\"$cluster\",instance=~\"$node\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(node_netstat_Tcp_RetransSegs{cluster=~\"$cluster\",instance=~\"$node\"}[5m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "TCP Retransmits",
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "id": 5,
-      "options": {"displayMode": "gradient", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true},
-      "targets": [{"expr": "100 * (node_nf_conntrack_entries{cluster=~\"$cluster\",instance=~\"$node\"} / node_nf_conntrack_entries_limit{cluster=~\"$cluster\",instance=~\"$node\"})", "instant": true, "legendFormat": "{{instance}}", "refId": "A"}],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "100 * (node_nf_conntrack_entries{cluster=~\"$cluster\",instance=~\"$node\"} / node_nf_conntrack_entries_limit{cluster=~\"$cluster\",instance=~\"$node\"})",
+          "instant": true,
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
       "title": "Conntrack Usage",
       "type": "bargauge"
     }
@@ -62,19 +209,103 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "style": "dark",
-  "tags": ["infra", "managed-by-repo", "network", "node"],
+  "tags": [
+    "infra",
+    "managed-by-repo",
+    "network",
+    "node"
+  ],
   "templating": {
     "list": [
-      {"current": {"selected": true, "text": "VictoriaMetrics", "value": "VictoriaMetrics"}, "hide": 0, "includeAll": false, "label": "datasource", "name": "datasource", "options": [], "query": "prometheus", "refresh": 1, "type": "datasource"},
-      {"current": {"selected": true, "text": "homelab-k3s", "value": "homelab-k3s"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(node_uname_info, cluster)", "includeAll": true, "label": "cluster", "multi": false, "name": "cluster", "query": {"query": "label_values(node_uname_info, cluster)", "refId": "Cluster"}, "refresh": 2, "type": "query"},
-      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(node_uname_info{cluster=~\"$cluster\"}, instance)", "includeAll": true, "label": "node", "multi": true, "name": "node", "query": {"query": "label_values(node_uname_info{cluster=~\"$cluster\"}, instance)", "refId": "Node"}, "refresh": 2, "type": "query"},
-      {"current": {"selected": true, "text": "All", "value": "$__all"}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(node_network_receive_bytes_total{cluster=~\"$cluster\"}, device)", "includeAll": true, "label": "device", "multi": true, "name": "device", "query": {"query": "label_values(node_network_receive_bytes_total{cluster=~\"$cluster\"}, device)", "refId": "Device"}, "refresh": 2, "type": "query"}
+      {
+        "current": {
+          "selected": true,
+          "text": "VictoriaMetrics",
+          "value": "VictoriaMetrics"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "datasource",
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "homelab-k3s",
+          "value": "homelab-k3s"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(node_uname_info, cluster)",
+        "includeAll": true,
+        "label": "cluster",
+        "multi": false,
+        "name": "cluster",
+        "query": {
+          "query": "label_values(node_uname_info, cluster)",
+          "refId": "Cluster"
+        },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(node_uname_info{cluster=~\"$cluster\"}, instance)",
+        "includeAll": true,
+        "label": "node",
+        "multi": true,
+        "name": "node",
+        "query": {
+          "query": "label_values(node_uname_info{cluster=~\"$cluster\"}, instance)",
+          "refId": "Node"
+        },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(node_network_receive_bytes_total{cluster=~\"$cluster\"}, device)",
+        "includeAll": true,
+        "label": "device",
+        "multi": true,
+        "name": "device",
+        "query": {
+          "query": "label_values(node_network_receive_bytes_total{cluster=~\"$cluster\"}, device)",
+          "refId": "Device"
+        },
+        "refresh": 2,
+        "type": "query"
+      }
     ]
   },
-  "time": {"from": "now-6h", "to": "now"},
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timezone": "browser",
   "title": "Node Network Health",
   "uid": "infra-node-network-health",
-  "version": 1,
   "weekStart": ""
 }

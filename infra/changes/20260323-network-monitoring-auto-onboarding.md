@@ -77,6 +77,11 @@
   - `WireGuard & Underlay` 已补充 `Kilo Mesh Nodes`、`Kilo Errors (10m)`、`Kilo Reconcile & iptables Activity`
   - `Inter-Node Network` 已拆分为 `internal` 与 `public/apiserver/icmp` 两类方向视图，并增加 `module` 过滤
   - `Endpoint Reachability` 已改为按 `target_endpoint + module` 展示，避免 `http / https / icmp` 聚合歧义
+  - 后续修正：主动探测优先改用 `public-ip` / `ExternalIP` / `ClusterIP`，避免把 DNS 超时误判成网络延迟；只有缺少公网 IP 时才退回 `public-endpoint`
+  - 后续修正：`https_apiserver_livez` 接受 `200` 与 `401`
+    - 原因：当前 k3s 对公网 `https://<public-ip>:6443/livez` 匿名访问返回 `401`
+    - 对网络探测语义来说，`401` 仍代表 TCP/TLS 与 apiserver 响应链路健康
+  - 核查结果：修正完成后重新检查 `probe_success==0`，当前无持续失败项
 
 ## 4. 回滚
 

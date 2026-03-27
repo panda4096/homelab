@@ -34,10 +34,10 @@ dashboards:
   uid: infra-endpoint-reachability
   path: infra/platform/monitoring/grafana/infra/endpoint-reachability.json
   tags:
+  - endpoints
   - infra
   - managed-by-repo
   - network
-  - endpoints
 - key: wireguard-underlay
   title: WireGuard & Underlay
   folder: infra
