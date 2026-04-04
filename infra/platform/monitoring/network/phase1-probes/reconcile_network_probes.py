@@ -14,6 +14,17 @@ TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 MANAGED_BY = "network-probe-reconciler"
 BLACKBOX_LABEL = "app.kubernetes.io/name=network-blackbox-exporter"
+EDGE_PUBLIC_PORTS = [
+    ("socks5", 11080),
+    ("http_connect", 11081),
+    ("shadowsocks", 18388),
+    ("subscription_http", 11800),
+]
+EDGE_RELAY_PORTS = [
+    ("socks5", 11080),
+    ("http_connect", 11081),
+    ("shadowsocks", 18388),
+]
 
 with open(TOKEN_PATH, "r", encoding="utf-8") as handle:
     TOKEN = handle.read().strip()
@@ -76,6 +87,14 @@ def service_cluster_ip(name):
     return service.get("spec", {}).get("clusterIP", "")
 
 
+def kilo_wireguard_ip(metadata):
+    annotations = metadata.get("annotations", {})
+    raw = annotations.get("kilo.squat.ai/wireguard-ip", "").strip()
+    if not raw:
+        return ""
+    return raw.split("/", 1)[0].strip()
+
+
 def list_ready_nodes():
     response = kube_request("GET", "/api/v1/nodes")
     nodes = []
@@ -102,6 +121,8 @@ def list_ready_nodes():
                 "public_endpoint": annotations.get("homelab.panda/public-endpoint", ""),
                 "public_ip": node_public_ip(metadata, status),
                 "apiserver_endpoint": annotations.get("homelab.panda/apiserver-endpoint", "false").lower() == "true",
+                "edge_role": labels.get("edge.role", ""),
+                "wireguard_ip": kilo_wireguard_ip(metadata),
             }
         )
     return nodes
@@ -255,6 +276,39 @@ def desired_vmprobes(nodes, blackbox_pods):
                     "target_endpoint": target_url,
                 }
                 desired[name] = vmprobe_obj(name, "https_apiserver_livez", prober_url, target_url, labels)
+
+            ingress_target = target["public_ip"] or target["public_endpoint"]
+            if target["edge_role"] == "ingress" and ingress_target:
+                for edge_protocol, port in EDGE_PUBLIC_PORTS:
+                    target_address = f"{ingress_target}:{port}"
+                    name = sanitize_name(f"netprobe-edge-public-{edge_protocol}-{source_name}-{target_name}")
+                    labels = {
+                        "source_node": source_name,
+                        "target_node": target_name,
+                        "source_region": source_region,
+                        "target_region": target_region,
+                        "probe_scope": "edge_public_tcp",
+                        "module": "tcp_connect",
+                        "edge_protocol": edge_protocol,
+                        "target_endpoint": target_address,
+                    }
+                    desired[name] = vmprobe_obj(name, "tcp_connect", prober_url, target_address, labels)
+
+            if source["edge_role"] == "ingress" and target["edge_role"] == "egress" and target["wireguard_ip"]:
+                for edge_protocol, port in EDGE_RELAY_PORTS:
+                    target_address = f"{target['wireguard_ip']}:{port}"
+                    name = sanitize_name(f"netprobe-edge-relay-{edge_protocol}-{source_name}-{target_name}")
+                    labels = {
+                        "source_node": source_name,
+                        "target_node": target_name,
+                        "source_region": source_region,
+                        "target_region": target_region,
+                        "probe_scope": "edge_relay_tcp",
+                        "module": "tcp_connect",
+                        "edge_protocol": edge_protocol,
+                        "target_endpoint": target_address,
+                    }
+                    desired[name] = vmprobe_obj(name, "tcp_connect", prober_url, target_address, labels)
 
     return desired
 

@@ -19,6 +19,7 @@ values = YAML.safe_load(File.read(values_path), permitted_classes: [], aliases: 
 cluster = values.fetch("cluster")
 subscription = cluster.fetch("subscription")
 kilo = cluster.fetch("kilo")
+egress = cluster.fetch("egress", {})
 ingress_nodes = values.fetch("ingress_nodes").select { |node| node.fetch("enabled", true) }
 protocols = values.fetch("protocols")
 socks = protocols.fetch("socks")
@@ -83,9 +84,13 @@ egress_config = {
 
 File.write(File.join(output_dir, "config.json"), JSON.pretty_generate(egress_config))
 
+def display_name(node)
+  node.fetch("display_name", node.fetch("name"))
+end
+
 clash_proxies = ingress_nodes.map do |node|
   {
-    "name" => "#{node.fetch("name")}-ss",
+    "name" => display_name(node),
     "type" => "ss",
     "server" => node.fetch("server"),
     "port" => ss.fetch("port"),
@@ -116,7 +121,7 @@ clash_config = {
 sing_box_outbounds = ingress_nodes.map do |node|
   {
     "type" => "shadowsocks",
-    "tag" => "#{node.fetch("name")}-ss",
+    "tag" => display_name(node),
     "server" => node.fetch("server"),
     "server_port" => ss.fetch("port"),
     "method" => ss.fetch("method"),
@@ -153,7 +158,7 @@ sing_box_config = {
 
 shadowrocket_uris = ingress_nodes.map do |node|
   creds = Base64.urlsafe_encode64("#{ss.fetch("method")}:#{ss.fetch("password")}", padding: false)
-  "ss://#{creds}@#{node.fetch("server")}:#{ss.fetch("port")}##{CGI.escape("#{node.fetch("name")}-ss")}"
+  "ss://#{creds}@#{node.fetch("server")}:#{ss.fetch("port")}##{CGI.escape(display_name(node))}"
 end
 
 base_url = "http://#{subscription_host}:#{subscription_port}"
@@ -166,7 +171,29 @@ subscription_index = {
   }
 }
 
+probe_config = {
+  "proxy_host" => "127.0.0.1",
+  "targets" => {
+    "ip_echo_url" => "https://api.ipify.org",
+    "generate_204_url" => "https://www.gstatic.com/generate_204"
+  },
+  "http" => {
+    "port" => http.fetch("port"),
+    "username" => http.fetch("username"),
+    "password" => http.fetch("password")
+  },
+  "socks" => {
+    "port" => socks.fetch("port"),
+    "username" => socks.fetch("username"),
+    "password" => socks.fetch("password")
+  }
+}
+
+expected_exit_ip = egress.fetch("expected_public_ip", "").strip
+probe_config["expected_exit_ip"] = expected_exit_ip unless expected_exit_ip.empty?
+
 File.write(File.join(output_dir, "clash-#{subscription_token}.yaml"), YAML.dump(clash_config))
 File.write(File.join(output_dir, "sing-box-#{subscription_token}.json"), JSON.pretty_generate(sing_box_config))
 File.write(File.join(output_dir, "shadowrocket-#{subscription_token}.txt"), shadowrocket_uris.join("\n") + "\n")
 File.write(File.join(output_dir, "index-#{subscription_token}.json"), JSON.pretty_generate(subscription_index))
+File.write(File.join(output_dir, "probe-config.json"), JSON.pretty_generate(probe_config))

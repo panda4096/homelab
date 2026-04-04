@@ -185,3 +185,19 @@ spec:
           annotations:
             summary: "apiserver probe failed"
             description: "source={{ $labels.source_node }} target={{ $labels.target_node }} endpoint={{ $labels.target_endpoint }}"
+        - alert: HomelabEdgeIngressTcpProbeFailed
+          expr: max_over_time(probe_success{probe_scope="edge_public_tcp"}[2m]) == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "edge ingress tcp probe failed"
+            description: "source={{ $labels.source_node }} target={{ $labels.target_node }} protocol={{ $labels.edge_protocol }} endpoint={{ $labels.target_endpoint }}"
+        - alert: HomelabEdgeRelayTcpProbeFailed
+          expr: max_over_time(probe_success{probe_scope="edge_relay_tcp"}[2m]) == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "edge relay tcp probe failed"
+            description: "source={{ $labels.source_node }} target={{ $labels.target_node }} protocol={{ $labels.edge_protocol }} endpoint={{ $labels.target_endpoint }}"

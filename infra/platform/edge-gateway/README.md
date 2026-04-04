@@ -74,6 +74,7 @@ cp infra/platform/edge-gateway/config/values.example.yaml infra/.secrets/edge-ga
 
 - `edge-egress-config` Secret
 - `edge-subscription-files` ConfigMap
+- `monitoring/edge-gateway-probe-config` Secret
 - `Clash` / `sing-box` / `Shadowrocket` 订阅文件
 
 ## 生成运行时资产
@@ -85,6 +86,11 @@ export KUBECONFIG="$(pwd)/infra/.secrets/homelab-k3s.yaml"
 bash infra/platform/edge-gateway/scripts/apply-runtime-assets.sh infra/.secrets/edge-gateway-values.yaml
 ```
 
+说明：
+
+- 这一步同时会在 `monitoring` namespace 生成 `edge-gateway-probe-config` Secret
+- `infra/platform/monitoring/network/edge-gateway/` 的代理探针 exporter 依赖这个 Secret
+
 ## 部署
 
 ```bash
@@ -94,6 +100,14 @@ kubectl -n edge-system rollout status daemonset/edge-ingress-gateway --timeout=3
 kubectl -n edge-system rollout status daemonset/edge-egress-gateway --timeout=300s
 kubectl -n edge-system rollout status daemonset/edge-subscription-server --timeout=300s
 kubectl -n edge-system get ds,pods -o wide
+```
+
+如需部署代理链路专用监控：
+
+```bash
+export KUBECONFIG="$(pwd)/infra/.secrets/homelab-k3s.yaml"
+kubectl apply -k infra/platform/monitoring/network/edge-gateway
+kubectl -n monitoring rollout status daemonset/edge-gateway-probe-exporter --timeout=300s
 ```
 
 ## 端到端验证
@@ -169,6 +183,8 @@ kubectl -n edge-system get configmap edge-subscription-files -o json \
 - `http://<host>:<port>/shadowrocket-<token>.txt`
 - `http://<host>:<port>/index-<token>.json`
 
+节点显示名优先取 `ingress_nodes[].display_name`，适合写中文；`name` 建议保留 ASCII，作为内部标识。
+
 ### Shadowrocket
 
 推荐优先使用 `shadowrocket.txt` 订阅地址做自动更新；手工导入时也可使用下列参数。
@@ -192,21 +208,21 @@ kubectl -n edge-system get configmap edge-subscription-files -o json \
 
 ```yaml
 proxies:
-  - name: homelab-socks
+  - name: 广州->新加坡
     type: socks5
     server: gz.butcoder.com
     port: 11080
     username: edge-user
     password: <password>
 
-  - name: homelab-http
+  - name: 广州->新加坡
     type: http
     server: gz.butcoder.com
     port: 11081
     username: edge-user
     password: <password>
 
-  - name: homelab-ss
+  - name: 广州->新加坡
     type: ss
     server: gz.butcoder.com
     port: 18388
@@ -224,6 +240,7 @@ kubectl -n edge-system get ds,pods -o wide
 kubectl -n edge-system logs ds/edge-ingress-gateway --tail=50
 kubectl -n edge-system logs ds/edge-egress-gateway --tail=50
 kubectl -n edge-system logs ds/edge-subscription-server --tail=50
+kubectl -n monitoring logs ds/edge-gateway-probe-exporter --tail=50
 ```
 
 ### 轮换凭据

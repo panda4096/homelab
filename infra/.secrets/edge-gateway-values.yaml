@@ -5,9 +5,12 @@ cluster:
     token: egw-20260404-9a7c3d
   kilo:
     sg_ip: 10.4.0.2
+  egress:
+    expected_public_ip: 43.156.60.56
 
 ingress_nodes:
-  - name: homelab-gz
+  - name: gz-ingress-to-sg-egress
+    display_name: 广州->新加坡
     server: gz.butcoder.com
     enabled: true
 

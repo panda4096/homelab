@@ -21,3 +21,8 @@ kubectl -n edge-system create secret generic edge-egress-config --from-file=conf
 kubectl -n edge-system delete configmap edge-subscription-files --ignore-not-found
 kubectl -n edge-system create configmap edge-subscription-files \
   --from-file="$workdir"
+
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n monitoring delete secret edge-gateway-probe-config --ignore-not-found
+kubectl -n monitoring create secret generic edge-gateway-probe-config \
+  --from-file=probe-config.json="$workdir/probe-config.json"

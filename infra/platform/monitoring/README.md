@@ -18,6 +18,7 @@
 - values：`infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml`
 - dashboard 管理：`infra/platform/monitoring/grafana/README.md`
 - network manifests：`infra/platform/monitoring/network/README.md`
+- edge gateway observability：`infra/platform/monitoring/network/edge-gateway/`
 - 版本锁定：`infra/k3s/versions.yaml` 的 `monitoring.*`
 - 首次落地变更单：`infra/changes/20260323-monitoring-bootstrap.md`
 

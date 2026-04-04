@@ -44,6 +44,9 @@
 - `Infra / Node Network Health`
   - UID：`infra-node-network-health`
   - 文件：`infra/platform/monitoring/grafana/infra/node-network-health.json`
+- `Infra / Edge Gateway`
+  - UID：`infra-edge-gateway`
+  - 文件：`infra/platform/monitoring/grafana/infra/edge-gateway.json`
 
 ## 日常维护流程
 

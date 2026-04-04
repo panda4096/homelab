@@ -11,6 +11,10 @@
   - wireguard exporter
   - kilo metrics scrape
   - network VMRule
+- `edge-gateway/`
+  - 广州入口本机代理探针 exporter
+  - edge gateway 专用 `VMPodScrape`
+  - edge gateway 专用告警规则
 
 ## 维护原则
 
@@ -25,4 +29,5 @@
 export KUBECONFIG="$(pwd)/infra/.secrets/homelab-k3s.yaml"
 kubectl apply -k infra/platform/monitoring/network/phase1-probes
 kubectl apply -k infra/platform/monitoring/network/phase2-link-metrics
+kubectl apply -k infra/platform/monitoring/network/edge-gateway
 ```
