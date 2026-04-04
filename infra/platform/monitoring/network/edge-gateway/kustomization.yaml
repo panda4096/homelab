@@ -9,6 +9,10 @@ configMapGenerator:
   - name: edge-gateway-probe-exporter-script
     files:
       - edge_gateway_probe_exporter.py
+  - name: edge-gateway-traffic-exporter-script
+    files:
+      - edge_gateway_traffic_exporter.py
 
 resources:
   - edge-gateway.yaml
+  - traffic-exporter.yaml

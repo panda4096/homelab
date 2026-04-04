@@ -32,11 +32,37 @@ subscription_host = subscription.fetch("host")
 subscription_port = subscription.fetch("port")
 sg_ip = kilo.fetch("sg_ip")
 
+dns_servers = Array(egress.fetch("dns_servers", []))
+dns_strategy = egress.fetch("dns_strategy", "prefer_ipv4")
+
+if dns_servers.empty?
+  dns_servers = [
+    {"tag" => "cloudflare-1", "server" => "1.1.1.1", "server_port" => 53},
+    {"tag" => "cloudflare-2", "server" => "1.0.0.1", "server_port" => 53},
+    {"tag" => "google-1", "server" => "8.8.8.8", "server_port" => 53},
+    {"tag" => "google-2", "server" => "8.8.4.4", "server_port" => 53}
+  ]
+end
+
+dns_config = {
+  "servers" => dns_servers.map do |server|
+    {
+      "type" => "udp",
+      "tag" => server.fetch("tag"),
+      "server" => server.fetch("server"),
+      "server_port" => server.fetch("server_port", 53)
+    }
+  end,
+  "final" => dns_servers.first.fetch("tag"),
+  "strategy" => dns_strategy
+}
+
 egress_config = {
   "log" => {
     "level" => "info",
     "timestamp" => true
   },
+  "dns" => dns_config,
   "inbounds" => [
     {
       "type" => "socks",
@@ -78,6 +104,7 @@ egress_config = {
     }
   ],
   "route" => {
+    "default_domain_resolver" => dns_config.fetch("final"),
     "final" => "direct"
   }
 }
@@ -176,6 +203,14 @@ probe_config = {
   "targets" => {
     "ip_echo_url" => "https://api.ipify.org",
     "generate_204_url" => "https://www.gstatic.com/generate_204"
+  },
+  "relay" => {
+    "host" => sg_ip,
+    "protocols" => {
+      "http_connect" => {"port" => http.fetch("port")},
+      "socks5" => {"port" => socks.fetch("port")},
+      "shadowsocks" => {"port" => ss.fetch("port")}
+    }
   },
   "http" => {
     "port" => http.fetch("port"),

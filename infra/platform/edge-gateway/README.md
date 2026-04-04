@@ -77,6 +77,14 @@ cp infra/platform/edge-gateway/config/values.example.yaml infra/.secrets/edge-ga
 - `monitoring/edge-gateway-probe-config` Secret
 - `Clash` / `sing-box` / `Shadowrocket` 订阅文件
 
+其中 `cluster.egress` 目前支持：
+
+- `expected_public_ip`
+- `dns_strategy`
+- `dns_servers`
+
+`dns_servers` 会直接渲染到 `sg` 上的 `sing-box dns.servers`，建议使用纯 IP 的公共 DNS，避免再次依赖宿主机默认解析。
+
 ## 生成运行时资产
 
 不要把凭据写入 repo。部署时在本地通过 YAML 生成：
@@ -108,7 +116,13 @@ kubectl -n edge-system get ds,pods -o wide
 export KUBECONFIG="$(pwd)/infra/.secrets/homelab-k3s.yaml"
 kubectl apply -k infra/platform/monitoring/network/edge-gateway
 kubectl -n monitoring rollout status daemonset/edge-gateway-probe-exporter --timeout=300s
+kubectl -n monitoring rollout status daemonset/edge-gateway-traffic-exporter --timeout=300s
 ```
+
+Grafana 里建议同时看：
+
+- `Infra / Edge Gateway`
+- `Infra / Edge Gateway Traffic`
 
 ## 端到端验证
 

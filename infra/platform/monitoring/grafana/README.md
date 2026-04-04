@@ -47,6 +47,9 @@
 - `Infra / Edge Gateway`
   - UID：`infra-edge-gateway`
   - 文件：`infra/platform/monitoring/grafana/infra/edge-gateway.json`
+- `Infra / Edge Gateway Traffic`
+  - UID：`infra-edge-gateway-traffic`
+  - 文件：`infra/platform/monitoring/grafana/infra/edge-gateway-traffic.json`
 
 ## 日常维护流程
 

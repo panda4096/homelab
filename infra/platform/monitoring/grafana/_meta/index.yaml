@@ -68,3 +68,14 @@ dashboards:
   - managed-by-repo
   - network
   - edge-gateway
+- key: edge-gateway-traffic
+  title: Edge Gateway Traffic
+  folder: infra
+  uid: infra-edge-gateway-traffic
+  path: infra/platform/monitoring/grafana/infra/edge-gateway-traffic.json
+  tags:
+  - infra
+  - managed-by-repo
+  - network
+  - edge-gateway
+  - traffic

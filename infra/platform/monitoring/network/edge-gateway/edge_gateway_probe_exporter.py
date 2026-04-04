@@ -135,6 +135,12 @@ def http_get_via_socks5(url, proxy_host, proxy_port, username, password):
         return response.status, body
 
 
+def tcp_connect(host, port):
+    with socket.create_connection((host, port), timeout=PROBE_TIMEOUT) as sock:
+        sock.settimeout(PROBE_TIMEOUT)
+        return 0, ""
+
+
 def record_metric(probe_type, success, duration, status_code=0, body="", error="", expected_exit_ip=""):
     observed_at = time.time()
     exit_ip = ""
@@ -190,6 +196,33 @@ def run_probe(probe_type, handler, expected_exit_ip=""):
         )
 
 
+def run_tcp_probe(probe_type, host, port):
+    started = time.monotonic()
+    try:
+        tcp_connect(host, port)
+        duration = time.monotonic() - started
+        record_metric(
+            probe_type,
+            success=True,
+            duration=duration,
+            status_code=0,
+            body="",
+            error="",
+            expected_exit_ip="",
+        )
+    except Exception as exc:  # noqa: BLE001
+        duration = time.monotonic() - started
+        record_metric(
+            probe_type,
+            success=False,
+            duration=duration,
+            status_code=0,
+            body="",
+            error=str(exc),
+            expected_exit_ip="",
+        )
+
+
 def collection_loop():
     while True:
         cfg = load_config()
@@ -200,6 +233,7 @@ def collection_loop():
         expected_exit_ip = cfg.get("expected_exit_ip", "")
         http_cfg = cfg.get("http", {})
         socks_cfg = cfg.get("socks", {})
+        relay_cfg = cfg.get("relay", {})
 
         run_probe("direct_ip_echo", lambda: http_get_direct(ip_echo_url), expected_exit_ip)
         run_probe(
@@ -247,6 +281,13 @@ def collection_loop():
             ),
         )
 
+        relay_host = relay_cfg.get("host", "")
+        relay_protocols = relay_cfg.get("protocols", {})
+        if relay_host:
+          for protocol_name in sorted(relay_protocols):
+              port = int(relay_protocols[protocol_name]["port"])
+              run_tcp_probe(f"relay_{protocol_name}_tcp", relay_host, port)
+
         time.sleep(SCRAPE_INTERVAL)
 
 
@@ -273,9 +314,14 @@ def render_metrics():
     with METRICS_LOCK:
         cfg = load_config()
         expected_exit_ip = cfg.get("expected_exit_ip", "")
+        relay_host = cfg.get("relay", {}).get("host", "")
         lines.append(
-            'edge_gateway_probe_info{proxy_host="%s",expected_exit_ip="%s"} 1'
-            % (metric_escape(cfg.get("proxy_host", "127.0.0.1")), metric_escape(expected_exit_ip))
+            'edge_gateway_probe_info{proxy_host="%s",relay_host="%s",expected_exit_ip="%s"} 1'
+            % (
+                metric_escape(cfg.get("proxy_host", "127.0.0.1")),
+                metric_escape(relay_host),
+                metric_escape(expected_exit_ip),
+            )
         )
         lines.append(f"edge_gateway_probe_exporter_uptime_seconds {time.time() - PROCESS_START:.6f}")
 

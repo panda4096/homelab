@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: edge-gateway-traffic-exporter
+  labels:
+    app.kubernetes.io/name: edge-gateway-traffic-exporter
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: edge-gateway-traffic-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: edge-gateway-traffic-exporter
+        app.kubernetes.io/part-of: network-monitoring
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: edge.role
+                    operator: Exists
+      containers:
+        - name: exporter
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - /bin/sh
+            - -c
+            - exec chroot /host /usr/bin/python3 /opt/edge/probe/scripts/edge_gateway_traffic_exporter.py
+          env:
+            - name: EDGE_GATEWAY_PROBE_CONFIG
+              value: /opt/edge/probe/config/probe-config.json
+            - name: LISTEN_PORT
+              value: "9809"
+            - name: SCRAPE_INTERVAL_SECONDS
+              value: "30"
+          ports:
+            - name: metrics
+              containerPort: 9809
+          readinessProbe:
+            httpGet:
+              path: /-/healthy
+              port: metrics
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: metrics
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["SYS_CHROOT"]
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+            - name: host-probe-root
+              mountPath: /host/opt/edge/probe
+            - name: script
+              mountPath: /host/opt/edge/probe/scripts
+              readOnly: true
+            - name: probe-config
+              mountPath: /host/opt/edge/probe/config
+              readOnly: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+        - name: host-probe-root
+          hostPath:
+            path: /opt/edge/probe
+            type: DirectoryOrCreate
+        - name: script
+          configMap:
+            name: edge-gateway-traffic-exporter-script
+            defaultMode: 0555
+        - name: probe-config
+          secret:
+            secretName: edge-gateway-probe-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-gateway-traffic-exporter
+  labels:
+    app.kubernetes.io/name: edge-gateway-traffic-exporter
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: edge-gateway-traffic-exporter
+  ports:
+    - name: metrics
+      port: 9809
+      targetPort: metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: edge-gateway-traffic-exporter
+  labels:
+    app.kubernetes.io/part-of: network-monitoring
+spec:
+  attach_metadata:
+    node: true
+  namespaceSelector:
+    matchNames: ["monitoring"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: edge-gateway-traffic-exporter
+  podMetricsEndpoints:
+    - port: metrics
+      relabelConfigs:
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: node
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_node_name"]
+          regex: (.+)
+          targetLabel: instance

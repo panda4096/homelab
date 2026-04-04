@@ -7,6 +7,20 @@ cluster:
     sg_ip: 10.4.0.2
   egress:
     expected_public_ip: 43.156.60.56
+    dns_strategy: prefer_ipv4
+    dns_servers:
+      - tag: cloudflare-1
+        server: 1.1.1.1
+        server_port: 53
+      - tag: cloudflare-2
+        server: 1.0.0.1
+        server_port: 53
+      - tag: google-1
+        server: 8.8.8.8
+        server_port: 53
+      - tag: google-2
+        server: 8.8.4.4
+        server_port: 53
 
 ingress_nodes:
   - name: gz-ingress-to-sg-egress

@@ -13,6 +13,7 @@
   - network VMRule
 - `edge-gateway/`
   - 广州入口本机代理探针 exporter
+  - 入口/出口主机接口吞吐与代理连接数 exporter
   - edge gateway 专用 `VMPodScrape`
   - edge gateway 专用告警规则
 
