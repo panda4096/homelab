@@ -15,9 +15,16 @@ data:
         try_files /index.html =404;
       }
 
-      location / {
-        try_files $uri $uri/ /index.html;
+      location = /home {
+        return 302 /home/;
       }
+
+      location = /home/ {
+        try_files /home.html =404;
+      }
+
+      location = /index.html { try_files /index.html =404; }
+      location = /home.html { try_files /home.html =404; }
     }
   index.html: |
     <!doctype html>
@@ -25,7 +32,7 @@ data:
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>HomeLab Portal</title>
+        <title>HomeLab Access</title>
         <style>
           :root {
             --paper: #f4efe6;
@@ -68,53 +75,6 @@ data:
             backdrop-filter: blur(18px);
             box-shadow: var(--shadow);
           }
-
-          .topbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 16px;
-          }
-
-          .account {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            min-height: 40px;
-          }
-
-          .status-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            border-radius: 999px;
-            border: 1px solid var(--line);
-            background: rgba(255,255,255,0.45);
-            color: var(--muted);
-            font-size: 13px;
-          }
-
-          .status-pill::before {
-            content: "";
-            width: 8px;
-            height: 8px;
-            border-radius: 999px;
-            background: #9b8c7a;
-          }
-
-          body[data-auth="authenticated"] .status-pill::before { background: var(--accent-2); }
-          body[data-auth="anonymous"] .status-pill::before { background: var(--accent); }
-
-          .account-link {
-            color: var(--ink);
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            opacity: 0.84;
-          }
-
-          .account-link:hover { opacity: 1; }
 
           .eyebrow {
             display: inline-flex;
@@ -170,12 +130,7 @@ data:
             color: var(--muted);
           }
 
-          .actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-top: 28px;
-          }
+          .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 
           .action {
             display: inline-flex;
@@ -204,13 +159,6 @@ data:
             background: rgba(255,255,255,0.54);
           }
 
-          body[data-auth="pending"] .auth-only,
-          body[data-auth="pending"] .anon-only,
-          body[data-auth="authenticated"] .anon-only,
-          body[data-auth="anonymous"] .auth-only {
-            display: none !important;
-          }
-
           .grid {
             display: grid;
             grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
@@ -233,6 +181,216 @@ data:
           }
 
           .primary { display: grid; gap: 20px; }
+
+          .panel-copy {
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.8;
+            margin-top: 14px;
+          }
+
+          .caption { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+
+          @media (max-width: 860px) {
+            .shell { padding: 20px 16px 48px; }
+            .hero { padding: 24px; border-radius: 24px; }
+            .grid { grid-template-columns: 1fr; }
+          }
+        </style>
+      </head>
+      <body>
+        <main class="shell">
+          <section class="hero">
+            <span class="eyebrow">Public Entry</span>
+            <h1>HomeLab Access</h1>
+            <p class="lead">
+              当前首页只保留统一登录入口，不展示内部系统清单。完成认证后会跳转到真正的门户页，再进入内部服务。
+            </p>
+            <div class="meta">
+              <span class="chip">GZ Public Edge</span>
+              <span class="chip">Traefik + Gateway API</span>
+              <span class="chip">Authelia SSO</span>
+            </div>
+            <div class="actions">
+              <a class="action primary" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F%2Fhome%2F">登录认证</a>
+            </div>
+            <div class="grid">
+              <section class="primary">
+                <div class="card">
+                  <h2>Sign In First</h2>
+                  <p class="panel-copy">
+                    当前首页对匿名访问者只保留统一认证入口。登录成功后，系统会把你带到受保护的门户页，在那里再展示可访问的内部系统。
+                  </p>
+                </div>
+              </section>
+              <aside class="side">
+                <section class="card">
+                  <h3>Access Model</h3>
+                  <p class="caption">
+                    先进入统一认证，再进入受保护的门户页和内部系统。这样能把公开首页和内部资源入口分成两个层次，减少匿名态信息暴露。
+                  </p>
+                </section>
+              </aside>
+            </div>
+          </section>
+        </main>
+      </body>
+    </html>
+  home.html: |
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>HomeLab Portal</title>
+        <style>
+          :root {
+            --paper: #f4efe6;
+            --ink: #171512;
+            --muted: #6f6558;
+            --panel: rgba(255, 248, 235, 0.8);
+            --line: rgba(23, 21, 18, 0.12);
+            --accent: #d65d0e;
+            --accent-2: #1f6b5b;
+            --shadow: 0 30px 80px rgba(33, 26, 18, 0.16);
+          }
+
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background:
+              radial-gradient(circle at top left, rgba(214, 93, 14, 0.18), transparent 34%),
+              radial-gradient(circle at right 20%, rgba(31, 107, 91, 0.16), transparent 28%),
+              linear-gradient(160deg, #f8f1e4 0%, #ece1cf 52%, #e5d5c0 100%);
+            font-family: "Avenir Next", "Segoe UI", sans-serif;
+          }
+
+          .shell { max-width: 1100px; margin: 0 auto; padding: 40px 24px 72px; }
+          .hero {
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            padding: 36px;
+            background:
+              linear-gradient(135deg, rgba(255,255,255,0.74), rgba(255,247,232,0.58)),
+              rgba(255,255,255,0.55);
+            backdrop-filter: blur(18px);
+            box-shadow: var(--shadow);
+          }
+
+          .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+          }
+
+          .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(23, 21, 18, 0.05);
+            color: var(--muted);
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+          }
+
+          .eyebrow::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+          }
+
+          .account {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }
+
+          .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255,255,255,0.45);
+            color: var(--muted);
+            font-size: 13px;
+          }
+
+          .status-pill::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: var(--accent-2);
+          }
+
+          .account-link {
+            color: var(--ink);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            opacity: 0.84;
+          }
+
+          .account-link:hover { opacity: 1; }
+
+          h1 {
+            margin: 20px 0 12px;
+            max-width: 680px;
+            font-family: Iowan Old Style, "Palatino Linotype", "Book Antiqua", Palatino, serif;
+            font-size: clamp(40px, 7vw, 72px);
+            line-height: 0.94;
+            letter-spacing: -0.04em;
+          }
+
+          .lead {
+            max-width: 620px;
+            margin: 0;
+            color: var(--muted);
+            font-size: 18px;
+            line-height: 1.65;
+          }
+
+          .meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 26px; }
+          .chip {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.45);
+            font-size: 13px;
+            color: var(--muted);
+          }
+
+          .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+            gap: 22px;
+            margin-top: 24px;
+          }
+
+          .card {
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            padding: 24px;
+            background: var(--panel);
+            box-shadow: 0 12px 40px rgba(40, 29, 19, 0.08);
+          }
+
+          .card h2, .card h3 {
+            margin: 0;
+            font-family: Iowan Old Style, "Palatino Linotype", "Book Antiqua", Palatino, serif;
+            letter-spacing: -0.03em;
+          }
 
           .launch {
             display: block;
@@ -261,24 +419,19 @@ data:
             filter: blur(4px);
           }
 
-          .launch small, .launch p, .launch h2 { position: relative; z-index: 1; }
+          .launch small, .launch p, .launch h2, .launch span { position: relative; z-index: 1; }
           .launch small {
             color: rgba(255,255,255,0.72);
             letter-spacing: 0.12em;
             text-transform: uppercase;
           }
-          .launch h2 {
-            margin-top: 14px;
-            color: #fff8ef;
-            font-size: 40px;
-          }
+          .launch h2 { margin-top: 14px; color: #fff8ef; font-size: 40px; }
           .launch p {
             max-width: 340px;
             margin: 14px 0 0;
             color: rgba(255,248,239,0.78);
             line-height: 1.6;
           }
-
           .pill {
             display: inline-flex;
             margin-top: 26px;
@@ -290,7 +443,6 @@ data:
             font-weight: 600;
           }
 
-          .side { display: grid; gap: 20px; }
           .stack { display: grid; gap: 14px; margin-top: 18px; }
           .stack a {
             display: flex;
@@ -303,24 +455,11 @@ data:
             text-decoration: none;
             color: inherit;
             background: rgba(255,255,255,0.4);
-            transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
-          }
-          .stack a:hover {
-            transform: translateY(-1px);
-            border-color: rgba(214, 93, 14, 0.42);
-            background: rgba(255,255,255,0.7);
           }
           .stack strong { display: block; font-size: 15px; }
           .stack span { color: var(--muted); font-size: 13px; }
           .arrow { color: var(--accent); font-size: 18px; font-weight: 700; }
           .caption { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.65; }
-
-          .note {
-            margin-top: 12px;
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.7;
-          }
 
           @media (max-width: 860px) {
             .shell { padding: 20px 16px 48px; }
@@ -331,32 +470,26 @@ data:
           }
         </style>
       </head>
-      <body data-auth="pending">
+      <body>
         <main class="shell">
           <section class="hero">
             <div class="topbar">
-              <span class="eyebrow">Public Entry</span>
+              <span class="eyebrow">Authenticated Entry</span>
               <div class="account">
-                <span id="auth-status" class="status-pill">Checking session</span>
-                <a class="account-link auth-only" href="/auth/settings">设置</a>
-                <a class="account-link auth-only" href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">退出</a>
+                <span class="status-pill">Authenticated</span>
+                <a class="account-link" href="/auth/settings">设置</a>
+                <a class="account-link" href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">退出</a>
               </div>
             </div>
             <h1>HomeLab Portal</h1>
             <p class="lead">
-              当前公网入口已经统一收敛到同一条认证链路。这个首页负责承接登录、退出和公开导航，不再让
-              `Authelia` 默认完成页承担门户职责。
+              当前登录态已经建立。这个页面只在认证后展示，用来承接真正的内部系统入口和账户相关动作。
             </p>
             <div class="meta">
               <span class="chip">GZ Public Edge</span>
               <span class="chip">Traefik + Gateway API</span>
               <span class="chip">Authelia SSO</span>
             </div>
-            <div class="actions">
-              <a class="action primary anon-only" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">登录认证</a>
-              <a class="action primary auth-only" href="/grafana/">进入 Grafana</a>
-            </div>
-            <p id="hero-note" class="note">正在检查当前 SSO 会话。</p>
             <div class="grid">
               <section class="primary">
                 <a class="launch" href="/grafana/">
@@ -377,14 +510,7 @@ data:
                       </div>
                       <span class="arrow">→</span>
                     </a>
-                    <a class="anon-only" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">
-                      <div>
-                        <strong>开始登录</strong>
-                        <span>显式进入 SSO 登录流程，并在成功后回到当前门户</span>
-                      </div>
-                      <span class="arrow">→</span>
-                    </a>
-                    <a class="auth-only" href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">
+                    <a href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">
                       <div>
                         <strong>退出 SSO</strong>
                         <span>清理当前 `Authelia` 会话，再回到当前门户</span>
@@ -396,45 +522,13 @@ data:
                 <section class="card">
                   <h3>Current Mode</h3>
                   <p class="caption">
-                    当前门户本身保持公开可访问，只负责承接统一登录入口和公开导航。真正需要保护的系统，
-                    继续沿用 `Traefik + Authelia` 公共认证链路。
+                    当前门户页本身受统一认证保护。后续如果接入更多系统，继续沿用同一条 `Traefik + Authelia`
+                    公共认证链路即可。
                   </p>
                 </section>
               </aside>
             </div>
           </section>
         </main>
-        <script>
-          const authStatus = document.getElementById("auth-status");
-          const heroNote = document.getElementById("hero-note");
-
-          async function detectAuthState() {
-            try {
-              const response = await fetch("/grafana/api/health", {
-                credentials: "include",
-                redirect: "follow",
-                headers: { Accept: "application/json" }
-              });
-              const contentType = response.headers.get("content-type") || "";
-              const finalUrl = response.url || "";
-              const authenticated =
-                response.ok &&
-                finalUrl.includes("/grafana/api/health") &&
-                contentType.includes("application/json");
-
-              document.body.dataset.auth = authenticated ? "authenticated" : "anonymous";
-              authStatus.textContent = authenticated ? "Authenticated" : "Not signed in";
-              heroNote.textContent = authenticated
-                ? "当前 SSO 会话有效，主动作已切到进入 Grafana，退出入口收在右上角。"
-                : "当前未检测到有效 SSO 会话。先完成登录，再进入受保护的内部系统。";
-            } catch (error) {
-              document.body.dataset.auth = "anonymous";
-              authStatus.textContent = "Status unknown";
-              heroNote.textContent = "当前无法确认 SSO 会话，先按未登录状态处理。";
-            }
-          }
-
-          detectAuthState();
-        </script>
       </body>
     </html>

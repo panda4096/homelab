@@ -12,6 +12,19 @@ spec:
     - matches:
         - path:
             type: PathPrefix
+            value: /home
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: portal-authelia-forwardauth
+      backendRefs:
+        - name: public-portal
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
             value: /
       backendRefs:
         - name: public-portal
