@@ -12,6 +12,7 @@
 
 - traefik：`infra/platform/traefik/`
 - authelia：`infra/platform/authelia/`
+- portal：`infra/platform/portal/`
 - edge gateway：`infra/platform/edge-gateway/`
 - monitoring：`infra/platform/monitoring/`
 - network monitoring：`infra/platform/monitoring/network/`

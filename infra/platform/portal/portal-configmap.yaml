@@ -1,0 +1,293 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: public-portal
+  namespace: portal
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      root /usr/share/nginx/html;
+      index index.html;
+
+      location = / {
+        try_files /index.html =404;
+      }
+
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+    }
+  index.html: |
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>HomeLab Portal</title>
+        <style>
+          :root {
+            --paper: #f4efe6;
+            --ink: #171512;
+            --muted: #6f6558;
+            --panel: rgba(255, 248, 235, 0.8);
+            --line: rgba(23, 21, 18, 0.12);
+            --accent: #d65d0e;
+            --accent-2: #1f6b5b;
+            --shadow: 0 30px 80px rgba(33, 26, 18, 0.16);
+          }
+
+          * { box-sizing: border-box; }
+
+          body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background:
+              radial-gradient(circle at top left, rgba(214, 93, 14, 0.18), transparent 34%),
+              radial-gradient(circle at right 20%, rgba(31, 107, 91, 0.16), transparent 28%),
+              linear-gradient(160deg, #f8f1e4 0%, #ece1cf 52%, #e5d5c0 100%);
+            font-family: "Avenir Next", "Segoe UI", sans-serif;
+          }
+
+          .shell {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 40px 24px 72px;
+          }
+
+          .hero {
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            padding: 36px;
+            background:
+              linear-gradient(135deg, rgba(255,255,255,0.74), rgba(255,247,232,0.58)),
+              rgba(255,255,255,0.55);
+            backdrop-filter: blur(18px);
+            box-shadow: var(--shadow);
+          }
+
+          .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(23, 21, 18, 0.05);
+            color: var(--muted);
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+          }
+
+          .eyebrow::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+          }
+
+          h1 {
+            margin: 20px 0 12px;
+            max-width: 680px;
+            font-family: Iowan Old Style, "Palatino Linotype", "Book Antiqua", Palatino, serif;
+            font-size: clamp(40px, 7vw, 72px);
+            line-height: 0.94;
+            letter-spacing: -0.04em;
+          }
+
+          .lead {
+            max-width: 620px;
+            margin: 0;
+            color: var(--muted);
+            font-size: 18px;
+            line-height: 1.65;
+          }
+
+          .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-top: 26px;
+          }
+
+          .chip {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.45);
+            font-size: 13px;
+            color: var(--muted);
+          }
+
+          .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+            gap: 22px;
+            margin-top: 24px;
+          }
+
+          .card {
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            padding: 24px;
+            background: var(--panel);
+            box-shadow: 0 12px 40px rgba(40, 29, 19, 0.08);
+          }
+
+          .card h2, .card h3 {
+            margin: 0;
+            font-family: Iowan Old Style, "Palatino Linotype", "Book Antiqua", Palatino, serif;
+            letter-spacing: -0.03em;
+          }
+
+          .primary { display: grid; gap: 20px; }
+
+          .launch {
+            display: block;
+            position: relative;
+            overflow: hidden;
+            text-decoration: none;
+            color: inherit;
+            border-radius: 22px;
+            padding: 26px;
+            min-height: 260px;
+            border: 1px solid rgba(255,255,255,0.24);
+            background:
+              linear-gradient(135deg, rgba(22, 20, 18, 0.94), rgba(38, 35, 31, 0.92)),
+              linear-gradient(135deg, rgba(214,93,14,0.26), rgba(31,107,91,0.18));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+          }
+
+          .launch::after {
+            content: "";
+            position: absolute;
+            inset: auto -60px -60px auto;
+            width: 220px;
+            height: 220px;
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(214,93,14,0.5), transparent 68%);
+            filter: blur(4px);
+          }
+
+          .launch small, .launch p, .launch h2 { position: relative; z-index: 1; }
+          .launch small {
+            color: rgba(255,255,255,0.72);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+          }
+          .launch h2 {
+            margin-top: 14px;
+            color: #fff8ef;
+            font-size: 40px;
+          }
+          .launch p {
+            max-width: 340px;
+            margin: 14px 0 0;
+            color: rgba(255,248,239,0.78);
+            line-height: 1.6;
+          }
+
+          .pill {
+            display: inline-flex;
+            margin-top: 26px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.14);
+            border: 1px solid rgba(255,255,255,0.18);
+            color: #fff8ef;
+            padding: 11px 16px;
+            font-weight: 600;
+          }
+
+          .side { display: grid; gap: 20px; }
+          .stack { display: grid; gap: 14px; margin-top: 18px; }
+          .stack a {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 18px;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            text-decoration: none;
+            color: inherit;
+            background: rgba(255,255,255,0.4);
+            transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+          }
+          .stack a:hover {
+            transform: translateY(-1px);
+            border-color: rgba(214, 93, 14, 0.42);
+            background: rgba(255,255,255,0.7);
+          }
+          .stack strong { display: block; font-size: 15px; }
+          .stack span { color: var(--muted); font-size: 13px; }
+          .arrow { color: var(--accent); font-size: 18px; font-weight: 700; }
+          .caption { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+
+          @media (max-width: 860px) {
+            .shell { padding: 20px 16px 48px; }
+            .hero { padding: 24px; border-radius: 24px; }
+            .grid { grid-template-columns: 1fr; }
+            .launch { min-height: 220px; }
+          }
+        </style>
+      </head>
+      <body>
+        <main class="shell">
+          <section class="hero">
+            <span class="eyebrow">Authenticated Entry</span>
+            <h1>HomeLab Portal</h1>
+            <p class="lead">
+              当前公网入口已经统一收敛到同一条认证链路。这个首页只负责把你送进真正需要的系统，不再让
+              `Authelia` 默认的认证完成页充当门户。
+            </p>
+            <div class="meta">
+              <span class="chip">GZ Public Edge</span>
+              <span class="chip">Traefik + Gateway API</span>
+              <span class="chip">Authelia Protected</span>
+            </div>
+            <div class="grid">
+              <section class="primary">
+                <a class="launch" href="/grafana/">
+                  <small>Observability</small>
+                  <h2>Grafana</h2>
+                  <p>进入当前唯一对外公开接入的内部系统。这里聚合了监控、链路探测、边缘网关和节点健康数据。</p>
+                  <span class="pill">Open Dashboard</span>
+                </a>
+              </section>
+              <aside class="side">
+                <section class="card">
+                  <h3>Account</h3>
+                  <div class="stack">
+                    <a href="/auth/settings">
+                      <div>
+                        <strong>安全设置</strong>
+                        <span>邮箱验证码、TOTP 与后续设备注册入口</span>
+                      </div>
+                      <span class="arrow">→</span>
+                    </a>
+                    <a href="/auth/">
+                      <div>
+                        <strong>认证中心</strong>
+                        <span>返回 `Authelia` 首页与当前会话入口</span>
+                      </div>
+                      <span class="arrow">→</span>
+                    </a>
+                  </div>
+                </section>
+                <section class="card">
+                  <h3>Current Mode</h3>
+                  <p class="caption">
+                    当前门户先用公网 IP 维护；等 DNS 就绪后，再把入口切换成正式域名，并重新启用更完整的
+                    WebAuthn / Passkey 体验。
+                  </p>
+                </section>
+              </aside>
+            </div>
+          </section>
+        </main>
+      </body>
+    </html>

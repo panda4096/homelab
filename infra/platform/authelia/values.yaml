@@ -43,7 +43,7 @@ configMap:
       - domain: "106.55.163.135"
         path: auth
         authelia_url: https://106.55.163.135/auth
-        default_redirection_url: https://106.55.163.135/grafana/
+        default_redirection_url: https://106.55.163.135/
   storage:
     encryption_key:
       disabled: false

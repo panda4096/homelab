@@ -9,6 +9,7 @@
 
 当前第一阶段不依赖 DNS，统一通过 `gz` 公网 IP + 路径前缀访问：
 
+- `https://106.55.163.135/`
 - `https://106.55.163.135/auth/`
 - `https://106.55.163.135/grafana/`
 
@@ -22,6 +23,7 @@
 - SMTP 通知后端
 - 通过 `Traefik Middleware ForwardAuth` 保护 `Grafana`
 - 当前默认访问策略：`one_factor`
+- 登录成功后的默认回跳页：`https://106.55.163.135/`
 
 ## 资产位置
 
@@ -46,6 +48,7 @@
 ```bash
 kubectl -n authelia get pods,svc,httproute
 curl -kI https://106.55.163.135/auth/
+curl -kI https://106.55.163.135/
 kubectl -n monitoring get middleware,httproute,networkpolicy | rg grafana
 ```
 

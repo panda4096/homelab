@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: public-portal-from-traefik-only
+  namespace: portal
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: public-portal
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: traefik-traefik
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 80
