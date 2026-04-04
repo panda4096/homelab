@@ -123,6 +123,40 @@ data:
             color: var(--muted);
           }
 
+          .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 28px;
+          }
+
+          .action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 152px;
+            padding: 13px 18px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+          }
+
+          .action:hover { transform: translateY(-1px); }
+
+          .action.primary {
+            color: #fff8ef;
+            background: linear-gradient(135deg, var(--accent), #c74900);
+            box-shadow: 0 12px 28px rgba(214, 93, 14, 0.28);
+          }
+
+          .action.secondary {
+            color: var(--ink);
+            border: 1px solid var(--line);
+            background: rgba(255,255,255,0.54);
+          }
+
           .grid {
             display: grid;
             grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
@@ -247,7 +281,11 @@ data:
             <div class="meta">
               <span class="chip">GZ Public Edge</span>
               <span class="chip">Traefik + Gateway API</span>
-              <span class="chip">Authelia Protected</span>
+              <span class="chip">Authelia SSO</span>
+            </div>
+            <div class="actions">
+              <a class="action primary" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">登录认证</a>
+              <a class="action secondary" href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">退出 SSO</a>
             </div>
             <div class="grid">
               <section class="primary">
@@ -269,10 +307,17 @@ data:
                       </div>
                       <span class="arrow">→</span>
                     </a>
-                    <a href="/auth/">
+                    <a href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">
                       <div>
-                        <strong>认证中心</strong>
-                        <span>返回 `Authelia` 首页与当前会话入口</span>
+                        <strong>开始登录</strong>
+                        <span>显式进入 SSO 登录流程，并在成功后回到当前门户</span>
+                      </div>
+                      <span class="arrow">→</span>
+                    </a>
+                    <a href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">
+                      <div>
+                        <strong>退出 SSO</strong>
+                        <span>清理当前 `Authelia` 会话，再回到当前门户</span>
                       </div>
                       <span class="arrow">→</span>
                     </a>
@@ -281,8 +326,8 @@ data:
                 <section class="card">
                   <h3>Current Mode</h3>
                   <p class="caption">
-                    当前门户先用公网 IP 维护；等 DNS 就绪后，再把入口切换成正式域名，并重新启用更完整的
-                    WebAuthn / Passkey 体验。
+                    当前门户本身保持公开可访问，只负责承接统一登录入口和公开导航。真正需要保护的系统，
+                    继续沿用 `Traefik + Authelia` 公共认证链路。
                   </p>
                 </section>
               </aside>
