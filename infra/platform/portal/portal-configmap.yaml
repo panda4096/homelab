@@ -69,6 +69,53 @@ data:
             box-shadow: var(--shadow);
           }
 
+          .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+          }
+
+          .account {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 40px;
+          }
+
+          .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255,255,255,0.45);
+            color: var(--muted);
+            font-size: 13px;
+          }
+
+          .status-pill::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #9b8c7a;
+          }
+
+          body[data-auth="authenticated"] .status-pill::before { background: var(--accent-2); }
+          body[data-auth="anonymous"] .status-pill::before { background: var(--accent); }
+
+          .account-link {
+            color: var(--ink);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            opacity: 0.84;
+          }
+
+          .account-link:hover { opacity: 1; }
+
           .eyebrow {
             display: inline-flex;
             align-items: center;
@@ -155,6 +202,13 @@ data:
             color: var(--ink);
             border: 1px solid var(--line);
             background: rgba(255,255,255,0.54);
+          }
+
+          body[data-auth="pending"] .auth-only,
+          body[data-auth="pending"] .anon-only,
+          body[data-auth="authenticated"] .anon-only,
+          body[data-auth="anonymous"] .auth-only {
+            display: none !important;
           }
 
           .grid {
@@ -261,22 +315,37 @@ data:
           .arrow { color: var(--accent); font-size: 18px; font-weight: 700; }
           .caption { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.65; }
 
+          .note {
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.7;
+          }
+
           @media (max-width: 860px) {
             .shell { padding: 20px 16px 48px; }
             .hero { padding: 24px; border-radius: 24px; }
             .grid { grid-template-columns: 1fr; }
             .launch { min-height: 220px; }
+            .topbar { align-items: flex-start; flex-direction: column; }
           }
         </style>
       </head>
-      <body>
+      <body data-auth="pending">
         <main class="shell">
           <section class="hero">
-            <span class="eyebrow">Authenticated Entry</span>
+            <div class="topbar">
+              <span class="eyebrow">Public Entry</span>
+              <div class="account">
+                <span id="auth-status" class="status-pill">Checking session</span>
+                <a class="account-link auth-only" href="/auth/settings">设置</a>
+                <a class="account-link auth-only" href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">退出</a>
+              </div>
+            </div>
             <h1>HomeLab Portal</h1>
             <p class="lead">
-              当前公网入口已经统一收敛到同一条认证链路。这个首页只负责把你送进真正需要的系统，不再让
-              `Authelia` 默认的认证完成页充当门户。
+              当前公网入口已经统一收敛到同一条认证链路。这个首页负责承接登录、退出和公开导航，不再让
+              `Authelia` 默认完成页承担门户职责。
             </p>
             <div class="meta">
               <span class="chip">GZ Public Edge</span>
@@ -284,9 +353,10 @@ data:
               <span class="chip">Authelia SSO</span>
             </div>
             <div class="actions">
-              <a class="action primary" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">登录认证</a>
-              <a class="action secondary" href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">退出 SSO</a>
+              <a class="action primary anon-only" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">登录认证</a>
+              <a class="action primary auth-only" href="/grafana/">进入 Grafana</a>
             </div>
+            <p id="hero-note" class="note">正在检查当前 SSO 会话。</p>
             <div class="grid">
               <section class="primary">
                 <a class="launch" href="/grafana/">
@@ -307,14 +377,14 @@ data:
                       </div>
                       <span class="arrow">→</span>
                     </a>
-                    <a href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">
+                    <a class="anon-only" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F">
                       <div>
                         <strong>开始登录</strong>
                         <span>显式进入 SSO 登录流程，并在成功后回到当前门户</span>
                       </div>
                       <span class="arrow">→</span>
                     </a>
-                    <a href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">
+                    <a class="auth-only" href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">
                       <div>
                         <strong>退出 SSO</strong>
                         <span>清理当前 `Authelia` 会话，再回到当前门户</span>
@@ -334,5 +404,37 @@ data:
             </div>
           </section>
         </main>
+        <script>
+          const authStatus = document.getElementById("auth-status");
+          const heroNote = document.getElementById("hero-note");
+
+          async function detectAuthState() {
+            try {
+              const response = await fetch("/grafana/api/health", {
+                credentials: "include",
+                redirect: "follow",
+                headers: { Accept: "application/json" }
+              });
+              const contentType = response.headers.get("content-type") || "";
+              const finalUrl = response.url || "";
+              const authenticated =
+                response.ok &&
+                finalUrl.includes("/grafana/api/health") &&
+                contentType.includes("application/json");
+
+              document.body.dataset.auth = authenticated ? "authenticated" : "anonymous";
+              authStatus.textContent = authenticated ? "Authenticated" : "Not signed in";
+              heroNote.textContent = authenticated
+                ? "当前 SSO 会话有效，主动作已切到进入 Grafana，退出入口收在右上角。"
+                : "当前未检测到有效 SSO 会话。先完成登录，再进入受保护的内部系统。";
+            } catch (error) {
+              document.body.dataset.auth = "anonymous";
+              authStatus.textContent = "Status unknown";
+              heroNote.textContent = "当前无法确认 SSO 会话，先按未登录状态处理。";
+            }
+          }
+
+          detectAuthState();
+        </script>
       </body>
     </html>
