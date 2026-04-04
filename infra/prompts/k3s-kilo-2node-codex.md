@@ -7,7 +7,7 @@
 1. 在 `gz.butcoder.com` 安装 k3s server（禁用 flannel，准备使用 Kilo 作为 CNI）
 2. 部署 Kilo（WireGuard mesh）实现跨节点 PodIP/ClusterIP 互通
 3. 在 `sg.butcoder.com` 加入 k3s agent
-4. 用 Helm 安装 ingress-nginx（必须固定 chart 版本），并在 runbook 记录 ingress-nginx 2026-03 后无安全更新风险与迁移预案
+4. 安装 Traefik + Gateway API 作为 Web 入口，并把入口资产与维护命令写入 runbook
 5. 所有关键步骤必须回写到本仓库的运维文档与变更单，便于后续维护
 
 强要求：
@@ -89,16 +89,16 @@
 - 把关键命令与成功输出摘要写入变更单
 - 若在节点上 `curl` 可通，但在 Pod 里 `curl` 超时，优先检查 `gz` 的 `iptables FORWARD` 策略是否为 `ACCEPT`（Docker 可能会改成 `DROP`）
 
-## G. 安装 ingress-nginx（Helm，必须固定 chart version）
+## G. 安装 Traefik + Gateway API（Helm，必须固定 chart version）
 
 - 安装/验证 helm
-- `helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && helm repo update`
-- `helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx -f infra/platform/ingress-nginx/values.yaml --version <PINNED>`
+- `kubectl apply -f infra/platform/traefik/gateway-api/standard-install-v1.4.1.yaml`
+- `helm upgrade --install traefik traefik/traefik -n traefik -f infra/platform/traefik/values.yaml --version <PINNED>`
 - 回填 `infra/k3s/versions.yaml` 的 `ingress.chart.version`
 - 在 `infra/02-集群搭建.md` 写清：
-  - ingress-nginx 维护到 2026-03 的风险
-  - 版本锁定策略
-  - 迁移预案（Traefik / NGINX Inc / Gateway API）
+  - Gateway API CRD 版本
+  - Traefik chart 版本锁定策略
+  - `public-gateway` / HTTPRoute 的维护入口
 
 ## H. 备份脚本演练（至少跑通一次）
 
@@ -108,6 +108,6 @@
 交付要求（写入变更单与 Runbook）：
 
 - `kubectl get nodes -o wide`
-- `kubectl get pods -A -o wide`（核心组件 + kilo + ingress-nginx）
+- `kubectl get pods -A -o wide`（核心组件 + kilo + traefik）
 - 跨节点 PodIP/ClusterIP 测试的命令与结果摘要
 - `infra/03-端口与安全组.md` 中的端口清单已补齐（含实测 UDP 端口）
