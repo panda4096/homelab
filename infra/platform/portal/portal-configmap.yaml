@@ -212,7 +212,7 @@ data:
               <span class="chip">Authelia SSO</span>
             </div>
             <div class="actions">
-              <a class="action primary" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2F%2Fhome%2F">登录认证</a>
+              <a class="action primary" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2Fhome%2F">登录认证</a>
             </div>
             <div class="grid">
               <section class="primary">
