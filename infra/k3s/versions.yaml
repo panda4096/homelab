@@ -12,14 +12,23 @@ kilo:
   manifest_url: "https://raw.githubusercontent.com/squat/kilo/0.6.0/manifests/kilo-k3s.yaml"
   manifest_path: "infra/k3s/manifests/kilo-k3s.yaml"
 ingress:
-  controller: "ingress-nginx"
+  controller: "traefik"
+  gateway_api:
+    version: "v1.4.1"
+    crds_path: "infra/platform/traefik/gateway-api/standard-install-v1.4.1.yaml"
   chart:
-    repo: "https://kubernetes.github.io/ingress-nginx"
-    name: "ingress-nginx/ingress-nginx"
-    # Pin the chart version used in the cluster and record it here.
-    version: "4.14.3"
-    package_path: "infra/platform/ingress-nginx/charts/ingress-nginx-4.14.3.tgz"
-  values_path: "infra/platform/ingress-nginx/values.yaml"
+    repo: "https://helm.traefik.io/traefik"
+    name: "traefik/traefik"
+    version: "39.0.7"
+    package_path: "infra/platform/traefik/charts/traefik-39.0.7.tgz"
+  values_path: "infra/platform/traefik/values.yaml"
+authelia:
+  chart:
+    repo: "https://charts.authelia.com"
+    name: "authelia/authelia"
+    version: "0.10.50"
+    package_path: "infra/platform/authelia/charts/authelia-0.10.50.tgz"
+  values_path: "infra/platform/authelia/values.yaml"
 monitoring:
   stack: "victoria-metrics-k8s-stack"
   namespace: "monitoring"

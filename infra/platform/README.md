@@ -10,10 +10,15 @@
 
 ## 当前组件
 
-- ingress-nginx：`infra/platform/ingress-nginx/`
+- traefik：`infra/platform/traefik/`
+- authelia：`infra/platform/authelia/`
 - edge gateway：`infra/platform/edge-gateway/`
 - monitoring：`infra/platform/monitoring/`
 - network monitoring：`infra/platform/monitoring/network/`
+
+公网 Web 服务默认接入方式见：
+
+- `infra/07-公网访问与统一认证链路.md`
 
 ## 维护约定
 

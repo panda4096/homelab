@@ -2,6 +2,11 @@
 
 本目录只维护 **自定义 dashboard**。
 
+公网访问与认证链路说明见：
+
+- `infra/platform/monitoring/grafana/README-auth.md`
+- `infra/07-公网访问与统一认证链路.md`
+
 ## 分工边界
 
 - 系统预设 dashboard

@@ -28,16 +28,21 @@
 
 - Runbook（SOP）：`infra/02-集群搭建.md`
 - 网络架构：`infra/01-节点互联与网络架构.md`
+- 公网入口与统一认证：`infra/07-公网访问与统一认证链路.md`
 - 节点库存（主数据）：`infra/inventory/hosts.yaml`
 - 版本锁定（主数据）：`infra/k3s/versions.yaml`
 - 平台层说明：`infra/platform/README.md`
-- kubeconfig（本地私密文件，gitignore）：`infra/.secrets/homelab-k3s.yaml`（刷新：`bash infra/k3s/scripts/fetch-kubeconfig.sh`）
+- kubeconfig（私密工程资料）：`infra/.secrets/homelab-k3s.yaml`（刷新：`bash infra/k3s/scripts/fetch-kubeconfig.sh`）
 - Kilo CRDs（vendored）：`infra/k3s/manifests/kilo-crds.yaml`
 - Kilo（vendored manifest）：`infra/k3s/manifests/kilo-k3s.yaml`
 - Kilo tag 说明：使用 `0.6.0`（无 `v` 前缀）
-- ingress-nginx（Helm values）：`infra/platform/ingress-nginx/values.yaml`
-- ingress-nginx chart（vendored）：`infra/platform/ingress-nginx/charts/ingress-nginx-4.14.3.tgz`
-- ingress-nginx 目录说明：`infra/platform/ingress-nginx/README.md`
+- Traefik（Helm values）：`infra/platform/traefik/values.yaml`
+- Traefik chart（vendored）：`infra/platform/traefik/charts/traefik-39.0.7.tgz`
+- Traefik 目录说明：`infra/platform/traefik/README.md`
+- Gateway API CRDs：`infra/platform/traefik/gateway-api/standard-install-v1.4.1.yaml`
+- Authelia（Helm values）：`infra/platform/authelia/values.yaml`
+- Authelia chart（vendored）：`infra/platform/authelia/charts/authelia-0.10.50.tgz`
+- Authelia 目录说明：`infra/platform/authelia/README.md`
 - edge gateway 目录说明：`infra/platform/edge-gateway/README.md`
 - monitoring 文档：`infra/04-监控与Dashboard维护.md`
 - monitoring 目录说明：`infra/platform/monitoring/README.md`

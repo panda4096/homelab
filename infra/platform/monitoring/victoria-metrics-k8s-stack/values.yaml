@@ -121,6 +121,8 @@ grafana:
   enabled: true
   testFramework:
     enabled: false
+  initChownData:
+    enabled: false
   admin:
     existingSecret: grafana-admin
     userKey: admin-user
@@ -129,6 +131,22 @@ grafana:
     type: ClusterIP
   ingress:
     enabled: false
+  grafana.ini:
+    server:
+      root_url: https://106.55.163.135/grafana/
+      serve_from_sub_path: true
+    auth:
+      disable_login_form: true
+      oauth_auto_login: false
+    auth.proxy:
+      enabled: true
+      allow_sign_up: true
+      header_name: Remote-User
+      header_property: username
+      auto_sign_up: true
+      sync_ttl: 15
+      headers: Name:Remote-Name Email:Remote-Email Groups:Remote-Groups
+      enable_login_token: false
   persistence:
     enabled: true
     type: pvc

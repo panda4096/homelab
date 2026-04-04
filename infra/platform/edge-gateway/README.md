@@ -65,7 +65,7 @@ rm -f "$tmp_bin"
 - `infra/.secrets/edge-gateway-values.yaml`
 - `infra/platform/edge-gateway/SUBSCRIPTIONS.local.md`
   - 本机渲染的接入文档
-  - 默认 gitignore
+  - 视为私密接入资料
   - 包含真实订阅 URL 和手工导入片段
 
 可先从示例复制：
