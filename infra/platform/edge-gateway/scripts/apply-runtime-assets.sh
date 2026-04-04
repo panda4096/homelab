@@ -11,6 +11,9 @@ workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
 ruby infra/platform/edge-gateway/scripts/render-runtime-assets.rb "$values_file" "$workdir"
+ruby infra/platform/edge-gateway/scripts/render-local-access-doc.rb \
+  "$values_file" \
+  "infra/platform/edge-gateway/SUBSCRIPTIONS.local.md"
 
 export KUBECONFIG="${KUBECONFIG:-$(pwd)/infra/.secrets/homelab-k3s.yaml}"
 

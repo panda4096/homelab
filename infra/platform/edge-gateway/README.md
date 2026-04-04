@@ -63,6 +63,10 @@ rm -f "$tmp_bin"
 运行时 source-of-truth 使用本地 YAML 文件，建议放在：
 
 - `infra/.secrets/edge-gateway-values.yaml`
+- `infra/platform/edge-gateway/SUBSCRIPTIONS.local.md`
+  - 本机渲染的接入文档
+  - 默认 gitignore
+  - 包含真实订阅 URL 和手工导入片段
 
 可先从示例复制：
 
@@ -76,6 +80,7 @@ cp infra/platform/edge-gateway/config/values.example.yaml infra/.secrets/edge-ga
 - `edge-subscription-files` ConfigMap
 - `monitoring/edge-gateway-probe-config` Secret
 - `Clash` / `sing-box` / `Shadowrocket` 订阅文件
+- `infra/platform/edge-gateway/SUBSCRIPTIONS.local.md`
 
 其中 `cluster.egress` 目前支持：
 
@@ -98,6 +103,7 @@ bash infra/platform/edge-gateway/scripts/apply-runtime-assets.sh infra/.secrets/
 
 - 这一步同时会在 `monitoring` namespace 生成 `edge-gateway-probe-config` Secret
 - `infra/platform/monitoring/network/edge-gateway/` 的代理探针 exporter 依赖这个 Secret
+- 同时会刷新 `infra/platform/edge-gateway/SUBSCRIPTIONS.local.md`
 
 ## 部署
 
