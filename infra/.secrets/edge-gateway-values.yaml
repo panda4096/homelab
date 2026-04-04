@@ -1,0 +1,26 @@
+cluster:
+  subscription:
+    host: 106.55.163.135
+    port: 11800
+    token: egw-20260404-9a7c3d
+  kilo:
+    sg_ip: 10.4.0.2
+
+ingress_nodes:
+  - name: homelab-gz
+    server: gz.butcoder.com
+    enabled: true
+
+protocols:
+  socks:
+    port: 11080
+    username: edge-user
+    password: ZGMSVYKJIdT48RtsAAGa
+  http:
+    port: 11081
+    username: edge-user
+    password: ZGMSVYKJIdT48RtsAAGa
+  shadowsocks:
+    port: 18388
+    method: chacha20-ietf-poly1305
+    password: dUsk5FWuqQ2mwPnG5TRuply5

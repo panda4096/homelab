@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: edge-ingress-gateway
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: edge-ingress-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: edge-ingress-gateway
+        app.kubernetes.io/part-of: edge-gateway
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        edge.role: ingress
+      containers:
+        - name: gost
+          image: docker.io/library/busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /opt/edge/bin/gost
+          args:
+            - -C
+            - /etc/gost/config.yaml
+          ports:
+            - containerPort: 11080
+              hostPort: 11080
+              name: socks-tcp
+              protocol: TCP
+            - containerPort: 11080
+              hostPort: 11080
+              name: socks-udp
+              protocol: UDP
+            - containerPort: 11081
+              hostPort: 11081
+              name: http-tcp
+              protocol: TCP
+            - containerPort: 18388
+              hostPort: 18388
+              name: ss-tcp
+              protocol: TCP
+            - containerPort: 18388
+              hostPort: 18388
+              name: ss-udp
+              protocol: UDP
+          readinessProbe:
+            tcpSocket:
+              port: 11081
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 11081
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gost
+              readOnly: true
+            - name: host-bins
+              mountPath: /opt/edge/bin
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: edge-ingress-gost
+        - name: host-bins
+          hostPath:
+            path: /opt/edge/bin
+            type: DirectoryOrCreate

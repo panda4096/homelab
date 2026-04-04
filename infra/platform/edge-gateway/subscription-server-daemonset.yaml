@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: edge-subscription-server
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: edge-subscription-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: edge-subscription-server
+        app.kubernetes.io/part-of: edge-gateway
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        edge.role: ingress
+      containers:
+        - name: busybox-httpd
+          image: docker.io/library/busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - exec httpd -f -p 11800 -h /www
+          ports:
+            - containerPort: 11800
+              hostPort: 11800
+              name: http
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 11800
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 11800
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: subscriptions
+              mountPath: /www
+              readOnly: true
+      volumes:
+        - name: subscriptions
+          configMap:
+            name: edge-subscription-files
+            optional: true

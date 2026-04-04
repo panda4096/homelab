@@ -1,0 +1,26 @@
+cluster:
+  subscription:
+    host: gz.butcoder.com
+    port: 11800
+    token: change-this-token
+  kilo:
+    sg_ip: 10.4.0.2
+
+ingress_nodes:
+  - name: homelab-gz
+    server: gz.butcoder.com
+    enabled: true
+
+protocols:
+  socks:
+    port: 11080
+    username: edge-user
+    password: change-this-password
+  http:
+    port: 11081
+    username: edge-user
+    password: change-this-password
+  shadowsocks:
+    port: 18388
+    method: chacha20-ietf-poly1305
+    password: change-this-password

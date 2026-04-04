@@ -1,4 +1,1 @@
 # Local secrets (do not commit)
-infra/.secrets/*
-!infra/.secrets/README.md
-

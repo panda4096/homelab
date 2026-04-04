@@ -20,6 +20,7 @@
 - `03` 端口与安全组：`infra/03-端口与安全组.md`
 - `04` 监控与 Dashboard 维护：`infra/04-监控与Dashboard维护.md`
 - `05` 网络探测与链路监控：`infra/05-网络探测与链路监控.md`
+- `06` 跨地域代理网关架构：`infra/06-跨地域代理网关架构.md`
 
 > 说明：这里是“阅读/理解顺序”，不是“实际部署时间顺序”。实际创建顺序见 `infra/01-节点互联与网络架构.md` 开头的说明。
 
@@ -37,12 +38,14 @@
 - ingress-nginx（Helm values）：`infra/platform/ingress-nginx/values.yaml`
 - ingress-nginx chart（vendored）：`infra/platform/ingress-nginx/charts/ingress-nginx-4.14.3.tgz`
 - ingress-nginx 目录说明：`infra/platform/ingress-nginx/README.md`
+- edge gateway 目录说明：`infra/platform/edge-gateway/README.md`
 - monitoring 文档：`infra/04-监控与Dashboard维护.md`
 - monitoring 目录说明：`infra/platform/monitoring/README.md`
 - monitoring values：`infra/platform/monitoring/victoria-metrics-k8s-stack/values.yaml`
 - monitoring chart（vendored）：`infra/platform/monitoring/charts/victoria-metrics-k8s-stack-0.72.5.tgz`
 - monitoring 自定义 dashboard：`infra/platform/monitoring/grafana/README.md`
 - network monitoring 文档：`infra/05-网络探测与链路监控.md`
+- edge gateway 架构：`infra/06-跨地域代理网关架构.md`
 - network monitoring 资产：`infra/platform/monitoring/network/README.md`
 - 应用层占位：`infra/apps/README.md`
 - 端口/安全组清单：`infra/03-端口与安全组.md`

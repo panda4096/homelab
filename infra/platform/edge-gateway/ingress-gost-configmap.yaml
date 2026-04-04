@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-ingress-gost
+data:
+  config.yaml: |
+    services:
+      - name: socks-tcp
+        addr: :11080
+        handler:
+          type: tcp
+        listener:
+          type: tcp
+        forwarder:
+          nodes:
+            - name: socks-target
+              addr: 10.4.0.2:11080
+      - name: socks-udp
+        addr: :11080
+        handler:
+          type: udp
+        listener:
+          type: udp
+        forwarder:
+          nodes:
+            - name: socks-target
+              addr: 10.4.0.2:11080
+      - name: http-tcp
+        addr: :11081
+        handler:
+          type: tcp
+        listener:
+          type: tcp
+        forwarder:
+          nodes:
+            - name: http-target
+              addr: 10.4.0.2:11081
+      - name: ss-tcp
+        addr: :18388
+        handler:
+          type: tcp
+        listener:
+          type: tcp
+        forwarder:
+          nodes:
+            - name: ss-target
+              addr: 10.4.0.2:18388
+      - name: ss-udp
+        addr: :18388
+        handler:
+          type: udp
+        listener:
+          type: udp
+        forwarder:
+          nodes:
+            - name: ss-target
+              addr: 10.4.0.2:18388

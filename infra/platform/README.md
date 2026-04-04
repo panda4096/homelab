@@ -11,6 +11,7 @@
 ## 当前组件
 
 - ingress-nginx：`infra/platform/ingress-nginx/`
+- edge gateway：`infra/platform/edge-gateway/`
 - monitoring：`infra/platform/monitoring/`
 - network monitoring：`infra/platform/monitoring/network/`
 

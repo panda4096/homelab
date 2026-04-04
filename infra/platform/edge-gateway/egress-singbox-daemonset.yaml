@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: edge-egress-gateway
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: edge-egress-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: edge-egress-gateway
+        app.kubernetes.io/part-of: edge-gateway
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        edge.role: egress
+      containers:
+        - name: sing-box
+          image: ghcr.io/sagernet/sing-box@sha256:8772c662c8e349d3afb0c233ccc3864d7df69ce840d5aa25db4c248d5bcb44f7
+          args:
+            - -D
+            - /var/lib/sing-box
+            - -C
+            - /etc/sing-box
+            - run
+          ports:
+            - containerPort: 11080
+              hostPort: 11080
+              name: socks-tcp
+              protocol: TCP
+            - containerPort: 11080
+              hostPort: 11080
+              name: socks-udp
+              protocol: UDP
+            - containerPort: 11081
+              hostPort: 11081
+              name: http-tcp
+              protocol: TCP
+            - containerPort: 18388
+              hostPort: 18388
+              name: ss-tcp
+              protocol: TCP
+            - containerPort: 18388
+              hostPort: 18388
+              name: ss-udp
+              protocol: UDP
+          readinessProbe:
+            tcpSocket:
+              host: 10.4.0.2
+              port: 11081
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              host: 10.4.0.2
+              port: 11081
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sing-box/config.json
+              subPath: config.json
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/sing-box
+      volumes:
+        - name: config
+          secret:
+            secretName: edge-egress-config
+        - name: state
+          emptyDir: {}
