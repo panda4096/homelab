@@ -203,32 +203,21 @@ data:
           <section class="hero">
             <span class="eyebrow">Public Entry</span>
             <h1>HomeLab Access</h1>
-            <p class="lead">
-              当前首页只保留统一登录入口，不展示内部系统清单。完成认证后会跳转到真正的门户页，再进入内部服务。
-            </p>
-            <div class="meta">
-              <span class="chip">GZ Public Edge</span>
-              <span class="chip">Traefik + Gateway API</span>
-              <span class="chip">Authelia SSO</span>
-            </div>
+            <p class="lead">登录后进入内部系统。</p>
             <div class="actions">
               <a class="action primary" href="/auth/?rd=https%3A%2F%2F106.55.163.135%2Fhome%2F">登录认证</a>
             </div>
             <div class="grid">
               <section class="primary">
                 <div class="card">
-                  <h2>Sign In First</h2>
-                  <p class="panel-copy">
-                    当前首页对匿名访问者只保留统一认证入口。登录成功后，系统会把你带到受保护的门户页，在那里再展示可访问的内部系统。
-                  </p>
+                  <h2>Sign In</h2>
+                  <p class="panel-copy">使用统一账号进入门户。</p>
                 </div>
               </section>
               <aside class="side">
                 <section class="card">
-                  <h3>Access Model</h3>
-                  <p class="caption">
-                    先进入统一认证，再进入受保护的门户页和内部系统。这样能把公开首页和内部资源入口分成两个层次，减少匿名态信息暴露。
-                  </p>
+                  <h3>Protected Access</h3>
+                  <p class="caption">未登录时不展示内部系统入口。</p>
                 </section>
               </aside>
             </div>
@@ -507,21 +496,14 @@ data:
               </div>
             </div>
             <h1>HomeLab Portal</h1>
-            <p class="lead">
-              当前登录态已经建立。这个页面只在认证后展示，用来承接真正的内部系统入口和账户相关动作。
-            </p>
-            <div class="meta">
-              <span class="chip">GZ Public Edge</span>
-              <span class="chip">Traefik + Gateway API</span>
-              <span class="chip">Authelia SSO</span>
-            </div>
+            <p class="lead">选择要进入的系统。</p>
             <div class="grid">
               <section class="primary">
                 <a class="launch" href="/grafana/">
-                  <small>Observability</small>
+                  <small>Monitoring</small>
                   <h2>Grafana</h2>
-                  <p>进入当前唯一对外公开接入的内部系统。这里聚合了监控、链路探测、边缘网关和节点健康数据。</p>
-                  <span class="pill">Open Dashboard</span>
+                  <p>监控面板。</p>
+                  <span class="pill">Open</span>
                 </a>
               </section>
               <aside class="side">
@@ -530,26 +512,19 @@ data:
                   <div class="stack">
                     <a href="/auth/settings">
                       <div>
-                        <strong>安全设置</strong>
-                        <span>邮箱验证码、TOTP 与后续设备注册入口</span>
+                        <strong>设置</strong>
+                        <span>账户与认证设置</span>
                       </div>
                       <span class="arrow">→</span>
                     </a>
                     <a href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">
                       <div>
-                        <strong>退出 SSO</strong>
-                        <span>清理当前 `Authelia` 会话，再回到当前门户</span>
+                        <strong>退出</strong>
+                        <span>结束当前会话</span>
                       </div>
                       <span class="arrow">→</span>
                     </a>
                   </div>
-                </section>
-                <section class="card">
-                  <h3>Current Mode</h3>
-                  <p class="caption">
-                    当前门户页本身受统一认证保护。后续如果接入更多系统，继续沿用同一条 `Traefik + Authelia`
-                    公共认证链路即可。
-                  </p>
                 </section>
               </aside>
             </div>
