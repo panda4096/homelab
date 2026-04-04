@@ -234,6 +234,31 @@ data:
             </div>
           </section>
         </main>
+        <script>
+          async function redirectAuthenticatedUsers() {
+            try {
+              const response = await fetch("/grafana/api/health", {
+                credentials: "include",
+                redirect: "follow",
+                headers: { Accept: "application/json" }
+              });
+              const contentType = response.headers.get("content-type") || "";
+              const finalUrl = response.url || "";
+              const authenticated =
+                response.ok &&
+                finalUrl.includes("/grafana/api/health") &&
+                contentType.includes("application/json");
+
+              if (authenticated) {
+                window.location.replace("/home/");
+              }
+            } catch (error) {
+              // No valid SSO session or transient probe failure; keep the public landing.
+            }
+          }
+
+          redirectAuthenticatedUsers();
+        </script>
       </body>
     </html>
   home.html: |
