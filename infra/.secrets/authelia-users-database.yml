@@ -2,7 +2,7 @@ users:
   panda:
     disabled: false
     displayname: Panda
-    password: "$2y$12$MfHIiIaTxTc1driZpvzR9uF0r402fs1N3F5CZsC.9m5L/ayXKzX.2"
+    password: "$2y$12$2xBDy08vUyRysd1C7CW7rObxugBBrtD1f/79vLST/fdh.xDAtGh7u"
     email: 948533564@qq.com
     groups:
       - admin
