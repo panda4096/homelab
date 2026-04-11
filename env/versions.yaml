@@ -1,0 +1,23 @@
+# env/versions.yaml
+#
+# 只放「必须 pin」的项。不 pin 的工具请去对应 NN-*.md 里用「最新稳定版 + 查询命令」的写法。
+#
+# 每次升级必须:
+#   1. 更新 current 和 last_verified
+#   2. 在 infra/changes/ 写一份变更单
+#   3. 跑一遍对应 NN-*.md 的验收步骤
+
+# kubectl: 必须跟集群 k3s 的 minor 版本对齐 (官方支持 ±1 minor)
+# 当前集群 k3s 版本来源:
+#   grep '^  version:' infra/k3s/versions.yaml | head -1
+#   (如果装了 yq: yq '.k3s.version' infra/k3s/versions.yaml)
+# 查某个 minor 的最新补丁版:
+#   curl -sSL https://dl.k8s.io/release/stable-1.34.txt
+# 查最新稳定版 (不绑 minor):
+#   curl -sSL https://dl.k8s.io/release/stable.txt
+kubectl:
+  constraint: "与 infra/k3s/versions.yaml 的 k3s.version 同 minor"
+  # 当前 k3s 是 v1.34.4+k3s1, 对应 kubectl 应为 v1.34.x
+  # 下次装机或升级 kubectl 时填入实际值, 并更新 last_verified
+  current: "TODO"
+  last_verified: "TODO"
