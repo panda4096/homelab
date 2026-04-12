@@ -9,6 +9,31 @@ spec:
       namespace: traefik
       sectionName: websecure
   rules:
+    # Rule 1: Exact /ghostfolio or /ghostfolio/ → redirect to /ghostfolio/en/
+    # This bypasses Ghostfolio's own locale detection redirect (which doesn't
+    # know about the path prefix and would redirect to /zh instead of /ghostfolio/zh).
+    - matches:
+        - path:
+            type: Exact
+            value: /ghostfolio
+        - path:
+            type: Exact
+            value: /ghostfolio/
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: ghostfolio-authelia-forwardauth
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: ghostfolio-redirect-to-en
+      backendRefs:
+        - name: ghostfolio
+          port: 80
+    # Rule 2: /ghostfolio/<locale>/... → StripPrefix → Ghostfolio serves SPA
     - matches:
         - path:
             type: PathPrefix
@@ -24,6 +49,22 @@ spec:
             group: traefik.io
             kind: Middleware
             name: ghostfolio-strip-prefix
+      backendRefs:
+        - name: ghostfolio
+          port: 80
+    # Rule 3: /api/v1/... → Ghostfolio API (no strip needed)
+    # Angular SPA uses absolute "/api/v1/..." paths for HTTP calls.
+    # This rule catches those and forwards directly to Ghostfolio.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: ghostfolio-authelia-forwardauth
       backendRefs:
         - name: ghostfolio
           port: 80

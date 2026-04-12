@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ghostfolio-init-basehref
+  namespace: ghostfolio
+data:
+  patch-basehref.sh: |
+    #!/bin/sh
+    # Copy client files from image to emptyDir, then rewrite base href
+    # so Angular SPA works under /ghostfolio/ path prefix.
+    set -e
+    SRC=/ghostfolio/apps/client
+    DST=/patched-client
+
+    echo "copying client files..."
+    cp -r "$SRC"/. "$DST"/
+
+    echo "patching base href..."
+    for f in $(find "$DST" -name index.html -mindepth 2); do
+      locale=$(basename $(dirname "$f"))
+      sed -i "s|<base href=\"/${locale}/\">|<base href=\"/ghostfolio/${locale}/\">|g" "$f"
+    done
+
+    echo "done: $(grep -r 'base href' "$DST"/*/index.html 2>/dev/null | head -3)"

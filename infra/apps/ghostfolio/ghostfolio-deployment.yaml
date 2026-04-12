@@ -15,6 +15,25 @@ spec:
     spec:
       nodeSelector:
         region: gz
+      initContainers:
+        - name: patch-basehref
+          image: ghostfolio/ghostfolio:2.254.0
+          command: ["/bin/sh", "/scripts/patch-basehref.sh"]
+          volumeMounts:
+            # Mount emptyDir at a DIFFERENT path so the image's original
+            # /ghostfolio/apps/client is still visible for copying.
+            - name: patched-client
+              mountPath: /patched-client
+            - name: init-scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: patched-client
+          emptyDir: {}
+        - name: init-scripts
+          configMap:
+            name: ghostfolio-init-basehref
+            defaultMode: 0755
       containers:
         - name: ghostfolio
           image: ghostfolio/ghostfolio:2.254.0
@@ -37,6 +56,10 @@ spec:
                 secretKeyRef:
                   name: ghostfolio-redis-secrets
                   key: redis-password
+          volumeMounts:
+            # Mount the patched files over the original client directory
+            - name: patched-client
+              mountPath: /ghostfolio/apps/client
           readinessProbe:
             httpGet:
               path: /api/v1/health
@@ -51,8 +74,8 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
               cpu: 1000m
               memory: 1024Mi

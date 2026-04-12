@@ -7,7 +7,9 @@ resources:
   - ghostfolio-configmap.yaml
   - ghostfolio-deployment.yaml
   - ghostfolio-service.yaml
+  - ghostfolio-init-configmap.yaml
   - ghostfolio-strip-prefix-middleware.yaml
+  - ghostfolio-redirect-middleware.yaml
   - ghostfolio-forwardauth-middleware.yaml
   - ghostfolio-httproute.yaml
   - ghostfolio-networkpolicy.yaml

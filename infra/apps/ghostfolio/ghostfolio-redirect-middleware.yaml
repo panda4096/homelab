@@ -1,0 +1,10 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ghostfolio-redirect-to-en
+  namespace: ghostfolio
+spec:
+  redirectRegex:
+    regex: "^https?://[^/]+/ghostfolio/?$"
+    replacement: "/ghostfolio/en/"
+    permanent: false
