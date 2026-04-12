@@ -15,6 +15,13 @@ spec:
     spec:
       nodeSelector:
         region: gz
+      volumes:
+        - name: nginx-fastcgi-params
+          configMap:
+            name: firefly-nginx-remote-user
+            items:
+              - key: fastcgi_params_override
+                path: fastcgi_params
       containers:
         - name: firefly
           image: fireflyiii/core:version-6.5.9
@@ -37,6 +44,11 @@ spec:
                 secretKeyRef:
                   name: firefly-db-credentials
                   key: postgres-password
+          volumeMounts:
+            - name: nginx-fastcgi-params
+              mountPath: /etc/nginx/fastcgi_params
+              subPath: fastcgi_params
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /
@@ -51,8 +63,8 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
               cpu: 1000m
               memory: 1024Mi

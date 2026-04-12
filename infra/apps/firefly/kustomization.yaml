@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - firefly-configmap.yaml
+  - firefly-nginx-configmap.yaml
   - firefly-deployment.yaml
   - firefly-service.yaml
   - firefly-strip-prefix-middleware.yaml
