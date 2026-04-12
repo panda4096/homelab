@@ -1,0 +1,29 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: firefly
+  namespace: firefly
+spec:
+  parentRefs:
+    - name: public-gateway
+      namespace: traefik
+      sectionName: websecure
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /firefly/
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: firefly-strip-auth-headers
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: firefly-authelia-forwardauth
+      backendRefs:
+        - name: firefly
+          port: 80

@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ghostfolio-from-traefik-only
+  namespace: ghostfolio
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ghostfolio
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: traefik-traefik
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 3333

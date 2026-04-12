@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>finbrain reviews</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+        background: #fbfaf6;
+        color: #1f2621;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .card {
+        border: 1px solid #dbd2c2;
+        border-radius: 14px;
+        padding: 16px;
+        background: white;
+        margin-bottom: 12px;
+      }
+      code {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Review queue</h1>
+      {% for row in rows %}
+      <section class="card">
+        <strong>{{ row.source_ref }}</strong>
+        <div>{{ row.source }} / {{ row.broker_account }} / {{ row.type }} / {{ row.symbol }}</div>
+        <div>{{ row.trade_date }} / {{ row.currency }} / {{ row.settlement_amount }}</div>
+        <code>{{ row.raw_payload }}</code>
+      </section>
+      {% else %}
+      <p>No pending review items.</p>
+      {% endfor %}
+    </main>
+  </body>
+</html>

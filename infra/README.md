@@ -52,7 +52,13 @@
 - network monitoring 文档：`infra/05-网络探测与链路监控.md`
 - edge gateway 架构：`infra/06-跨地域代理网关架构.md`
 - network monitoring 资产：`infra/platform/monitoring/network/README.md`
-- 应用层占位：`infra/apps/README.md`
+- 应用层说明：`infra/apps/README.md`
+- Firefly III 部署资产：`infra/apps/firefly/README.md`
+- Ghostfolio 部署资产：`infra/apps/ghostfolio/README.md`
+- finbrain 部署资产：`infra/apps/finbrain/README.md`
+- 数据层说明：`infra/data/README.md`
+- 共享 PostgreSQL：`infra/data/postgresql/README.md`
+- 共享 PostgreSQL chart（vendored）：`infra/data/postgresql/charts/postgresql-16.7.27.tgz`
 - 端口/安全组清单：`infra/03-端口与安全组.md`
 - 变更记录（每次必写）：`infra/changes/`
 - Codex 执行 Prompt（可复制）：`infra/prompts/k3s-kilo-2node-codex.md`
@@ -61,8 +67,9 @@
 ## 目录职责约定
 
 - `infra/k3s/`：集群引导层，只放 k3s 自身、Kilo、kubeconfig 拉取、备份脚本等“让集群先活起来”的资产。
-- `infra/platform/`：平台层，放 ingress、监控、日志、证书、网关等公共基础设施。
-- `infra/apps/`：业务层，放具体应用的 manifest、Helm values、部署/回滚说明。
+- `infra/platform/`：平台层，放 ingress、监控、日志、证书、网关等**无状态**的公共基础设施。
+- `infra/data/`：数据层，放共享的数据库 / 缓存 / 检索引擎等**有状态**后端存储（当前仅 PostgreSQL，后续 Redis / ES 同模式）。
+- `infra/apps/`：业务层，放具体应用的 **无状态** 工作负载 manifest、Helm values、部署/回滚说明；任何持久化连接都指向 `infra/data/`。
 
 ## 变更工作流（手工可审计）
 

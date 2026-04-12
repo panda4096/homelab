@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - redis-service.yaml
+  - redis-deployment.yaml
+  - ghostfolio-configmap.yaml
+  - ghostfolio-deployment.yaml
+  - ghostfolio-service.yaml
+  - ghostfolio-forwardauth-middleware.yaml
+  - ghostfolio-httproute.yaml
+  - ghostfolio-networkpolicy.yaml

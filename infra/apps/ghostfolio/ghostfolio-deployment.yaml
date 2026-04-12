@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ghostfolio
+  namespace: ghostfolio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ghostfolio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ghostfolio
+    spec:
+      nodeSelector:
+        region: gz
+      containers:
+        - name: ghostfolio
+          image: ghostfolio/ghostfolio:2.254.0
+          ports:
+            - containerPort: 3333
+              name: http
+          envFrom:
+            - configMapRef:
+                name: ghostfolio-config
+            - secretRef:
+                name: ghostfolio-app-secrets
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ghostfolio-db-credentials
+                  key: database-url
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ghostfolio-redis-secrets
+                  key: redis-password
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi

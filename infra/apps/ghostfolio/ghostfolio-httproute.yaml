@@ -1,0 +1,24 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ghostfolio
+  namespace: ghostfolio
+spec:
+  parentRefs:
+    - name: public-gateway
+      namespace: traefik
+      sectionName: websecure
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /ghostfolio/
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: ghostfolio-authelia-forwardauth
+      backendRefs:
+        - name: ghostfolio
+          port: 80

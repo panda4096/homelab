@@ -1,0 +1,8 @@
+Trade date: 2026-04-10
+Account: HSBC HK
+Type: BUY
+Symbol: 0700.HK
+Quantity: 100
+Unit price: 320.50 HKD
+Fees: 21.75 HKD
+Settlement amount: 32071.75 HKD

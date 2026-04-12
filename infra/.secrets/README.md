@@ -15,6 +15,10 @@
 - Grafana 管理员凭据：`infra/.secrets/grafana-admin.env`
 - Grafana API 凭据：`infra/.secrets/grafana-api.env`
 - edge gateway 运行时参数：`infra/.secrets/edge-gateway-values.yaml`
+- 共享数据层 PostgreSQL 密码：`infra/.secrets/postgresql.env`
+- Firefly III 应用层密钥：`infra/.secrets/firefly.env`
+- Ghostfolio 应用层密钥：`infra/.secrets/ghostfolio.env`
+- finbrain 应用层密钥：`infra/.secrets/finbrain.env`
 
 ## Authelia 与 Traefik
 
@@ -72,6 +76,36 @@ kubectl get nodes -o wide
 2. 生成新的密码哈希并更新 `infra/.secrets/authelia-users-database.yml`。
 3. 将该文件同步到 Kubernetes Secret `authelia-users`。
 4. 重启或滚动更新 `authelia` deployment。
+
+## 数据层 PostgreSQL 与业务应用密码
+
+`infra/.secrets/postgresql.env` 是共享 PostgreSQL 的真值源，包含 admin 密码和三个 app 用户的初始密码：
+
+```
+POSTGRES_ADMIN_PASSWORD=...
+FIREFLY_DB_PASSWORD=...
+GHOSTFOLIO_DB_PASSWORD=...
+FINBRAIN_DB_PASSWORD=...
+```
+
+这份文件被 **四个** 脚本读取：
+
+- `infra/data/postgresql/scripts/apply-secrets.sh` — 生成 `postgresql-admin` 和 `postgresql-init-scripts` 两个集群 Secret
+- `infra/apps/firefly/scripts/apply-secrets.sh` — 组装 firefly-db-credentials
+- `infra/apps/ghostfolio/scripts/apply-secrets.sh` — 组装 ghostfolio-db-credentials
+- `infra/apps/finbrain/scripts/apply-secrets.sh` — 组装 finbrain-app-secrets 里的 FINBRAIN_DATABASE_URL
+
+app 层另外各自有一份 `<app>.env` 存放非数据库的应用密钥（`APP_KEY` / token / salt 等），和 `postgresql.env` 解耦。
+
+**首次部署顺序**：
+
+1. 填 `postgresql.env`
+2. `kubectl apply -f infra/data/postgresql/namespace.yaml`
+3. `bash infra/data/postgresql/scripts/apply-secrets.sh`
+4. `bash infra/data/postgresql/scripts/helm-install.sh`
+5. 然后再对每个 app 填 `<app>.env`、`kubectl apply -f .../namespace.yaml`、`bash .../scripts/apply-secrets.sh`、`kubectl apply -k ...`
+
+**密码轮换**：init 脚本只在 bitnami chart **首次** 启动时执行一次；后续密码变更必须直接 `ALTER USER` 在线改，然后同步到 `postgresql.env` 并重跑对应 app 的 `apply-secrets.sh`。
 
 ## 当前限制
 

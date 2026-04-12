@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: firefly
+  namespace: firefly
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: firefly
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: firefly
+    spec:
+      nodeSelector:
+        region: gz
+      containers:
+        - name: firefly
+          image: fireflyiii/core:version-6.5.9
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: firefly-config
+            - secretRef:
+                name: firefly-app-secrets
+          env:
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: firefly-db-credentials
+                  key: postgres-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: firefly-db-credentials
+                  key: postgres-password
+          readinessProbe:
+            httpGet:
+              path: /firefly/
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /firefly/
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi

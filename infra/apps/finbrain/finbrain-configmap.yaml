@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: finbrain-config
+  namespace: finbrain
+data:
+  FINBRAIN_ENV: production
+  FINBRAIN_BASE_PATH: /finbrain
+  FINBRAIN_TIMEZONE: Asia/Shanghai
+  FINBRAIN_FIREFLY_BASE_URL: http://firefly.firefly.svc.cluster.local
+  FINBRAIN_GHOSTFOLIO_BASE_URL: http://ghostfolio.ghostfolio.svc.cluster.local
+  FINBRAIN_FX_BASE_CURRENCY: HKD
+  FINBRAIN_UPLOADS_DIR: /var/finbrain/uploads

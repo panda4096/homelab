@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finbrain-ingest-agent"
+version = "0.1.0"
+description = "Ingest and review service for the finbrain homelab stack"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "httpx>=0.27,<1.0",
+  "jinja2>=3.1,<4.0",
+  "pydantic-settings>=2.3,<3.0",
+  "python-multipart>=0.0.9,<1.0",
+  "sqlmodel>=0.0.22,<0.1",
+  "psycopg[binary]>=3.1,<4.0",
+  "uvicorn[standard]>=0.30,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
