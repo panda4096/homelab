@@ -21,7 +21,7 @@ spec:
             claimName: finbrain-uploads
       containers:
         - name: finbrain
-          image: ghcr.io/panda4096/finbrain-ingest-agent:latest
+          image: butcoder/finbrain-ingest-agent:latest
           ports:
             - containerPort: 8000
               name: http
@@ -47,8 +47,8 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 64Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 256Mi

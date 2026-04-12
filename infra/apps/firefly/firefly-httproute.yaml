@@ -14,6 +14,11 @@ spec:
             type: PathPrefix
             value: /firefly/
       filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
         - type: ExtensionRef
           extensionRef:
             group: traefik.io
