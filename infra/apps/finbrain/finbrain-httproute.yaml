@@ -14,16 +14,16 @@ spec:
             type: PathPrefix
             value: /finbrain/
       filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
         - type: ExtensionRef
           extensionRef:
             group: traefik.io
             kind: Middleware
             name: finbrain-authelia-forwardauth
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: finbrain-strip-prefix
       backendRefs:
         - name: finbrain
           port: 80

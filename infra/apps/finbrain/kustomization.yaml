@@ -6,6 +6,7 @@ resources:
   - finbrain-uploads-pvc.yaml
   - finbrain-deployment.yaml
   - finbrain-service.yaml
+  - finbrain-strip-prefix-middleware.yaml
   - finbrain-forwardauth-middleware.yaml
   - finbrain-httproute.yaml
   - finbrain-networkpolicy.yaml

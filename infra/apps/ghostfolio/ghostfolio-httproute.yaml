@@ -14,16 +14,16 @@ spec:
             type: PathPrefix
             value: /ghostfolio/
       filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
         - type: ExtensionRef
           extensionRef:
             group: traefik.io
             kind: Middleware
             name: ghostfolio-authelia-forwardauth
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: ghostfolio-strip-prefix
       backendRefs:
         - name: ghostfolio
           port: 80

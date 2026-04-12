@@ -14,11 +14,6 @@ spec:
             type: PathPrefix
             value: /firefly/
       filters:
-        - type: URLRewrite
-          urlRewrite:
-            path:
-              type: ReplacePrefixMatch
-              replacePrefixMatch: /
         - type: ExtensionRef
           extensionRef:
             group: traefik.io
@@ -29,6 +24,11 @@ spec:
             group: traefik.io
             kind: Middleware
             name: firefly-authelia-forwardauth
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: firefly-strip-prefix
       backendRefs:
         - name: firefly
           port: 80

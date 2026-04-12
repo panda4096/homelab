@@ -5,6 +5,7 @@ resources:
   - firefly-configmap.yaml
   - firefly-deployment.yaml
   - firefly-service.yaml
+  - firefly-strip-prefix-middleware.yaml
   - firefly-strip-auth-headers-middleware.yaml
   - firefly-forwardauth-middleware.yaml
   - firefly-httproute.yaml
