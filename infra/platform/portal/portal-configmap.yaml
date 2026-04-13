@@ -457,6 +457,65 @@ data:
             font-weight: 600;
           }
 
+          .service-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+          }
+
+          .service-card {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 180px;
+            padding: 18px;
+            border-radius: 18px;
+            text-decoration: none;
+            color: inherit;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.08);
+            backdrop-filter: blur(10px);
+          }
+
+          .service-card strong {
+            font-size: 20px;
+            color: #fff8ef;
+            letter-spacing: -0.02em;
+          }
+
+          .service-card p {
+            margin: 0;
+            color: rgba(255,248,239,0.76);
+            line-height: 1.5;
+            font-size: 14px;
+          }
+
+          .service-tag {
+            display: inline-flex;
+            align-self: flex-start;
+            border-radius: 999px;
+            padding: 7px 11px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            background: rgba(255,255,255,0.12);
+            color: rgba(255,248,239,0.82);
+          }
+
+          .service-card.firefly {
+            background: linear-gradient(180deg, rgba(214,93,14,0.22), rgba(255,255,255,0.08));
+          }
+
+          .service-card.ghostfolio {
+            background: linear-gradient(180deg, rgba(31,107,91,0.28), rgba(255,255,255,0.08));
+          }
+
+          .service-card.grafana {
+            background: linear-gradient(180deg, rgba(217,119,6,0.22), rgba(255,255,255,0.08));
+          }
+
           .stack { display: grid; gap: 14px; margin-top: 18px; }
           .stack a {
             display: flex;
@@ -480,6 +539,7 @@ data:
             .hero { padding: 24px; border-radius: 24px; }
             .grid { grid-template-columns: 1fr; }
             .launch { min-height: 220px; }
+            .service-grid { grid-template-columns: 1fr; }
             .topbar { align-items: flex-start; flex-direction: column; }
           }
         </style>
@@ -499,28 +559,51 @@ data:
             <p class="lead">选择要进入的系统。</p>
             <div class="grid">
               <section class="primary">
-                <a class="launch" href="/grafana/">
-                  <small>Monitoring</small>
-                  <h2>Grafana</h2>
-                  <p>监控面板。</p>
-                  <span class="pill">Open</span>
-                </a>
+                <div class="launch">
+                  <small>Finance</small>
+                  <h2>Personal Finance Suite</h2>
+                  <p>从统一门户直接进入理财、账本和监控系统。</p>
+                  <div class="service-grid">
+                    <a class="service-card firefly" href="/firefly/">
+                      <span class="service-tag">Budget</span>
+                      <strong>Firefly III</strong>
+                      <p>家庭账本、预算、分类与现金流管理。</p>
+                    </a>
+                    <a class="service-card ghostfolio" href="/ghostfolio/">
+                      <span class="service-tag">Investing</span>
+                      <strong>Ghostfolio</strong>
+                      <p>投资组合、净值、持仓与市场分析。</p>
+                    </a>
+                    <a class="service-card grafana" href="/grafana/">
+                      <span class="service-tag">Ops</span>
+                      <strong>Grafana</strong>
+                      <p>集群与应用监控面板。</p>
+                    </a>
+                  </div>
+                </div>
               </section>
               <aside class="side">
                 <section class="card">
-                  <h3>Account</h3>
+                  <h3>Applications</h3>
                   <div class="stack">
-                    <a href="/auth/settings">
+                    <a href="/firefly/">
                       <div>
-                        <strong>设置</strong>
-                        <span>账户与认证设置</span>
+                        <strong>Firefly III</strong>
+                        <span>个人记账与预算管理</span>
                       </div>
                       <span class="arrow">→</span>
                     </a>
-                    <a href="/auth/logout?rd=https%3A%2F%2F106.55.163.135%2F">
+                    <a href="/ghostfolio/">
                       <div>
-                        <strong>退出</strong>
-                        <span>结束当前会话</span>
+                        <strong>Ghostfolio</strong>
+                        <span>投资组合与净值追踪</span>
+                      </div>
+                      <span class="arrow">→</span>
+                    </a>
+                    <a href="/grafana/">
+                      <div>
+                        <strong>Grafana</strong>
+                        <span>监控面板与告警观察</span>
                       </div>
                       <span class="arrow">→</span>
                     </a>

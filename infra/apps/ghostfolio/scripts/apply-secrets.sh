@@ -6,10 +6,12 @@
 #   - infra/.secrets/postgresql.env  (GHOSTFOLIO_DB_PASSWORD)
 #   - infra/.secrets/ghostfolio.env  (GHOSTFOLIO_ACCESS_TOKEN_SALT,
 #                                     GHOSTFOLIO_JWT_SECRET_KEY,
+#                                     GHOSTFOLIO_OIDC_CLIENT_SECRET,
 #                                     GHOSTFOLIO_REDIS_PASSWORD)
 #
 # Produces:
-#   - Secret ghostfolio-app-secrets    (ACCESS_TOKEN_SALT, JWT_SECRET_KEY)
+#   - Secret ghostfolio-app-secrets    (ACCESS_TOKEN_SALT, JWT_SECRET_KEY,
+#                                       OIDC_CLIENT_SECRET)
 #   - Secret ghostfolio-db-credentials (database-url assembled against shared
 #                                       data/postgresql)
 #   - Secret ghostfolio-redis-secrets  (redis-password, consumed by the
@@ -42,6 +44,7 @@ set +a
 : "${GHOSTFOLIO_DB_PASSWORD:?GHOSTFOLIO_DB_PASSWORD missing in ${PG_ENV}}"
 : "${GHOSTFOLIO_ACCESS_TOKEN_SALT:?GHOSTFOLIO_ACCESS_TOKEN_SALT missing in ${APP_ENV}}"
 : "${GHOSTFOLIO_JWT_SECRET_KEY:?GHOSTFOLIO_JWT_SECRET_KEY missing in ${APP_ENV}}"
+: "${GHOSTFOLIO_OIDC_CLIENT_SECRET:?GHOSTFOLIO_OIDC_CLIENT_SECRET missing in ${APP_ENV}}"
 : "${GHOSTFOLIO_REDIS_PASSWORD:?GHOSTFOLIO_REDIS_PASSWORD missing in ${APP_ENV}}"
 
 if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
@@ -55,6 +58,7 @@ DATABASE_URL="postgresql://ghostfolio:${GHOSTFOLIO_DB_PASSWORD}@postgresql.data.
 kubectl -n "${NAMESPACE}" create secret generic ghostfolio-app-secrets \
   --from-literal=ACCESS_TOKEN_SALT="${GHOSTFOLIO_ACCESS_TOKEN_SALT}" \
   --from-literal=JWT_SECRET_KEY="${GHOSTFOLIO_JWT_SECRET_KEY}" \
+  --from-literal=OIDC_CLIENT_SECRET="${GHOSTFOLIO_OIDC_CLIENT_SECRET}" \
   --dry-run=client -o yaml \
   | kubectl apply -f -
 

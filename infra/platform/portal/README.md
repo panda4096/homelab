@@ -4,11 +4,11 @@
 
 现阶段约束：
 
-- 只维护一个入口卡片：`Grafana`
 - 当前仍使用公网 IP
 - 当前作为 `Authelia` 登录成功后的默认回跳页
 - `/` 是公开 landing，只保留统一登录入口
 - `/home/` 是认证后的真实门户，挂 `Authelia ForwardAuth`
+- 当前门户已提供 `Firefly III`、`Ghostfolio`、`Grafana` 三个入口
 
 相关资产：
 
@@ -26,6 +26,8 @@
 - 已登录用户再次访问 `https://106.55.163.135/`：landing 会自动跳到 `https://106.55.163.135/home/`
 - 点击“登录认证”：进入 `Authelia`，登录成功后回到 `https://106.55.163.135/home/`
 - 访问 `https://106.55.163.135/home/`：如果未登录，会先跳 `Authelia`
+- 从认证后的门户点击 `Firefly III`：继续沿统一认证链路进入 `/firefly/`
+- 从认证后的门户点击 `Ghostfolio`：继续沿统一认证链路进入 `/ghostfolio/`
 - 从认证后的门户点击 `Grafana`：继续沿统一认证链路进入 `/grafana/`
 
 ## 验证

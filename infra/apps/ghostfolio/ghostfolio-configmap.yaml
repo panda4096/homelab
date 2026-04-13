@@ -10,5 +10,10 @@ data:
   REDIS_DB: "0"
   REDIS_HOST: ghostfolio-redis
   REDIS_PORT: "6379"
-  ROOT_URL: https://106.55.163.135/ghostfolio/
+  ROOT_URL: https://106.55.163.135/ghostfolio
   ENABLE_FEATURE_AUTH_TOKEN: "true"
+  ENABLE_FEATURE_AUTH_OIDC: "true"
+  OIDC_ISSUER: https://106.55.163.135/auth
+  OIDC_CLIENT_ID: ghostfolio
+  OIDC_SCOPE: '["openid","profile","email"]'
+  NODE_TLS_REJECT_UNAUTHORIZED: "0"

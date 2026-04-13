@@ -26,7 +26,7 @@
 
 - Authelia 本地引导记录：`infra/.secrets/authelia-bootstrap.env`
   - 仅供运维人员本地参考，不会被线上 `Authelia` 进程直接读取。
-  - 主要保存初始账号、明文密码提醒、SMTP 密码、会话密钥、存储密钥等人工维护信息。
+  - 主要保存初始账号、明文密码提醒、SMTP 密码、会话密钥、存储密钥以及 OIDC HMAC / JWK / client secret 等人工维护信息。
 - Authelia 本地用户库源文件：`infra/.secrets/authelia-users-database.yml`
   - 这是文件认证后端的本地源数据，保存的是密码哈希而不是明文密码。
   - 线上实际挂载的是 Kubernetes Secret `authelia-users`。
@@ -74,7 +74,7 @@ kubectl get nodes -o wide
 
 1. 更新 `infra/.secrets/authelia-bootstrap.env` 中的明文记录。
 2. 生成新的密码哈希并更新 `infra/.secrets/authelia-users-database.yml`。
-3. 将该文件同步到 Kubernetes Secret `authelia-users`。
+3. 运行 `bash infra/platform/authelia/scripts/apply-secrets.sh` 同步 `authelia-secrets` 和 `authelia-users`。
 4. 重启或滚动更新 `authelia` deployment。
 
 ## 数据层 PostgreSQL 与业务应用密码

@@ -9,9 +9,8 @@ spec:
       namespace: traefik
       sectionName: websecure
   rules:
-    # Rule 1: Exact /ghostfolio or /ghostfolio/ → redirect to /ghostfolio/en/
-    # This bypasses Ghostfolio's own locale detection redirect (which doesn't
-    # know about the path prefix and would redirect to /zh instead of /ghostfolio/zh).
+    # Rule 1: Exact /ghostfolio or /ghostfolio/ → redirect to Ghostfolio's OIDC
+    # start endpoint once ForwardAuth has validated the Authelia session.
     - matches:
         - path:
             type: Exact
@@ -29,7 +28,7 @@ spec:
           extensionRef:
             group: traefik.io
             kind: Middleware
-            name: ghostfolio-redirect-to-en
+            name: ghostfolio-redirect-to-oidc
       backendRefs:
         - name: ghostfolio
           port: 80
