@@ -7,6 +7,13 @@ victoria-metrics-operator:
   enabled: true
   operator:
     disable_prometheus_converter: false
+  resources:
+    requests:
+      cpu: 25m
+      memory: 48Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 defaultDashboards:
   enabled: true
@@ -35,17 +42,17 @@ kubeScheduler:
 vmsingle:
   enabled: true
   spec:
-    retentionPeriod: 30d
+    retentionPeriod: 7d
     replicaCount: 1
     nodeSelector:
       region: gz
     resources:
       requests:
-        cpu: 200m
-        memory: 512Mi
+        cpu: 100m
+        memory: 384Mi
       limits:
-        cpu: "1"
-        memory: 1536Mi
+        cpu: 500m
+        memory: 1024Mi
     serviceSpec:
       spec:
         type: ClusterIP
@@ -68,11 +75,11 @@ vmagent:
       cluster: homelab-k3s
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 96Mi
       limits:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 300m
+        memory: 256Mi
     serviceSpec:
       spec:
         type: ClusterIP
@@ -85,11 +92,11 @@ vmalert:
       region: gz
     resources:
       requests:
-        cpu: 50m
-        memory: 128Mi
+        cpu: 25m
+        memory: 48Mi
       limits:
-        cpu: 200m
-        memory: 256Mi
+        cpu: 100m
+        memory: 128Mi
     serviceSpec:
       spec:
         type: ClusterIP
@@ -103,11 +110,11 @@ alertmanager:
       region: gz
     resources:
       requests:
-        cpu: 50m
-        memory: 128Mi
+        cpu: 25m
+        memory: 48Mi
       limits:
-        cpu: 200m
-        memory: 256Mi
+        cpu: 100m
+        memory: 128Mi
     serviceSpec:
       spec:
         type: ClusterIP
@@ -156,8 +163,8 @@ grafana:
     region: gz
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 50m
+      memory: 96Mi
     limits:
       cpu: 300m
       memory: 512Mi
@@ -171,11 +178,11 @@ kube-state-metrics:
     type: ClusterIP
   resources:
     requests:
+      cpu: 25m
+      memory: 48Mi
+    limits:
       cpu: 100m
       memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
 
 prometheus-node-exporter:
   enabled: true
@@ -226,8 +233,8 @@ prometheus-node-exporter:
               regex: "/var/lib/kubelet/pods.+"
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 10m
+      memory: 32Mi
     limits:
-      cpu: 200m
-      memory: 128Mi
+      cpu: 100m
+      memory: 64Mi

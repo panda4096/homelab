@@ -14,7 +14,7 @@ spec:
         app.kubernetes.io/name: ghostfolio-redis
     spec:
       nodeSelector:
-        region: gz
+        region: sg
       containers:
         - name: redis
           image: redis:7-alpine
@@ -32,8 +32,8 @@ spec:
               name: redis
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 20m
+              memory: 64Mi
             limits:
               cpu: 250m
               memory: 256Mi

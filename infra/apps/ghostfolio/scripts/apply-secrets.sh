@@ -7,11 +7,12 @@
 #   - infra/.secrets/ghostfolio.env  (GHOSTFOLIO_ACCESS_TOKEN_SALT,
 #                                     GHOSTFOLIO_JWT_SECRET_KEY,
 #                                     GHOSTFOLIO_OIDC_CLIENT_SECRET,
-#                                     GHOSTFOLIO_REDIS_PASSWORD)
+#                                     GHOSTFOLIO_REDIS_PASSWORD,
+#                                     optional outbound proxy vars)
 #
 # Produces:
 #   - Secret ghostfolio-app-secrets    (ACCESS_TOKEN_SALT, JWT_SECRET_KEY,
-#                                       OIDC_CLIENT_SECRET)
+#                                       OIDC_CLIENT_SECRET, proxy envs)
 #   - Secret ghostfolio-db-credentials (database-url assembled against shared
 #                                       data/postgresql)
 #   - Secret ghostfolio-redis-secrets  (redis-password, consumed by the
@@ -46,6 +47,10 @@ set +a
 : "${GHOSTFOLIO_JWT_SECRET_KEY:?GHOSTFOLIO_JWT_SECRET_KEY missing in ${APP_ENV}}"
 : "${GHOSTFOLIO_OIDC_CLIENT_SECRET:?GHOSTFOLIO_OIDC_CLIENT_SECRET missing in ${APP_ENV}}"
 : "${GHOSTFOLIO_REDIS_PASSWORD:?GHOSTFOLIO_REDIS_PASSWORD missing in ${APP_ENV}}"
+GHOSTFOLIO_HTTP_PROXY="${GHOSTFOLIO_HTTP_PROXY:-}"
+GHOSTFOLIO_HTTPS_PROXY="${GHOSTFOLIO_HTTPS_PROXY:-}"
+GHOSTFOLIO_NO_PROXY="${GHOSTFOLIO_NO_PROXY:-}"
+GHOSTFOLIO_NODE_USE_ENV_PROXY="${GHOSTFOLIO_NODE_USE_ENV_PROXY:-0}"
 
 if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
   echo "error: namespace ${NAMESPACE} does not exist" >&2
@@ -53,12 +58,19 @@ if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
   exit 1
 fi
 
-DATABASE_URL="postgresql://ghostfolio:${GHOSTFOLIO_DB_PASSWORD}@postgresql.data.svc.cluster.local:5432/ghostfolio?schema=public"
+DATABASE_URL="postgresql://ghostfolio:${GHOSTFOLIO_DB_PASSWORD}@postgresql.data.svc.cluster.local:5432/ghostfolio?schema=public&connect_timeout=30&pool_timeout=30"
 
 kubectl -n "${NAMESPACE}" create secret generic ghostfolio-app-secrets \
   --from-literal=ACCESS_TOKEN_SALT="${GHOSTFOLIO_ACCESS_TOKEN_SALT}" \
   --from-literal=JWT_SECRET_KEY="${GHOSTFOLIO_JWT_SECRET_KEY}" \
   --from-literal=OIDC_CLIENT_SECRET="${GHOSTFOLIO_OIDC_CLIENT_SECRET}" \
+  --from-literal=NODE_USE_ENV_PROXY="${GHOSTFOLIO_NODE_USE_ENV_PROXY}" \
+  --from-literal=HTTP_PROXY="${GHOSTFOLIO_HTTP_PROXY}" \
+  --from-literal=HTTPS_PROXY="${GHOSTFOLIO_HTTPS_PROXY}" \
+  --from-literal=NO_PROXY="${GHOSTFOLIO_NO_PROXY}" \
+  --from-literal=http_proxy="${GHOSTFOLIO_HTTP_PROXY}" \
+  --from-literal=https_proxy="${GHOSTFOLIO_HTTPS_PROXY}" \
+  --from-literal=no_proxy="${GHOSTFOLIO_NO_PROXY}" \
   --dry-run=client -o yaml \
   | kubectl apply -f -
 

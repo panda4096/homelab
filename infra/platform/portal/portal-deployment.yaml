@@ -14,7 +14,7 @@ spec:
         app.kubernetes.io/name: public-portal
     spec:
       nodeSelector:
-        region: gz
+        region: sg
       containers:
         - name: nginx
           image: nginx:1.29-alpine
@@ -23,8 +23,8 @@ spec:
               name: http
           resources:
             requests:
-              cpu: 20m
-              memory: 32Mi
+              cpu: 10m
+              memory: 16Mi
             limits:
               cpu: 100m
               memory: 128Mi

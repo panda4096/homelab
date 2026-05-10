@@ -14,7 +14,7 @@ spec:
         app.kubernetes.io/name: firefly
     spec:
       nodeSelector:
-        region: gz
+        region: sg
       volumes:
         - name: nginx-fastcgi-params
           configMap:
@@ -49,18 +49,27 @@ spec:
               mountPath: /etc/nginx/fastcgi_params
               subPath: fastcgi_params
               readOnly: true
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 60
-            periodSeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 50m

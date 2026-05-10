@@ -18,6 +18,7 @@
 - 共享数据层 PostgreSQL 密码：`infra/.secrets/postgresql.env`
 - Firefly III 应用层密钥：`infra/.secrets/firefly.env`
 - Ghostfolio 应用层密钥：`infra/.secrets/ghostfolio.env`
+  - 同时可选保存 Ghostfolio 外网行情请求用的代理变量（例如经 `edge-gateway` 走新加坡 egress）
 - finbrain 应用层密钥：`infra/.secrets/finbrain.env`
 
 ## Authelia 与 Traefik

@@ -65,6 +65,7 @@ kubectl -n ghostfolio rollout status deploy/ghostfolio
 - 在应用内生成导入用 token
 - 通过 `scripts/init_accounts.py` 校验 `HSBC HK` 与 `Futu HK` 的账户映射
 - OIDC 登录按钮依赖 `ENABLE_FEATURE_AUTH_OIDC=true` 和 `OIDC_CLIENT_SECRET` 已注入 `ghostfolio-app-secrets`
+- 如需绕过广州出口对行情源的地域限制，可在 `infra/.secrets/ghostfolio.env` 中填 `GHOSTFOLIO_HTTP_PROXY` / `GHOSTFOLIO_HTTPS_PROXY` / `GHOSTFOLIO_NO_PROXY` / `GHOSTFOLIO_NODE_USE_ENV_PROXY`，然后重跑 `scripts/apply-secrets.sh`
 
 ## 当前限制
 
@@ -72,3 +73,4 @@ kubectl -n ghostfolio rollout status deploy/ghostfolio
 - 根入口 `/ghostfolio/` 会直接重定向到 `/ghostfolio/api/auth/oidc?redirectTo=%2Fen%2Fhome`；欢迎页仍可通过 `/ghostfolio/en/start` 访问
 - OIDC callback 走 `/ghostfolio/api/auth/oidc/callback`，依赖 `ROOT_URL` 与 HTTPRoute 的 StripPrefix 行为保持一致
 - Redis 单实例，没有持久化保护，重启后 Ghostfolio 内部缓存需要重建（可接受）
+- 仅切换出口并不能保证 Yahoo 一定可用；当前通过 SG egress 后，大陆 403 已解除，但仍可能遇到 Yahoo 上游 `429` 频率限制
