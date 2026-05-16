@@ -10,8 +10,10 @@
 |---|---|---|---|
 | gz.butcoder.com | k3s server（控制面） | `region=gz` | `ssh gz.butcoder.com` |
 | sg.butcoder.com | k3s agent（工作节点） | `region=sg` | `ssh sg.butcoder.com` |
+| 192.168.100.29 (NUC) | 家庭软路由 + 独立 k3s（不在主集群） | `region=home` | `ssh NUC` |
 
 - k3s API Endpoint（默认）：`https://gz.butcoder.com:6443`
+- NUC 家庭软路由（mihomo）：详见 `infra/08-NUC家庭软路由（mihomo）.md`
 
 ## 文档阅读顺序
 
@@ -21,6 +23,7 @@
 - `04` 监控与 Dashboard 维护：`infra/04-监控与Dashboard维护.md`
 - `05` 网络探测与链路监控：`infra/05-网络探测与链路监控.md`
 - `06` 跨地域代理网关架构：`infra/06-跨地域代理网关架构.md`
+- `08` NUC 家庭软路由（mihomo）：`infra/08-NUC家庭软路由（mihomo）.md`
 
 > 说明：这里是“阅读/理解顺序”，不是“实际部署时间顺序”。实际创建顺序见 `infra/01-节点互联与网络架构.md` 开头的说明。
 
@@ -51,6 +54,7 @@
 - monitoring 自定义 dashboard：`infra/platform/monitoring/grafana/README.md`
 - network monitoring 文档：`infra/05-网络探测与链路监控.md`
 - edge gateway 架构：`infra/06-跨地域代理网关架构.md`
+- NUC 家庭软路由（mihomo）架构：`infra/08-NUC家庭软路由（mihomo）.md`
 - network monitoring 资产：`infra/platform/monitoring/network/README.md`
 - 应用层说明：`infra/apps/README.md`
 - Firefly III 部署资产：`infra/apps/firefly/README.md`

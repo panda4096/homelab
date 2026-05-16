@@ -29,3 +29,12 @@ nodes:
     # cpu: ""
     # mem: ""
     # notes: ""
+  nuc:
+    ssh: "ssh NUC"
+    kubernetes_node_name: "nuc"
+    role: home-router            # 独立 k3s（control-plane+master，单节点），与 homelab-k3s 主集群不互联
+    region: home
+    private_ip: "192.168.100.29"
+    # 家庭 LAN 软路由（mihomo / Clash.Meta），承担 PS5 / Switch / Apple TV 等设备的透明代理
+    # 详见 infra/08-NUC家庭软路由（mihomo）.md
+    notes: "Ubuntu 24.04 / 上行 wlp0s20f3（无线，eno1 NO-CARRIER）"
