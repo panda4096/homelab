@@ -1,1 +1,0 @@
-"""finbrain ingest-agent package."""

@@ -268,6 +268,34 @@ sudo cp /etc/mihomo/config.yaml.bak.<timestamp> /etc/mihomo/config.yaml
 sudo /usr/local/bin/mihomo -t -d /etc/mihomo && sudo systemctl reload mihomo
 ```
 
+### 5.5 Ubuntu 自动更新 / 弹窗治理
+
+NUC 是软路由节点，系统升级由人工择时执行，避免桌面升级提示或 `apt-daily` 后台任务打扰运行时网络。
+
+当前策略：
+
+- `apt-daily.timer` / `apt-daily-upgrade.timer` / 对应 service：`masked`
+- `/etc/update-manager/release-upgrades`：`Prompt=never`
+- 当前用户桌面自启动：`~/.config/autostart/update-notifier.desktop` 里 `X-GNOME-Autostart-enabled=false`
+
+手动升级时仍可直接执行：
+
+```bash
+sudo apt update
+sudo apt list --upgradable
+sudo apt upgrade
+```
+
+如需恢复 Ubuntu 自动检查：
+
+```bash
+sudo systemctl unmask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service
+sudo systemctl enable --now apt-daily.timer apt-daily-upgrade.timer
+sudo sed -i 's/^Prompt=.*/Prompt=lts/' /etc/update-manager/release-upgrades
+sed -i 's/^X-GNOME-Autostart-enabled=.*/X-GNOME-Autostart-enabled=true/' \
+  ~/.config/autostart/update-notifier.desktop
+```
+
 ## 6. 已知风险与对策
 
 ### 6.1 `wlp0s20f3` 是唯一上行 → 单点故障

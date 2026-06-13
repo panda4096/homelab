@@ -1,2 +1,0 @@
-source_ref,broker_account,trade_date,settle_date,type,symbol,quantity,unit_price,currency,exchange_levy,trading_fee,broker_commission,other,settlement_amount
-FUTU-2026-04-001,Futu HK,2026-04-10,2026-04-12,BUY,0700.HK,100,320.50,HKD,1.25,2.50,18.00,0,32071.75
