@@ -61,8 +61,8 @@ PRD 就绪度评审里点名的"工程补遗",在此一次性定死,各阶段直
 - **Go 侧落地**(P0 实现):启动时按 `FINBRAIN_TIMEZONE` 载入 `*time.Location`,所有"今天"经 `time.Now().In(loc)` 取;DB 连接 `SET timezone`,涉及日期边界的 SQL 显式 `AT TIME ZONE`;封装统一函数,禁止裸 `time.Now()`。
 
 ### 2.3 并发(单用户,Last-Write-Wins)
-- 不引乐观锁。每条资源 `updated_at` 为 `timestamptz`(毫秒)。并发 `PATCH` 走 `ON CONFLICT DO UPDATE ... WHERE updated_at < :new`,后写覆盖。
-- 写操作返回新对象的 `id + updated_at`;前端若发现本地 `updated_at` 落后于返回值,TanStack Query 自动 refetch 取最新;多标签页同改时 UI 给一句淡提示"已被其他标签页更新",不弹冲突对话框。
+- P1-P2 阶段按单用户使用假设处理并发,写接口不要求 `If-Match`/版本号,也不做冲突对话框;多标签页同时修改时以后写覆盖。
+- 每条资源继续返回 `updated_at`,当前用于审计和 TanStack Query refetch 后刷新界面;如果后续进入多人协作或强一致需求,再基于 `updated_at` 增加 `If-Match`/乐观锁。
 
 ### 2.4 安全(PRD §9)
 - 单用户工具,app **不实现登录页**:开发期免登录(固定 dev 用户);鉴权中间件做成可插拔(默认放行),未来置于反代之后时再开启"信任反代身份头"(可配 `FINBRAIN_AUTH_HEADER`)。具体认证形态随部署决定,不在本方案范围。
@@ -71,6 +71,7 @@ PRD 就绪度评审里点名的"工程补遗",在此一次性定死,各阶段直
 ### 2.5 PRD 修订项 ✅ 已完成(入场条件已满足)
 - ✅ `credit_card_bills` 已补字段:`payment_account_id bigint`(可空,FK→`accounts.id`;为空=该期未指定还款账户;仅当 `paid_at` 非空时参与 §6.19)。PRD §5.2.5 + §4.4 已更新。
 - ✅ `position_snapshots.cost_currency` 三级回退已统一为:本字段(如已填)→ `instruments.quote_currency`(如非空)→ `accounts.currency`。PRD §5.2.4 与 §6.7 已对齐。
+- ✅ P2 `prices`/`fx_rates` 保留 `note` 作为自由备注,并新增结构化 `source varchar(32)` 记录数据来源(手工录入默认 `manual`),避免把来源与备注混写。
 
 ### 2.6 事务与批量操作
 - **批量提交(盘点向导)= 单数据库事务,全成功或全回滚**。一个批次可跨 `balance_snapshots`/`position_snapshots`/`credit_card_bills`/`income_events`;任一行校验失败则整批回滚。

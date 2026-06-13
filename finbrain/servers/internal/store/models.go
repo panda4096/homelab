@@ -30,11 +30,113 @@ type Instrument struct {
 
 // AccountTemplate is a build-from-template blueprint set (PRD §5.2.12).
 type AccountTemplate struct {
-	ID         int64           `json:"id"`
-	Name       string          `json:"name"`
+	ID          int64           `json:"id"`
+	Name        string          `json:"name"`
 	Description *string         `json:"description"`
-	IsBuiltin  bool            `json:"is_builtin"`
-	Blueprints json.RawMessage `json:"account_blueprints"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
+	IsBuiltin   bool            `json:"is_builtin"`
+	Blueprints  json.RawMessage `json:"account_blueprints"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// Price is one manually maintained market price for an instrument on a date.
+type Price struct {
+	ID        int64     `json:"id"`
+	Symbol    string    `json:"symbol"`
+	PriceDate string    `json:"price_date"`
+	Price     string    `json:"price"`
+	Currency  string    `json:"currency"`
+	Source    string    `json:"source"`
+	Note      *string   `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// FxRate is one manually maintained currency conversion rate on a date.
+type FxRate struct {
+	ID            int64     `json:"id"`
+	BaseCurrency  string    `json:"base_currency"`
+	QuoteCurrency string    `json:"quote_currency"`
+	RateDate      string    `json:"rate_date"`
+	Rate          string    `json:"rate"`
+	Source        string    `json:"source"`
+	Note          *string   `json:"note"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type PriceList struct {
+	Items     []Price `json:"items"`
+	Truncated bool    `json:"truncated"`
+	Limit     int     `json:"limit"`
+}
+
+type FxRateList struct {
+	Items     []FxRate `json:"items"`
+	Truncated bool     `json:"truncated"`
+	Limit     int      `json:"limit"`
+}
+
+// Valuation is the P2 current valuation payload consumed by the dashboard and
+// holding overview. Money fields are decimal strings in DisplayCurrency.
+type Valuation struct {
+	AsOf             string                       `json:"as_of"`
+	DisplayCurrency  string                       `json:"display_currency"`
+	FxMode           string                       `json:"fx_mode"`
+	NetWorth         string                       `json:"net_worth"`
+	TotalAssets      string                       `json:"total_assets"`
+	TotalLiabilities string                       `json:"total_liabilities"`
+	CashValue        string                       `json:"cash_value"`
+	PositionValue    string                       `json:"position_value"`
+	PositionCost     string                       `json:"position_cost"`
+	UnrealizedPL     string                       `json:"unrealized_pl"`
+	UnrealizedPLPct  *string                      `json:"unrealized_pl_pct"`
+	PositionShare    *string                      `json:"position_share"`
+	Allocations      map[string][]ValuationBucket `json:"allocations"`
+	Positions        []ValuationPosition          `json:"positions"`
+	PositionGroups   []ValuationPosition          `json:"position_groups"`
+	Warnings         []ValuationWarning           `json:"warnings"`
+}
+
+type ValuationBucket struct {
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	Value   string `json:"value"`
+	Percent string `json:"percent"`
+}
+
+type ValuationWarning struct {
+	Kind    string `json:"kind"`
+	Key     string `json:"key"`
+	Message string `json:"message"`
+}
+
+type ValuationPosition struct {
+	AccountID           int64   `json:"account_id"`
+	AccountName         string  `json:"account_name"`
+	AccountCurrency     string  `json:"account_currency"`
+	AccountKind         string  `json:"account_kind"`
+	Institution         string  `json:"institution"`
+	Symbol              string  `json:"symbol"`
+	DisplayName         *string `json:"display_name"`
+	Market              *string `json:"market"`
+	QuoteCurrency       string  `json:"quote_currency"`
+	Quantity            string  `json:"quantity"`
+	AvgCost             *string `json:"avg_cost"`
+	CostCurrency        string  `json:"cost_currency"`
+	SnapshotDate        string  `json:"snapshot_date"`
+	Price               *string `json:"price"`
+	PriceCurrency       *string `json:"price_currency"`
+	PriceDate           *string `json:"price_date"`
+	MarketValue         *string `json:"market_value"`
+	MarketValueDisplay  *string `json:"market_value_display"`
+	CostValueDisplay    *string `json:"cost_value_display"`
+	UnrealizedPLDisplay *string `json:"unrealized_pl_display"`
+	UnrealizedPLPct     *string `json:"unrealized_pl_pct"`
+	Weight              *string `json:"weight"`
+	AssetWeight         *string `json:"asset_weight"`
+	HoldingStartDate    *string `json:"holding_start_date"`
+	HoldingDays         *int    `json:"holding_days"`
+	MissingPrice        bool    `json:"missing_price"`
+	FxFallback          bool    `json:"fx_fallback"`
 }

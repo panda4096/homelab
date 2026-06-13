@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,7 +13,7 @@ import (
 func (s *Server) listInstruments(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListInstruments(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -27,7 +26,7 @@ func (s *Server) getInstrument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, i)
@@ -35,8 +34,7 @@ func (s *Server) getInstrument(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) upsertInstrument(w http.ResponseWriter, r *http.Request) {
 	var in store.Instrument
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &in) {
 		return
 	}
 	in.Symbol = strings.TrimSpace(in.Symbol)
@@ -44,9 +42,14 @@ func (s *Server) upsertInstrument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "symbol is required")
 		return
 	}
+	normalizeInstrumentText(&in)
+	if msg := validateInstrumentText(in); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
+		return
+	}
 	out, err := s.store.UpsertInstrument(r.Context(), in)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -61,7 +64,7 @@ func (s *Server) patchInstrument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	var body struct {
@@ -72,8 +75,7 @@ func (s *Server) patchInstrument(w http.ResponseWriter, r *http.Request) {
 		IsBenchmark   *bool   `json:"is_benchmark"`
 		Note          *string `json:"note"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DisplayName != nil {
@@ -94,9 +96,14 @@ func (s *Server) patchInstrument(w http.ResponseWriter, r *http.Request) {
 	if body.Note != nil {
 		cur.Note = body.Note
 	}
+	normalizeInstrumentText(&cur)
+	if msg := validateInstrumentText(cur); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
+		return
+	}
 	out, err := s.store.UpsertInstrument(r.Context(), cur)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -108,9 +115,49 @@ func (s *Server) deleteInstrument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "instrument not found")
 		return
 	}
+	if errors.Is(err, store.ErrInUse) || isForeignKeyViolation(err) {
+		writeError(w, http.StatusConflict, "conflict", "标的仍被持仓引用,无法删除")
+		return
+	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func normalizeInstrumentText(in *store.Instrument) {
+	in.Symbol = strings.TrimSpace(in.Symbol)
+	if in.DisplayName != nil {
+		v := strings.TrimSpace(*in.DisplayName)
+		in.DisplayName = &v
+	}
+	if in.Market != nil {
+		v := strings.TrimSpace(*in.Market)
+		in.Market = &v
+	}
+	if in.QuoteCurrency != nil {
+		v := strings.ToUpper(strings.TrimSpace(*in.QuoteCurrency))
+		in.QuoteCurrency = &v
+	}
+	if in.AssetKind != nil {
+		v := strings.TrimSpace(*in.AssetKind)
+		in.AssetKind = &v
+	}
+}
+
+func validateInstrumentText(in store.Instrument) string {
+	if msg := validateTextLen("symbol", in.Symbol, maxSymbolLen); msg != "" {
+		return msg
+	}
+	if msg := validateOptionalTextLen("display_name", in.DisplayName, maxNameLen); msg != "" {
+		return msg
+	}
+	if msg := validateOptionalTextLen("market", in.Market, maxKindLen); msg != "" {
+		return msg
+	}
+	if msg := validateOptionalTextLen("asset_kind", in.AssetKind, maxKindLen); msg != "" {
+		return msg
+	}
+	return validateOptionalTextLen("note", in.Note, maxNoteLen)
 }

@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
@@ -9,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/domain"
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
@@ -23,15 +21,10 @@ func pathID(r *http.Request, key string) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, key), 10, 64)
 }
 
-func isUniqueViolation(err error) bool {
-	var pe *pgconn.PgError
-	return errors.As(err, &pe) && pe.Code == "23505"
-}
-
 func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListAccounts(r.Context(), s.today())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -49,7 +42,7 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
@@ -57,8 +50,7 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	var a store.Account
-	if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &a) {
 		return
 	}
 	a.Name = strings.TrimSpace(a.Name)
@@ -68,20 +60,24 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
+	if msg := validateAccountText(a); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "validation_failed", msg)
+		return
+	}
 	if _, err := s.store.GetInstitution(r.Context(), a.InstitutionID); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "institution_id 不存在")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	out, err := s.store.CreateAccount(r.Context(), a)
 	if isUniqueViolation(err) {
-		writeError(w, http.StatusConflict, "conflict", "账户名已存在")
+		writeError(w, http.StatusConflict, "conflict", "该机构下已存在同名账户")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)
@@ -99,7 +95,7 @@ func (s *Server) patchAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	// institution_id and currency are intentionally NOT patchable. Both define how
@@ -112,8 +108,7 @@ func (s *Server) patchAccount(w http.ResponseWriter, r *http.Request) {
 		Note         *string `json:"note"`
 		IsArchived   *bool   `json:"is_archived"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.Name != nil {
@@ -139,13 +134,17 @@ func (s *Server) patchAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
+	if msg := validateAccountText(cur); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "validation_failed", msg)
+		return
+	}
 	out, err := s.store.UpdateAccount(r.Context(), cur)
 	if isUniqueViolation(err) {
-		writeError(w, http.StatusConflict, "conflict", "账户名已存在")
+		writeError(w, http.StatusConflict, "conflict", "该机构下已存在同名账户")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -157,20 +156,18 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	hasData, err := s.store.AccountHasData(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	if hasData {
-		writeError(w, http.StatusConflict, "conflict", "账户已有记录，只能归档不能删除")
-		return
-	}
-	if err := s.store.DeleteAccount(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteAccountIfEmpty(r.Context(), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
+	} else if errors.Is(err, store.ErrInUse) {
+		writeError(w, http.StatusConflict, "conflict", "账户已有记录，只能归档不能删除")
+		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		if isForeignKeyViolation(err) {
+			writeError(w, http.StatusConflict, "conflict", "账户仍被其他记录引用,无法删除")
+			return
+		}
+		writeStorageError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -183,8 +180,7 @@ func (s *Server) createAccountsFromTemplate(w http.ResponseWriter, r *http.Reque
 		InstitutionID   int64  `json:"institution_id"`
 		InstitutionName string `json:"institution_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.TemplateID == 0 {
@@ -198,13 +194,18 @@ func (s *Server) createAccountsFromTemplate(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "institution_id 不存在")
 			return
 		} else if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			writeInternal(w, r, err)
 			return
 		}
 	case strings.TrimSpace(body.InstitutionName) != "":
-		inst, err := s.store.GetOrCreateInstitutionByName(r.Context(), strings.TrimSpace(body.InstitutionName))
+		body.InstitutionName = strings.TrimSpace(body.InstitutionName)
+		if msg := validateTextLen("institution_name", body.InstitutionName, maxNameLen); msg != "" {
+			writeError(w, http.StatusUnprocessableEntity, "validation_failed", msg)
+			return
+		}
+		inst, err := s.store.GetOrCreateInstitutionByName(r.Context(), body.InstitutionName)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			writeStorageError(w, r, err)
 			return
 		}
 		instID = inst.ID
@@ -223,7 +224,7 @@ func (s *Server) createAccountsFromTemplate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)
@@ -237,7 +238,7 @@ func (s *Server) listAccountBalanceSnapshots(w http.ResponseWriter, r *http.Requ
 	}
 	items, err := s.store.ListBalanceSnapshots(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -251,7 +252,7 @@ func (s *Server) listAccountPositionSnapshots(w http.ResponseWriter, r *http.Req
 	}
 	items, err := s.store.ListPositionSnapshots(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -265,7 +266,7 @@ func (s *Server) listAccountPositions(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.store.ListAccountPositions(r.Context(), id, s.today())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -285,4 +286,14 @@ func validateAccount(a store.Account) string {
 		return "kind is required"
 	}
 	return ""
+}
+
+func validateAccountText(a store.Account) string {
+	if msg := validateTextLen("name", a.Name, maxNameLen); msg != "" {
+		return msg
+	}
+	if msg := validateTextLen("kind", a.Kind, maxKindLen); msg != "" {
+		return msg
+	}
+	return validateOptionalTextLen("note", a.Note, maxNoteLen)
 }

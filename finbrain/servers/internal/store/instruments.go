@@ -59,14 +59,38 @@ func (s *Store) UpsertInstrument(ctx context.Context, i Instrument) (Instrument,
 		i.Symbol, i.DisplayName, i.Market, i.QuoteCurrency, i.AssetKind, i.IsBenchmark, i.Note))
 }
 
-// DeleteInstrument removes an instrument (P0: no cascade checks yet).
+// DeleteInstrument removes an instrument only when no current table references it.
 func (s *Store) DeleteInstrument(ctx context.Context, symbol string) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM instruments WHERE symbol = $1`, symbol)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var id string
+	if err := tx.QueryRow(ctx, `SELECT symbol FROM instruments WHERE symbol=$1 FOR UPDATE`, symbol).Scan(&id); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+
+	var refs int
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM position_snapshots WHERE symbol=$1)
+			+ (SELECT count(*) FROM prices WHERE symbol=$1)`, symbol).Scan(&refs); err != nil {
+		return err
+	}
+	if refs > 0 {
+		return ErrInUse
+	}
+
+	ct, err := tx.Exec(ctx, `DELETE FROM instruments WHERE symbol = $1`, symbol)
 	if err != nil {
 		return err
 	}
 	if ct.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }

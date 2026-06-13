@@ -2,6 +2,7 @@ import { useState, type DragEventHandler } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, Field, Icon, IconButton, Input, Select } from '../ds'
 import { Modal } from '../shell/Modal'
+import { ConfirmDialog } from '../shell/ConfirmDialog'
 import { useToast } from '../shell/Toast'
 import { Row, Td } from '../lib/ui'
 import { INSTITUTION_KINDS, institutionKindLabel } from '../lib/format'
@@ -26,6 +27,7 @@ export function Institutions({ embedded = false }: { embedded?: boolean } = {}) 
 
   // null = closed; { } = create; { ...inst } = edit
   const [editing, setEditing] = useState<Institution | 'new' | null>(null)
+  const [deleting, setDeleting] = useState<Institution | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
 
   const reorder = useMutation({
@@ -56,6 +58,7 @@ export function Institutions({ embedded = false }: { embedded?: boolean } = {}) 
     },
     // 409 when account_count > 0 — surface the backend message verbatim.
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
+    onSettled: () => setDeleting(null),
   })
 
   function onDelete(inst: Institution) {
@@ -63,8 +66,7 @@ export function Institutions({ embedded = false }: { embedded?: boolean } = {}) 
       toast.error(`该机构下还有 ${inst.account_count} 个账户，请先迁移或删除账户`)
       return
     }
-    if (!window.confirm(`确认删除机构「${inst.name}」？`)) return
-    remove.mutate(inst.id)
+    setDeleting(inst)
   }
 
   function onDropInstitution(targetId: number) {
@@ -163,6 +165,16 @@ export function Institutions({ embedded = false }: { embedded?: boolean } = {}) 
         <InstitutionModal
           institution={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
+        />
+      ) : null}
+      {deleting ? (
+        <ConfirmDialog
+          title="删除机构"
+          message={`确认删除机构「${deleting.name}」？此操作不可撤销。`}
+          confirmLabel="删除"
+          pending={remove.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => remove.mutate(deleting.id)}
         />
       ) : null}
     </div>

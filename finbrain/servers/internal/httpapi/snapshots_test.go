@@ -41,3 +41,31 @@ func TestValidMoneyDecimal(t *testing.T) {
 		}
 	}
 }
+
+func TestValidDecimalString(t *testing.T) {
+	for _, v := range []string{"0", "1", "1.2", "123456789012345678901234567890.12345678", "-0.00000001"} {
+		if !validDecimal(v) {
+			t.Fatalf("%q should be a valid decimal string", v)
+		}
+	}
+
+	for _, v := range []string{"", ".", ".1", "1.", "1.123456789", "NaN", "1e2", "+1.00"} {
+		if validDecimal(v) {
+			t.Fatalf("%q should be an invalid decimal string", v)
+		}
+	}
+}
+
+func TestNegativeDecimalString(t *testing.T) {
+	for _, v := range []string{"-1", "-0.00000001", " -100.25 "} {
+		if !isNegativeDecimal(v) {
+			t.Fatalf("%q should be negative", v)
+		}
+	}
+
+	for _, v := range []string{"0", "1", "-0", "-0.0", "-000.00000000"} {
+		if isNegativeDecimal(v) {
+			t.Fatalf("%q should not be treated as negative", v)
+		}
+	}
+}

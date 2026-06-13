@@ -154,6 +154,42 @@ func (s *Store) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DeleteAccountIfEmpty removes an account only if it has no balance/position data.
+// The existence check and delete run in one transaction to avoid check-then-delete races.
+func (s *Store) DeleteAccountIfEmpty(ctx context.Context, id int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var lockedID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE id=$1 FOR UPDATE`, id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+
+	var hasData bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE account_id=$1)
+		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE account_id=$1)`, id).Scan(&hasData); err != nil {
+		return err
+	}
+	if hasData {
+		return ErrInUse
+	}
+
+	ct, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
+}
+
 // CreateAccountsFromTemplate creates one account per blueprint under the given
 // institution, in a single transaction. Account name = "<institution> <name_suffix>".
 func (s *Store) CreateAccountsFromTemplate(ctx context.Context, templateID, institutionID int64) ([]Account, error) {

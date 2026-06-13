@@ -13,6 +13,9 @@ import (
 // ErrNotFound is returned when a lookup matches no row.
 var ErrNotFound = errors.New("not found")
 
+// ErrInUse is returned when a delete would break an existing reference.
+var ErrInUse = errors.New("in use")
+
 // rowScanner is satisfied by both pgx.Row and pgx.Rows.
 type rowScanner interface{ Scan(dest ...any) error }
 

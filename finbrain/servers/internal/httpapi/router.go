@@ -28,6 +28,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 	r.Get("/healthz", s.handleHealthz)
 
 	r.Route("/api", func(r chi.Router) {
+		r.Use(maxBodyMiddleware)
 		r.Use(authMiddleware(cfg))
 
 		r.Get("/preferences", s.getPreferences)
@@ -66,6 +67,17 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Post("/position-snapshots", s.upsertPositionSnapshot)
 		r.Patch("/position-snapshots/{id}", s.patchPositionSnapshot)
 		r.Delete("/position-snapshots/{id}", s.deletePositionSnapshot)
+
+		// P2: market data and valuation
+		r.Get("/prices", s.listPrices)
+		r.Post("/prices", s.upsertPrice)
+		r.Patch("/prices/{id}", s.patchPrice)
+		r.Delete("/prices/{id}", s.deletePrice)
+		r.Get("/fx-rates", s.listFxRates)
+		r.Post("/fx-rates", s.upsertFxRate)
+		r.Patch("/fx-rates/{id}", s.patchFxRate)
+		r.Delete("/fx-rates/{id}", s.deleteFxRate)
+		r.Get("/valuation", s.getValuation)
 	})
 
 	if cfg.StaticDir != "" {

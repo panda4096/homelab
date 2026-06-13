@@ -99,6 +99,39 @@ func (s *Store) DeleteInstitution(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DeleteInstitutionIfEmpty removes an institution only when no accounts reference it.
+func (s *Store) DeleteInstitutionIfEmpty(ctx context.Context, id int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var lockedID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM institutions WHERE id=$1 FOR UPDATE`, id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+
+	var hasAccounts bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE institution_id=$1)`, id).Scan(&hasAccounts); err != nil {
+		return err
+	}
+	if hasAccounts {
+		return ErrInUse
+	}
+
+	ct, err := tx.Exec(ctx, `DELETE FROM institutions WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
+}
+
 // GetOrCreateInstitutionByName returns the institution with the given name, creating it if absent.
 func (s *Store) GetOrCreateInstitutionByName(ctx context.Context, name string) (Institution, error) {
 	var id int64

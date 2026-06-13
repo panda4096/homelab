@@ -1,10 +1,8 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/domain"
@@ -12,11 +10,55 @@ import (
 )
 
 func validDecimal(s string) bool {
-	if strings.TrimSpace(s) == "" {
+	s = strings.TrimSpace(s)
+	if s == "" {
 		return false
 	}
-	_, err := strconv.ParseFloat(s, 64)
-	return err == nil
+	if strings.HasPrefix(s, "-") {
+		s = strings.TrimPrefix(s, "-")
+		if s == "" {
+			return false
+		}
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) > 2 || parts[0] == "" {
+		return false
+	}
+	if !allDecimalDigits(parts[0]) {
+		return false
+	}
+	if len(parts) == 2 {
+		if len(parts[1]) == 0 || len(parts[1]) > 8 {
+			return false
+		}
+		if !allDecimalDigits(parts[1]) {
+			return false
+		}
+	}
+	return true
+}
+
+func allDecimalDigits(s string) bool {
+	for _, ch := range s {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isNegativeDecimal(s string) bool {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "-") {
+		return false
+	}
+	for _, ch := range strings.TrimPrefix(s, "-") {
+		if ch == '.' || ch == '0' {
+			continue
+		}
+		return ch >= '1' && ch <= '9'
+	}
+	return false
 }
 
 func validMoneyDecimal(s string) bool {
@@ -71,12 +113,15 @@ func supportsPositionSnapshots(kind string) bool {
 
 func (s *Server) upsertBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 	var b store.BalanceSnapshot
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &b) {
 		return
 	}
 	if b.AccountID == 0 || !validMoneyDecimal(b.Balance) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "account_id and balance with up to 2 decimal places are required")
+		return
+	}
+	if msg := validateOptionalTextLen("note", b.Note, maxNoteLen); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
 	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.cfg.Location); err != nil {
@@ -89,7 +134,7 @@ func (s *Server) upsertBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	if !supportsBalanceSnapshots(acct.Kind) {
@@ -98,7 +143,7 @@ func (s *Server) upsertBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.store.UpsertBalanceSnapshot(r.Context(), b)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -114,7 +159,7 @@ func (s *Server) deleteBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "snapshot not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -127,12 +172,15 @@ func (s *Server) patchBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var b store.BalanceSnapshot
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &b) {
 		return
 	}
 	if !validMoneyDecimal(b.Balance) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "balance with up to 2 decimal places is required")
+		return
+	}
+	if msg := validateOptionalTextLen("note", b.Note, maxNoteLen); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
 	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.cfg.Location); err != nil {
@@ -149,7 +197,7 @@ func (s *Server) patchBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -159,8 +207,7 @@ func (s *Server) patchBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) {
 	var p store.PositionSnapshot
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &p) {
 		return
 	}
 	p.Symbol = strings.TrimSpace(p.Symbol)
@@ -168,11 +215,19 @@ func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "account_id and symbol are required")
 		return
 	}
+	if msg := validateTextLen("symbol", p.Symbol, maxSymbolLen); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
+		return
+	}
+	if msg := validateOptionalTextLen("note", p.Note, maxNoteLen); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
+		return
+	}
 	if !validDecimal(p.Quantity) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "quantity must be numeric")
 		return
 	}
-	if q, _ := strconv.ParseFloat(p.Quantity, 64); q < 0 {
+	if isNegativeDecimal(p.Quantity) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "quantity must be >= 0 (0 = 清仓)")
 		return
 	}
@@ -189,7 +244,7 @@ func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	if !supportsPositionSnapshots(acct.Kind) {
@@ -198,7 +253,7 @@ func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) 
 	}
 	out, err := s.store.UpsertPositionSnapshot(r.Context(), p)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -214,7 +269,7 @@ func (s *Server) deletePositionSnapshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, "not_found", "snapshot not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -227,15 +282,18 @@ func (s *Server) patchPositionSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var p store.PositionSnapshot
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &p) {
+		return
+	}
+	if msg := validateOptionalTextLen("note", p.Note, maxNoteLen); msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
 	if !validDecimal(p.Quantity) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "quantity must be numeric")
 		return
 	}
-	if q, _ := strconv.ParseFloat(p.Quantity, 64); q < 0 {
+	if isNegativeDecimal(p.Quantity) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "quantity must be >= 0 (0 = 清仓)")
 		return
 	}
@@ -257,7 +315,7 @@ func (s *Server) patchPositionSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

@@ -1,14 +1,11 @@
 package httpapi
 
-import (
-	"encoding/json"
-	"net/http"
-)
+import "net/http"
 
 func (s *Server) getPreferences(w http.ResponseWriter, r *http.Request) {
 	p, err := s.store.GetPreferences(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -19,7 +16,7 @@ func (s *Server) getPreferences(w http.ResponseWriter, r *http.Request) {
 func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
 	cur, err := s.store.GetPreferences(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeInternal(w, r, err)
 		return
 	}
 	var body struct {
@@ -28,8 +25,7 @@ func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
 		TimeAggregationDefault *string `json:"time_aggregation_default"`
 		MarketConvention       *string `json:"market_convention"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "invalid JSON body")
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if body.DisplayCurrency != nil {
@@ -58,7 +54,7 @@ func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.store.UpdatePreferences(r.Context(), cur)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeStorageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

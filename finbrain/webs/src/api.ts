@@ -33,6 +33,18 @@ export interface Instrument {
   updated_at: string
 }
 
+export interface UpsertInstrumentInput {
+  symbol: string
+  display_name?: string | null
+  market?: string | null
+  quote_currency?: string | null
+  asset_kind?: string | null
+  is_benchmark?: boolean
+  note?: string | null
+}
+
+export type UpdateInstrumentInput = Partial<Omit<UpsertInstrumentInput, 'symbol'>>
+
 export type AccountKind =
   | 'cash'
   | 'time_deposit'
@@ -175,6 +187,138 @@ export interface AccountTemplate {
   updated_at: string
 }
 
+export interface Price {
+  id: number
+  symbol: string
+  price_date: string
+  price: string
+  currency: string
+  source: string
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreatePriceInput {
+  symbol: string
+  price_date: string
+  price: string
+  currency: string
+  source?: string | null
+  note?: string | null
+}
+
+export type UpdatePriceInput = Pick<
+  CreatePriceInput,
+  'price_date' | 'price' | 'currency' | 'source' | 'note'
+>
+
+export interface FxRate {
+  id: number
+  base_currency: string
+  quote_currency: string
+  rate_date: string
+  rate: string
+  source: string
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateFxRateInput {
+  base_currency: string
+  quote_currency: string
+  rate_date: string
+  rate: string
+  source?: string | null
+  note?: string | null
+}
+
+export type UpdateFxRateInput = Pick<CreateFxRateInput, 'rate_date' | 'rate' | 'source' | 'note'>
+
+export interface ValuationBucket {
+  key: string
+  name: string
+  value: string
+  percent: string
+}
+
+export interface ValuationWarning {
+  kind: 'missing_price' | 'fx_fallback' | string
+  key: string
+  message: string
+}
+
+export interface ValuationPosition {
+  account_id: number
+  account_name: string
+  account_currency: string
+  account_kind: AccountKind
+  institution: string
+  symbol: string
+  display_name: string | null
+  market: string | null
+  quote_currency: string
+  quantity: string
+  avg_cost: string | null
+  cost_currency: string
+  snapshot_date: string
+  price: string | null
+  price_currency: string | null
+  price_date: string | null
+  market_value: string | null
+  market_value_display: string | null
+  cost_value_display: string | null
+  unrealized_pl_display: string | null
+  unrealized_pl_pct: string | null
+  weight: string | null
+  asset_weight: string | null
+  holding_start_date: string | null
+  holding_days: number | null
+  missing_price: boolean
+  fx_fallback: boolean
+}
+
+export interface Valuation {
+  as_of: string
+  display_currency: string
+  fx_mode: FxMode
+  net_worth: string
+  total_assets: string
+  total_liabilities: string
+  cash_value: string
+  position_value: string
+  position_cost: string
+  unrealized_pl: string
+  unrealized_pl_pct: string | null
+  position_share: string | null
+  allocations: Record<string, ValuationBucket[]>
+  positions: ValuationPosition[]
+  position_groups: ValuationPosition[]
+  warnings: ValuationWarning[]
+}
+
+export interface ListEnvelope<T> {
+  items: T[]
+  truncated: boolean
+  limit: number
+}
+
+export interface PriceFilter {
+  symbol?: string
+  date_from?: string
+  date_to?: string
+  sort?: 'date_desc' | 'date_asc'
+}
+
+export interface FxRateFilter {
+  base_currency?: string
+  quote_currency?: string
+  date_from?: string
+  date_to?: string
+  sort?: 'date_desc' | 'date_asc'
+}
+
 // Backend error envelope: { error: { code, message } }.
 export type ApiErrorCode =
   | 'validation_failed'
@@ -230,6 +374,24 @@ export function putPreferences(partial: PreferencesPatch): Promise<Preferences> 
 
 export function listInstruments(): Promise<Instrument[]> {
   return request<Instrument[]>('/api/instruments')
+}
+
+export function upsertInstrument(input: UpsertInstrumentInput): Promise<Instrument> {
+  return request<Instrument>('/api/instruments', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateInstrument(symbol: string, patch: UpdateInstrumentInput): Promise<Instrument> {
+  return request<Instrument>(`/api/instruments/${encodeURIComponent(symbol)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export function deleteInstrument(symbol: string): Promise<void> {
+  return request<void>(`/api/instruments/${encodeURIComponent(symbol)}`, { method: 'DELETE' })
 }
 
 export function listAccountTemplates(): Promise<AccountTemplate[]> {
@@ -370,4 +532,72 @@ export function updatePositionSnapshot(
 
 export function deletePositionSnapshot(id: number): Promise<void> {
   return request<void>(`/api/position-snapshots/${id}`, { method: 'DELETE' })
+}
+
+// ---------- P2 market data + valuation ----------
+
+function queryString(params: Record<string, string | undefined> | PriceFilter | FxRateFilter) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v) q.set(k, v)
+  })
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
+export function listPrices(filter: PriceFilter = {}): Promise<ListEnvelope<Price>> {
+  return request<ListEnvelope<Price>>(`/api/prices${queryString(filter)}`)
+}
+
+export function upsertPrice(input: CreatePriceInput): Promise<Price> {
+  return request<Price>('/api/prices', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updatePrice(id: number, input: UpdatePriceInput): Promise<Price> {
+  return request<Price>(`/api/prices/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deletePrice(id: number): Promise<void> {
+  return request<void>(`/api/prices/${id}`, { method: 'DELETE' })
+}
+
+export function listFxRates(filter: FxRateFilter = {}): Promise<ListEnvelope<FxRate>> {
+  return request<ListEnvelope<FxRate>>(`/api/fx-rates${queryString(filter)}`)
+}
+
+export function upsertFxRate(input: CreateFxRateInput): Promise<FxRate> {
+  return request<FxRate>('/api/fx-rates', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateFxRate(id: number, input: UpdateFxRateInput): Promise<FxRate> {
+  return request<FxRate>(`/api/fx-rates/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteFxRate(id: number): Promise<void> {
+  return request<void>(`/api/fx-rates/${id}`, { method: 'DELETE' })
+}
+
+export function getValuation(params?: {
+  date?: string
+  display_currency?: string
+  fx_mode?: FxMode
+}): Promise<Valuation> {
+  const qs = new URLSearchParams()
+  if (params?.date) qs.set('date', params.date)
+  if (params?.display_currency) qs.set('display_currency', params.display_currency)
+  if (params?.fx_mode) qs.set('fx_mode', params.fx_mode)
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return request<Valuation>(`/api/valuation${suffix}`)
 }

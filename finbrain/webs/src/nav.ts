@@ -55,7 +55,6 @@ export const TITLES: Record<string, string> = {
   transactions: '持仓交易',
   income: '收益事件',
   transfers: '账户转账',
-  institutions: '账户列表',
   accounts: '账户列表',
   targets: '目标配置',
   recon: '现金对账',

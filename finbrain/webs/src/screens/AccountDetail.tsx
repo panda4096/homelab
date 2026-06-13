@@ -24,6 +24,7 @@ import {
   type PositionSnapshot,
 } from '../api'
 import { useToast } from '../shell/Toast'
+import { ConfirmDialog } from '../shell/ConfirmDialog'
 import { useUiStore } from '../uiStore'
 import { EditAccountModal } from './EditAccount'
 
@@ -41,6 +42,7 @@ export function AccountDetail() {
   const toast = useToast()
   const openQuickEntry = useUiStore((s) => s.openQuickEntry)
   const [editing, setEditing] = useState(false)
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
 
   const { data: account, isLoading, isError, error } = useQuery({
     queryKey: ['account', id],
@@ -64,6 +66,7 @@ export function AccountDetail() {
       void qc.invalidateQueries({ queryKey: ['accounts'] })
       void qc.invalidateQueries({ queryKey: ['institutions'] })
       toast.success('账户已删除')
+      setConfirmDeleteAccount(false)
       navigate('/accounts')
     },
     onError: (e) => {
@@ -169,11 +172,7 @@ export function AccountDetail() {
             </IconButton>
             <IconButton
               aria-label="删除"
-              onClick={() => {
-                if (window.confirm(`确定删除账户「${account.name}」？此操作不可撤销。`)) {
-                  deleteMut.mutate()
-                }
-              }}
+              onClick={() => setConfirmDeleteAccount(true)}
             >
               <Icon name="trash-2" size={15} />
             </IconButton>
@@ -190,6 +189,16 @@ export function AccountDetail() {
 
       {editing ? (
         <EditAccountModal account={account} onClose={() => setEditing(false)} />
+      ) : null}
+      {confirmDeleteAccount ? (
+        <ConfirmDialog
+          title="删除账户"
+          message={`确定删除账户「${account.name}」？此操作不可撤销。已有记录的账户会被后端拒绝删除，请改为归档。`}
+          confirmLabel="删除"
+          pending={deleteMut.isPending}
+          onCancel={() => setConfirmDeleteAccount(false)}
+          onConfirm={() => deleteMut.mutate()}
+        />
       ) : null}
     </Shell>
   )
@@ -251,6 +260,7 @@ function BalanceSnapshots({ account }: { account: Account }) {
   const qc = useQueryClient()
   const toast = useToast()
   const openQuickEntry = useUiStore((s) => s.openQuickEntry)
+  const [deleting, setDeleting] = useState<{ id: number; date: string } | null>(null)
   const { data: snaps = [], isLoading } = useQuery({
     queryKey: ['balance-snapshots', account.id],
     queryFn: () => listBalanceSnapshots(account.id),
@@ -262,7 +272,9 @@ function BalanceSnapshots({ account }: { account: Account }) {
       void qc.invalidateQueries({ queryKey: ['balance-snapshots', account.id] })
       void qc.invalidateQueries({ queryKey: ['account', account.id] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['valuation'] })
       toast.success('余额记录已删除')
+      setDeleting(null)
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
   })
@@ -328,9 +340,7 @@ function BalanceSnapshots({ account }: { account: Account }) {
                     <IconButton
                       aria-label="删除"
                       size="sm"
-                      onClick={() => {
-                        if (window.confirm(`删除 ${s.snapshot_date} 的余额记录？`)) del.mutate(s.id)
-                      }}
+                      onClick={() => setDeleting({ id: s.id, date: s.snapshot_date })}
                     >
                       <Icon name="trash-2" size={13} />
                     </IconButton>
@@ -341,6 +351,16 @@ function BalanceSnapshots({ account }: { account: Account }) {
           </tbody>
         </DetailTable>
       )}
+      {deleting ? (
+        <ConfirmDialog
+          title="删除余额记录"
+          message={`删除 ${deleting.date} 的余额记录？此操作不可撤销。`}
+          confirmLabel="删除"
+          pending={del.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => del.mutate(deleting.id)}
+        />
+      ) : null}
     </Card>
   )
 }
@@ -396,7 +416,7 @@ function Positions({
               <Th>标的</Th>
               <Th right>当前数量</Th>
               <Th right>平均成本</Th>
-              <Th right>登记金额</Th>
+              <Th right>持仓成本</Th>
               <Th right>最近更新</Th>
               <Th right w={88} />
             </tr>
@@ -502,6 +522,7 @@ export function PositionHistory() {
   const qc = useQueryClient()
   const toast = useToast()
   const openQuickEntry = useUiStore((s) => s.openQuickEntry)
+  const [deleting, setDeleting] = useState<{ id: number; symbol: string; date: string } | null>(null)
 
   const { data: account, isLoading: accountLoading } = useQuery({
     queryKey: ['account', accountId],
@@ -528,7 +549,9 @@ export function PositionHistory() {
       void qc.invalidateQueries({ queryKey: ['position-snapshots', accountId] })
       void qc.invalidateQueries({ queryKey: ['account', accountId] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['valuation'] })
       toast.success('持仓记录已删除')
+      setDeleting(null)
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
   })
@@ -599,7 +622,7 @@ export function PositionHistory() {
                 <Th>日期</Th>
                 <Th right>数量</Th>
                 <Th right>平均成本</Th>
-                <Th right>登记金额</Th>
+                <Th right>持仓成本</Th>
                 <Th>备注</Th>
                 <Th right w={88} />
               </tr>
@@ -648,11 +671,9 @@ export function PositionHistory() {
                         <IconButton
                           aria-label="删除"
                           size="sm"
-                          onClick={() => {
-                            if (window.confirm(`删除 ${h.symbol} 在 ${h.snapshot_date} 的持仓记录？`)) {
-                              del.mutate(h.id)
-                            }
-                          }}
+                          onClick={() =>
+                            setDeleting({ id: h.id, symbol: h.symbol, date: h.snapshot_date })
+                          }
                         >
                           <Icon name="trash-2" size={13} />
                         </IconButton>
@@ -665,6 +686,16 @@ export function PositionHistory() {
           </DetailTable>
         )}
       </Card>
+      {deleting ? (
+        <ConfirmDialog
+          title="删除持仓记录"
+          message={`删除 ${deleting.symbol} 在 ${deleting.date} 的持仓记录？此操作不可撤销。`}
+          confirmLabel="删除"
+          pending={del.isPending}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => del.mutate(deleting.id)}
+        />
+      ) : null}
     </Shell>
   )
 }

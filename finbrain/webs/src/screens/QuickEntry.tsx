@@ -199,6 +199,7 @@ function QuickEntryInner({
       void qc.invalidateQueries({ queryKey: ['balance-snapshots', accId] })
       void qc.invalidateQueries({ queryKey: ['position-snapshots', accId] })
       void qc.invalidateQueries({ queryKey: ['positions', accId] })
+      void qc.invalidateQueries({ queryKey: ['valuation'] })
       toast.success(type === 'balance' ? '余额已保存' : '持仓已保存')
       onClose()
     },
