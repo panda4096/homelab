@@ -153,6 +153,14 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		if err != nil {
 			return Valuation{}, err
 		}
+		// §6.7/§6.15: when the (account, symbol) has transaction history, prefer the
+		// replay-derived quantity & weighted buy cost over the raw snapshot.
+		if rep, rerr := s.ReplayHolding(ctx, p.AccountID, p.Symbol, onDate, false); rerr == nil && rep.HasHistory {
+			qty = rep.Quantity
+			p.Quantity = formatVariableDecimal(rep.Quantity)
+			wbc := formatVariableDecimal(rep.WeightedBuyCost)
+			p.AvgCost = &wbc
+		}
 		if !qty.GreaterThan(decZero) {
 			continue
 		}
