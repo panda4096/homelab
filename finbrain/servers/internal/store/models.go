@@ -268,6 +268,18 @@ type AllocationTargetSet struct {
 	UpdatedAt          time.Time              `json:"updated_at"`
 }
 
+// Summary is an archived stage summary (PRD §5.2.14 / §8.3).
+type Summary struct {
+	ID              int64           `json:"id"`
+	PeriodKind      string          `json:"period_kind"`
+	PeriodStart     string          `json:"period_start"`
+	PeriodEnd       string          `json:"period_end"`
+	DisplayCurrency string          `json:"display_currency"`
+	Content         string          `json:"content"`
+	Meta            json.RawMessage `json:"meta,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+}
+
 // Annotation is a timeline/account/symbol note (PRD §5.2.11).
 type Annotation struct {
 	ID         int64           `json:"id"`

@@ -7,6 +7,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/config"
+	"github.com/panda4096/homelab/finbrain/servers/internal/llm"
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
@@ -14,11 +15,12 @@ import (
 type Server struct {
 	cfg   *config.Config
 	store *store.Store
+	llm   *llm.Client
 }
 
 // NewRouter builds the HTTP handler: /healthz, /api/*, and optional static frontend.
 func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
-	s := &Server{cfg: cfg, store: st}
+	s := &Server{cfg: cfg, store: st, llm: llm.New(cfg)}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RealIP)
@@ -115,6 +117,15 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Get("/allocation-targets/{id}/drift", s.getAllocationTargetDrift)
 		r.Patch("/allocation-targets/{id}", s.patchAllocationTarget)
 		r.Delete("/allocation-targets/{id}", s.deleteAllocationTarget)
+
+		// P6: LLM (NL entry / query) + stage summaries
+		r.Get("/llm/status", s.getLLMStatus)
+		r.Post("/llm/parse", s.llmParse)
+		r.Post("/llm/query", s.llmQuery)
+		r.Get("/summaries", s.listSummaries)
+		r.Post("/summaries/generate", s.generateSummary)
+		r.Get("/summaries/{id}", s.getSummary)
+		r.Delete("/summaries/{id}", s.deleteSummary)
 	})
 
 	if cfg.StaticDir != "" {
