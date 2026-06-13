@@ -126,6 +126,9 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Post("/summaries/generate", s.generateSummary)
 		r.Get("/summaries/{id}", s.getSummary)
 		r.Delete("/summaries/{id}", s.deleteSummary)
+
+		// P7: data export
+		r.Get("/export", s.exportData)
 	})
 
 	if cfg.StaticDir != "" {

@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Sidebar } from './shell/Sidebar'
 import { Topbar } from './shell/Topbar'
 import { NLModal } from './shell/NLModal'
+import { ErrorBoundary } from './shell/ErrorBoundary'
 import { Placeholder } from './screens/Placeholder'
 import { Settings } from './screens/Settings'
 import { Dashboard } from './screens/Dashboard'
@@ -84,6 +85,7 @@ export function App() {
         <Topbar title={title} onNL={() => setCopilot(true)} />
         <div className="fb-scroll" style={{ flex: 1 }}>
           <div key={route} className="fb-fade">
+            <ErrorBoundary key={route}>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
@@ -110,6 +112,7 @@ export function App() {
               ))}
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
+            </ErrorBoundary>
           </div>
         </div>
       </div>

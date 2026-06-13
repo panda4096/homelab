@@ -1,5 +1,7 @@
-import { Card, Segmented } from '../ds'
+import { useQuery } from '@tanstack/react-query'
+import { Badge, Button, Card, Icon, Segmented } from '../ds'
 import { usePrefStore } from '../store'
+import { getLLMStatus } from '../api'
 import type {
   DisplayCurrency,
   FxMode,
@@ -49,9 +51,10 @@ export function Settings() {
     setMarketConvention,
     setTimeAggregationDefault,
   } = usePrefStore()
+  const llm = useQuery({ queryKey: ['llm-status'], queryFn: getLLMStatus })
 
   return (
-    <div style={{ padding: 22, maxWidth: 760, margin: '0 auto' }}>
+    <div style={{ padding: 22, maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card eyebrow="PREFERENCES" title="显示偏好" subtitle="更改后立即写入后端 · 单用户全局生效">
         <Row label="显示货币" hint="所有金额折算到该货币展示">
           <Segmented
@@ -95,6 +98,20 @@ export function Settings() {
             value={timeAggregationDefault}
             onChange={(v) => void setTimeAggregationDefault(v as TimeAggregation)}
           />
+        </Row>
+      </Card>
+
+      <Card eyebrow="DATA & AI" title="数据与智能">
+        <Row label="自然语言能力" hint="⌘K 录入 / 查询 / 阶段总结，默认 DeepSeek（DEEPSEEK_API_KEY）">
+          {llm.data?.configured
+            ? <Badge tone="success" dot>{llm.data.provider} · {llm.data.model}</Badge>
+            : <Badge tone="neutral">未配置</Badge>}
+        </Row>
+        <Row label="全量数据导出" hint="所有业务表打包为 CSV（zip）">
+          <Button size="sm" variant="secondary" iconLeft={<Icon name="download" size={14} />} onClick={() => { window.location.href = '/api/export' }}>导出 CSV</Button>
+        </Row>
+        <Row label="关于 finbrain" hint="个人资产快照管理 · 自托管">
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>P0–P7</span>
         </Row>
       </Card>
     </div>
