@@ -1,0 +1,21 @@
+/* ============================================================
+   finbrain 设计系统 — 全局入口
+   Consumers link THIS one file. It is @import lines only.
+   暗色 · 鎏金 · 私人财富 · 高密度数据
+   ============================================================ */
+
+/* Webfonts (Google Fonts CDN — see README "字体替代说明") */
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Noto+Serif+SC:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+/* Design tokens */
+@import "tokens/colors.css";
+@import "tokens/typography.css";
+@import "tokens/spacing.css";
+@import "tokens/effects.css";
+@import "tokens/motion.css";
+
+/* Base element resets scoped to the brand */
+@import "tokens/base.css";
+
+/* Component class hooks (shipped to consumers) */
+@import "components/components.css";

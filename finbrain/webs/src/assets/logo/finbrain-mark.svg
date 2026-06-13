@@ -1,0 +1,17 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="finbrain mark">
+  <defs>
+    <linearGradient id="fbGold" x1="14" y1="10" x2="50" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E6D09A"></stop>
+      <stop offset="0.52" stop-color="#C9A86A"></stop>
+      <stop offset="1" stop-color="#A6843F"></stop>
+    </linearGradient>
+  </defs>
+  
+  <g fill="url(#fbGold)">
+    <rect x="13" y="38" width="8" height="15" rx="2.5"></rect>
+    <rect x="28" y="29" width="8" height="24" rx="2.5" opacity="0.86"></rect>
+    <rect x="43" y="20" width="8" height="33" rx="2.5" opacity="0.72"></rect>
+  </g>
+  <circle cx="47" cy="12" r="4.6" fill="url(#fbGold)"></circle>
+  <path d="M17 41 L32 31 L47 18" stroke="url(#fbGold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55" fill="none"></path>
+</svg>

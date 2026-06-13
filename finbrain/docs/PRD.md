@@ -85,7 +85,7 @@ finbrain **不是**：
 
 | 术语 | 定义 |
 |---|---|
-| **机构（institution）** | 持有账户的金融机构。自由文本，例如 `HSBC HK`、`招商银行`、`富途证券`、`Binance` |
+| **机构（institution）** | 持有账户的金融机构，作为独立实体管理（`institutions` 表，见 §5.2.18）。例 `HSBC HK`、`招商银行`、`富途证券`、`Binance`。账户通过 `institution_id` 引用机构 |
 | **账户（account）** | 业主在某机构开立的具体账户。一个机构可以下挂多个账户，例如汇丰下挂"港币现金"、"港股账户"、"美股账户" |
 | **账户币种（account currency）** | 账户的本位币种。一个账户只有一个本位币种 |
 | **账户用途（account kind）** | 账户的功能类型。开放字符串，推荐值见 §3.1 |
@@ -136,7 +136,7 @@ finbrain **不是**：
 
 ### 3.1 账户与机构
 
-**机构**是金融服务提供方，**账户**是业主在机构下开立的具体资金/持仓容器。一个机构可以挂多个账户。
+**机构**是金融服务提供方（独立实体，见 §5.2.18 `institutions`），**账户**是业主在机构下开立的具体资金/持仓容器。一个机构可以挂多个账户；账户通过 `institution_id` 引用机构，改机构名自动反映到其所有账户。
 
 账户用 `kind` 字段描述用途。`kind` 是开放字符串，推荐值如下；用户可以自定义任意新值。
 
@@ -145,16 +145,17 @@ finbrain **不是**：
 | `cash` | 活期、当前可支取的现金账户 |
 | `time_deposit` | 定期存款 |
 | `wealth_product` | 银行理财、结构化产品（金额型） |
-| `fund` | 公募/私募基金（可按金额型或份额型记录） |
-| `brokerage` | 证券账户（通常含持仓 + 现金两类记录） |
+| `fund` | 公募/私募基金（份额型） |
+| `brokerage` | 证券账户（持仓型） |
 | `credit_card` | 信用卡 |
 | `crypto_wallet` | 加密钱包 |
 
-`kind` 不强约束记录形式：任意账户都可以有余额快照、持仓快照或两者都有。例：
+`kind` 决定 P1 可录入的快照类型，避免同一账户既按金额解释又按份额解释：
 
-- 富途证券账户（`kind=brokerage`）通常同时有持仓快照（GOOG / NVDA / NTDOY）和余额快照（账户内现金）
-- 银行理财账户（`kind=wealth_product`）通常只有余额快照
-- 信用卡账户（`kind=credit_card`）只有信用卡账单，不应有余额快照（见 §3.4）
+- 金额型账户：`cash` / `time_deposit` / `wealth_product`，只使用余额快照
+- 持仓型账户：`brokerage` / `fund` / `crypto_wallet`，只使用持仓快照
+- 信用卡账户：`credit_card`，只使用信用卡账单，不使用余额或持仓快照（见 §3.4）
+- 自定义 `kind` 默认不开放 P1 快照入口；后续如需支持，应先明确它属于金额型还是持仓型
 
 ### 3.2 快照
 
@@ -231,21 +232,23 @@ finbrain **不是**：
 
 业主在录入余额时，永远记**正数**：账户里的现金记正数、信用卡账单总额记正数。是否计入资产或负债由系统按 `account.kind` 与字段语义自动判断。
 
-### 3.9 同账户多种快照并存
+### 3.9 同机构下现金与持仓拆分
 
-业主真实场景的关键设计点。例如富途账户在某一天的状态：
+业主真实场景里，券商或银行常同时有现金与持仓。finbrain 不把两类事实塞进同一个账户，而是在同一机构下拆成多个账户，分别使用各自的快照类型。例如富途在某一天的状态：
 
 ```
-account: "富途证券" (kind=brokerage, currency=USD)
+institution: "富途证券"
 
-balance_snapshot:    2026-05-05  USD 237.62 (账户内未结算现金)
+account: "现金" (kind=cash, currency=USD)
+balance_snapshot:    2026-05-05  USD 237.62
 
+account: "美股" (kind=brokerage, currency=USD)
 position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
                      2026-05-05  NVDA   6 股, 平均成本 USD 168.00
                      2026-05-05  NTDOY 60 股, 平均成本 USD 17.115
 ```
 
-资产总览展示这个账户时，会自动合并 1 条余额快照 + 3 条持仓市值，显示为 "富途证券 总值 USD X"。
+资产总览按机构聚合时，会合并该机构下的现金余额与持仓市值，显示为 "富途证券 总值 USD X"。
 
 ### 3.10 持仓交易与对账
 
@@ -297,9 +300,9 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 
 业主可以：
 
-- 创建账户：必填 `name`、`institution`、`currency`、`kind`；可选 `note`
-- **从模板创建一组账户**：选一个建账模板（如"汇丰一户三账户"、"富途证券标准三件套"），系统一次创建该模板预定义的多个账户骨架，业主只填机构实例名即可
-- 修改账户：所有字段可修改；改 `currency` 需要 UI 警示（会影响历史快照展示）
+- 创建账户：必填 `name`、`institution_id`（从机构列表选，或新建机构）、`currency`（从支持币种列表选择）、`kind`；可选 `note`
+- **从模板创建一组账户**：选一个建账模板（如"汇丰一户三账户"、"富途证券标准三件套"）+ 选机构（或新建），系统一次创建该模板预定义的多个账户骨架
+- 修改账户：可修改 `name`、`kind`、`note`、`is_archived`；`institution_id` 与 `currency` 创建后不可修改（要换机构或币种需删除账户后重建）
 - 归档账户：`is_archived=true`，账户从录入入口隐藏，但历史快照与聚合仍保留
 - 取消归档：`is_archived=false`，账户重新出现在录入入口
 - 删除账户：**仅当该账户没有任何快照、账单时**才允许删除；否则只能归档
@@ -311,20 +314,28 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 - 模板只是"批量创建账户的快捷方式"，与账户实例无任何运行时关联，删除模板不影响已创建的账户
 - 模板存储见 §5.2.12 `account_templates`
 
-账户列表展示：按机构分组，机构内按 `kind` 排序。归档账户在折叠区分别列出。
+机构管理（§5.2.18 `institutions`）：
+
+- 业主可在机构管理页增删改机构；机构含 `name`、`kind`（银行/券商/交易所/钱包/其他，开放字符串）、`note`；显示顺序在机构列表页通过拖动行调整，持久化到 `display_order`
+- 改机构名自动反映到其所有账户（账户引用 `institution_id`，不存机构名副本）
+- 删除机构：仅当无账户引用时允许；否则提示先迁移/归档账户
+- 建账与录入入口的机构选择均来自该列表，避免同名机构散成多个
+
+账户列表展示：按机构分组（按机构 `display_order` 再按名称），机构内按账户 `display_order` 排序；机构和账户顺序均在列表页拖动调整。归档账户在折叠区分别列出。
 
 ### 4.2 余额快照录入
 
 业主可以：
 
 - 单条录入：选定账户 + 日期，填入金额
-- 批量录入（盘点向导）：列出所有未归档的金额型账户（即非 `credit_card` 的账户），逐个填入当日余额
-- 修订录入：选择已存在的某条快照，修改金额或备注；保存覆盖原记录
+- 批量录入（盘点向导）：列出所有未归档的金额型账户（`cash` / `time_deposit` / `wealth_product`），逐个填入当日余额
+- 修订录入：选择已存在的某条快照，修改日期、金额或备注；保存覆盖原记录
 - 删除快照：单条删除（罕用，主要用于纠错）
 
 约束：
 
 - `(account_id, snapshot_date)` 唯一
+- 仅金额型账户（`cash` / `time_deposit` / `wealth_product`）允许余额快照
 - 金额支持负数（理论上不应出现，但 schema 不强制；UI 给警示）
 - 日期不允许早于账户创建日（弱约束，UI 警示而不阻断）
 - 日期不允许晚于"今天 + 7 天"（防止误填未来日期）
@@ -338,19 +349,20 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 
 业主可以：
 
-- 单条录入：选定账户、日期、标的，填入数量与平均成本
+- 单条录入：选定持仓型账户、日期、标的，填入数量与平均成本
 - 批量录入：在盘点向导中，对每个有持仓的账户列出"上次的持仓清单"，业主可：
   - 直接接受（数量、成本不变）
   - 修改数量
   - 修改平均成本
   - 删除（标的不再持有）
   - 新增（持有了新标的）
-- 修订录入：同 §4.2
+- 修订录入：选择已存在的某条快照，修改日期、数量、平均成本或备注；保存覆盖原记录
 - 删除快照：单条删除
 
 约束：
 
 - `(account_id, symbol, snapshot_date)` 唯一
+- 仅持仓型账户（`brokerage` / `fund` / `crypto_wallet`）允许持仓快照
 - `quantity >= 0`
 - `quantity = 0` 表示"该日清仓该标的"，是显式的事件记录。这样历史曲线能从持仓数量正确收敛到 0，并且后续查询能区分"从未持有"与"曾持有但已清仓"
 - 清仓后再次买入：录入新的 `quantity > 0` 快照即可，与历史 0 快照按时间顺序自然衔接
@@ -361,10 +373,10 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 
 业主可以：
 
-- 录入新账单：选信用卡账户、出账日，填总额、币种、可选顶类目、可选备注、可选"是否已还"
+- 录入新账单：选信用卡账户、出账日，填总额、币种、可选顶类目、可选备注、可选"是否已还"、可选还款账户（`payment_account_id`）
 - 修改账单：所有字段可修改
 - 删除账单：单条删除
-- 标记已还：单独操作 `paid_at` 字段（默认未还）
+- 标记已还：操作 `paid_at` 字段（默认未还）；可同时指定 `payment_account_id`（还款落地账户），供 §6.19 现金预期余额据此扣减
 
 约束：
 
@@ -755,7 +767,7 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 ### 5.1 实体关系总图
 
 ```
-institutions（隐式：作为 accounts.institution 的字符串值，不建表）
+institutions ──< accounts    （账户通过 institution_id 引用机构；institutions/accounts 均含 display_order）
 
 accounts ──┬──< balance_snapshots
            │
@@ -792,9 +804,10 @@ summaries         （独立，存阶段总结）
 |---|---|---|---|
 | `id` | bigint | ✓ | 主键，自增 |
 | `name` | varchar(128) | ✓ | 显示名，唯一 |
-| `institution` | varchar(128) | ✓ | 机构名，自由文本 |
+| `institution_id` | bigint | ✓ | 外键 → `institutions.id`（见 §5.2.18）；**创建后不可修改** |
 | `currency` | varchar(8) | ✓ | ISO 4217 三字母（HKD / USD / CNY 等） |
 | `kind` | varchar(32) | ✓ | 用途，推荐值见 §3.1 |
+| `display_order` | int | ✓ | 机构内账户排序，默认 0；由账户列表拖动调整 |
 | `is_archived` | boolean | ✓ | 默认 false |
 | `note` | text | | 自由备注 |
 | `created_at` | timestamptz | ✓ | 创建时间 |
@@ -802,7 +815,7 @@ summaries         （独立，存阶段总结）
 
 约束：
 
-- `UNIQUE(name)`
+- `UNIQUE(institution_id, name)`（同一机构内账户名唯一；账户名用精简名，机构在 UI 上单独体现）
 - `name` 不允许仅空白
 - `currency` 形如 `^[A-Z]{3}$`
 
@@ -835,7 +848,7 @@ summaries         （独立，存阶段总结）
 | `id` | bigint | ✓ | 主键 |
 | `account_id` | bigint | ✓ | 外键 → accounts.id |
 | `snapshot_date` | date | ✓ | 快照日期 |
-| `balance` | numeric(20,4) | ✓ | 金额（账户币种） |
+| `balance` | numeric(20,2) | ✓ | 金额（账户币种），最多两位小数 |
 | `note` | text | | 备注 |
 | `created_at` | timestamptz | ✓ | |
 | `updated_at` | timestamptz | ✓ | |
@@ -854,7 +867,7 @@ summaries         （独立，存阶段总结）
 | `symbol` | varchar(64) | ✓ | 标的标识；FK → `instruments.symbol`；首次引用未登记的 symbol 时由应用层自动新建 instruments 记录（业主之后可补全元数据） |
 | `quantity` | numeric(28,8) | ✓ | 数量；>= 0（0 表示清仓事件） |
 | `avg_cost` | numeric(20,8) | | 平均成本单价 |
-| `cost_currency` | varchar(8) | | 成本币种；默认 = `instruments.quote_currency`，再回退到 `accounts.currency` |
+| `cost_currency` | varchar(8) | | 成本币种；解析优先级：本字段（如已填） → `instruments.quote_currency`（如非空） → `accounts.currency` |
 | `snapshot_date` | date | ✓ | |
 | `note` | text | | |
 | `created_at` | timestamptz | ✓ | |
@@ -877,6 +890,7 @@ summaries         （独立，存阶段总结）
 | `currency` | varchar(8) | ✓ | 默认 = 账户币种 |
 | `top_categories` | jsonb | | 顶类目列表 `[{name, amount}]` |
 | `paid_at` | date | | 已还日期；NULL 表示未还 |
+| `payment_account_id` | bigint | | 还款落地账户；FK → `accounts.id`；NULL = 未指定还款账户。§6.19 现金预期余额据此对该账户扣减 `amount_total` |
 | `note` | text | | |
 | `created_at` | timestamptz | ✓ | |
 | `updated_at` | timestamptz | ✓ | |
@@ -886,6 +900,7 @@ summaries         （独立，存阶段总结）
 - `UNIQUE(account_id, statement_date)`
 - `amount_total > 0`
 - `account.kind = 'credit_card'`（应用层校验）
+- `payment_account_id`（如填）FK → `accounts.id`，通常指向现金/借记账户（`kind != 'credit_card'`）；仅当 `paid_at` 非空时参与 §6.19 推演
 
 #### 5.2.6 `income_events`
 
@@ -1153,11 +1168,32 @@ summaries         （独立，存阶段总结）
 - 总净资产在 transfer 前后**不变**（仅币种 / 账户 / 用途分布变化）
 - 允许 in-place 修改与删除
 
+#### 5.2.18 `institutions`
+
+机构实体（§3.1、§4.1）。账户通过 `institution_id` 引用机构；改机构名自动反映到其所有账户。
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `id` | bigint | ✓ | 主键，自增 |
+| `name` | varchar(128) | ✓ | 机构名，唯一（如 `汇丰`、`招商银行`、`富途证券`） |
+| `kind` | varchar(16) | | 机构类型：`bank` / `broker` / `exchange` / `wallet` / `other`，开放字符串 |
+| `note` | text | | 自由备注 |
+| `display_order` | int | ✓ | 机构排序，默认 0；由机构列表拖动调整 |
+| `created_at` | timestamptz | ✓ | |
+| `updated_at` | timestamptz | ✓ | |
+
+约束：
+
+- `UNIQUE(name)`、`name` 不允许仅空白
+- 删除机构：仅当没有任何 `accounts.institution_id` 引用它时允许；否则禁止（应用层校验）
+
+---
+
 ### 5.3 时序与历史保留
 
 - 所有快照表都按 `snapshot_date` / `statement_date` 索引；查询某日截面的"取该日期或之前最后一条"
 - 不删除任何历史快照，除非业主主动删除
-- 修改账户元数据（如 `name`、`currency`）不影响历史快照中已存的金额；但展示折算时会按当前 `currency` 处理，因此改 `currency` 是危险操作，UI 必须双重确认
+- 修改账户元数据（如 `name`、`kind`、`note`）不影响历史快照中已存的金额；账户 `currency` 创建后不可修改，避免历史快照被按新币种重新解释
 
 ---
 
@@ -1250,7 +1286,7 @@ net_worth = total_assets - total_liabilities
 ```
 quantity     = quantity_at(account, symbol, D)
 avg_cost     = 该 quantity 同一条 position_snapshots 的 avg_cost
-cost_ccy     = 同一条快照的 cost_currency；缺省取 account.currency
+cost_ccy     = position_snapshots.cost_currency（如填） → instruments.quote_currency（如非空） → accounts.currency
 price        = price_of(symbol, D, in cost_ccy)
 
 # 原币口径

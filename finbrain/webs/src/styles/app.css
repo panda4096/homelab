@@ -1,0 +1,56 @@
+/* ============================================================
+   finbrain app global CSS — faithfully reproduced from the
+   <style> block of design/project/「finbrain 控制台.html」.
+   Layout grid helpers + resets + responsive media queries.
+   ============================================================ */
+
+html, body { margin: 0; height: 100%; }
+body { background: var(--surface-base); overflow: hidden; }
+#app { height: 100vh; }
+.fb-scroll { overflow-y: auto; }
+.fb-fade { animation: fbFade .26s var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) { .fb-fade { animation: none; } }
+@keyframes fbFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fbBlink { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+/* consuming-project override: keep mono eyebrows on one line so they never collide with the title when actions compete for header width */
+.fb-card__eyebrow { white-space: nowrap; }
+/* money figures should never break the currency marker / 万 suffix onto a new line */
+.fb-metric { white-space: nowrap; }
+/* card-level tables scroll horizontally instead of overflowing the card on narrow widths */
+.fb-card > table { display: block; overflow-x: auto; max-width: 100%; }
+
+/* ---- responsive layout grids (override fixed fr columns as the viewport narrows) ---- */
+.fb-grid { display: grid; gap: 16px; }
+.fb-grid--g14 { gap: 14px; }
+.db-hero { grid-template-columns: 1.15fr 1fr 1fr; }
+.db-21 { grid-template-columns: 1.6fr 1fr; }
+.db-12 { grid-template-columns: 1fr 1.6fr; }
+.kpi-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.kpi-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.split-2 { grid-template-columns: 1fr 1fr; }
+.split-32 { grid-template-columns: 1.5fr 1fr; }
+.trend-side { grid-template-columns: 1fr 300px; }
+.targets-2 { grid-template-columns: 264px 1fr; }
+.fb-form { display: grid; gap: 12px; align-items: start; }
+.form-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.xfer { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: end; }
+
+@media (max-width: 1240px) {
+  .db-hero { grid-template-columns: 1fr 1fr; }
+  .kpi-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .form-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1000px) {
+  .db-21, .db-12, .split-32, .trend-side, .targets-2 { grid-template-columns: 1fr; }
+  .kpi-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .db-hero, .split-2, .xfer { grid-template-columns: 1fr; }
+  .kpi-5, .form-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .kpi-5, .kpi-4, .form-4, .form-5 { grid-template-columns: 1fr; }
+}
+.fb-card__header > div:first-child { min-width: 0; }
