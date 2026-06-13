@@ -114,3 +114,9 @@ NL 录入抽取正确并经确认落库；NL 查询沙箱不可越权写/读非�
 
 ### 运行态
 - 后端 P4 二进制:`/tmp/finbrain-p4 serve`(:8000,nohup,日志 /tmp/finbrain-p4.log);DATABASE_URL 由 secrets 拼 NUC。前端 vite :5173。
+
+### P5 — 进行中
+- ✅ 净资产趋势时间序列(§6.5/§6.14):`netWorthAt` 截面 + `NetWorthTrend`(日/月/季/年,月末步进修复)+ `GET /trend`;实测 13 个连续月度点。
+- ✅ 趋势分析屏 §7.15(净资产折线 + 范围/粒度切换 + 截面表)+ 仪表盘 sparkline 改用真实月度趋势(去掉假占位)。/trend 浏览器渲染无报错。
+- ⏳ 目标配置 §7.14 + 配置漂移 §6.10;期间对比 §7.16 + 归因 §6.12;多维聚合 §7.17;基准对比 §6.13(benchmarks/annotations 表)。
+- 之后:P6 LLM(DeepSeek)→ P7 收尾。运行态二进制 `/tmp/finbrain-p4`(已含 /trend)。
