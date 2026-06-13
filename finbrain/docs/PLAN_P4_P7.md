@@ -93,3 +93,24 @@ NL 录入抽取正确并经确认落库；NL 查询沙箱不可越权写/读非�
 
 ## 6. 执行方式
 每阶段一个纵向切片：用 workflow(设计 → 实现 → 对抗评审 → 收口)推进，骨架由主线统一写、可并行的独立部分用子代理；阶段末自验(go build/vet/test + tsc + 浏览器 preview)并提交。顺序 **P4 → P5 → P6 → P7**(P5 依赖 P4 数据，P6 依赖前面 schema)。P5–P7 在进入时按本文细化为可执行任务清单(just-in-time)。
+
+---
+
+## 进度日志（autonomous run）
+
+### P4 — 已完成并验证（commits on branch feat/finbrain-p4-p7）
+- ✅ 数据层:迁移 `01000_p4_transactions.sql`(transactions/transfers/income_events/corporate_actions)+ models + store CRUD + httpapi CRUD + routes;账户/标的删除守卫已扩展到新 FK。
+- ✅ 交易回放引擎 `replay.go`(§6.15-6.17:买/卖/拆/合/配,加权成本、已实现盈亏、持有段起点、买入费模式),纯函数 + 4 个单测通过。
+- ✅ 对账 `reconciliation.go`(§6.19 预期余额+事件流、§6.20 回放 vs 快照持仓差额),`GET /accounts/{id}/reconciliation`。
+- ✅ 仪表盘 KPI:valuation 增 `realized_pl_ytd` / `income_ytd`(replay + income_events,折显示币),Dashboard 两张「待 P4」卡转真。
+- ✅ 前端 5 屏:持仓交易 §7.9 / 收益事件 §7.8 / 账户转账 §7.11 / 公司动作 §7.10 / 现金对账 §7.12,nav+routes 已接,tsc 绿。
+- ✅ **端到端实测**(真库):买100@10 + 卖40@15 fee2 → realized_pl_ytd=198.00 ✓;对账 delta=-402.00 ✓;持仓差额 replay60/snap0 ✓;浏览器 /transactions /recon 渲染无报错。迁移 01000 已应用到 NUC dev 库。
+
+### P4 — 待收尾(refinement,非阻塞核心价值)
+- ⏳ 盘点向导 §7.5 步4(交易回顾)/步5(转账)/步7(收益)/步8(现金对账):把 P3 占位替换为真实回填(读 transactions/transfers/income/recon)。
+- ⏳ §6.7 持仓「有交易历史时优先回放」:valuation 持仓循环用 replay 覆盖 snapshot 的 quantity/avg_cost(并显示 realized/holding_days)。当前持仓仍按快照口径;对账页已暴露差额供人工同步。
+- ⏳ AccountDetail:补交易/收益/转账区块 + 对账卡(链接 /recon)。
+- 之后:P5 趋势与分析 → P6 LLM(DeepSeek)→ P7 收尾。
+
+### 运行态
+- 后端 P4 二进制:`/tmp/finbrain-p4 serve`(:8000,nohup,日志 /tmp/finbrain-p4.log);DATABASE_URL 由 secrets 拼 NUC。前端 vite :5173。
