@@ -341,6 +341,8 @@ export interface Valuation {
   unrealized_pl: string
   unrealized_pl_pct: string | null
   position_share: string | null
+  realized_pl_ytd: string
+  income_ytd: string
   allocations: Record<string, ValuationBucket[]>
   positions: ValuationPosition[]
   position_groups: ValuationPosition[]
@@ -690,4 +692,256 @@ export function getValuation(params?: {
   if (params?.fx_mode) qs.set('fx_mode', params.fx_mode)
   const suffix = qs.toString() ? `?${qs}` : ''
   return request<Valuation>(`/api/valuation${suffix}`)
+}
+
+// ---------- P4 transactions / transfers / income events / corporate actions ----------
+
+export type TransactionAction = 'buy' | 'sell'
+
+export interface Transaction {
+  id: number
+  account_id: number
+  account_name?: string
+  institution?: string
+  symbol: string
+  display_name?: string | null
+  action: TransactionAction
+  trade_date: string
+  settle_date: string | null
+  quantity: string
+  price: string
+  currency: string
+  fee: string | null
+  is_settled: boolean
+  notes: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTransactionInput {
+  account_id: number
+  symbol: string
+  action: TransactionAction
+  trade_date: string
+  settle_date?: string | null
+  quantity: string
+  price: string
+  currency: string
+  fee?: string | null
+  is_settled?: boolean
+  notes?: string | null
+}
+
+export type UpdateTransactionInput = Omit<CreateTransactionInput, 'account_id' | 'symbol'>
+
+export interface Transfer {
+  id: number
+  from_account_id: number
+  to_account_id: number
+  from_account_name?: string | null
+  to_account_name?: string | null
+  from_currency?: string
+  to_currency?: string
+  from_amount: string
+  to_amount: string
+  transfer_date: string
+  notes: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTransferInput {
+  from_account_id: number
+  to_account_id: number
+  from_amount: string
+  to_amount: string
+  transfer_date: string
+  notes?: string | null
+}
+
+export type UpdateTransferInput = CreateTransferInput
+
+export type IncomeKind = 'dividend' | 'interest' | 'rebate' | 'other'
+
+export interface IncomeEvent {
+  id: number
+  event_kind: IncomeKind
+  event_date: string
+  account_id: number
+  account_name?: string
+  institution?: string
+  symbol: string | null
+  amount: string
+  currency: string
+  payment_account_id: number | null
+  payment_account_name?: string | null
+  tax_withheld: string | null
+  note: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateIncomeEventInput {
+  event_kind: IncomeKind
+  event_date: string
+  account_id: number
+  symbol?: string | null
+  amount: string
+  currency: string
+  payment_account_id?: number | null
+  tax_withheld?: string | null
+  note?: string | null
+}
+
+export type UpdateIncomeEventInput = CreateIncomeEventInput
+
+export type CorporateActionKind = 'split' | 'merge' | 'rights'
+
+export interface CorporateAction {
+  id: number
+  symbol: string
+  display_name?: string | null
+  action: CorporateActionKind
+  event_date: string
+  ratio_numerator: string
+  ratio_denominator: string
+  extra?: unknown
+  notes: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateCorporateActionInput {
+  symbol: string
+  action: CorporateActionKind
+  event_date: string
+  ratio_numerator: string
+  ratio_denominator: string
+  extra?: unknown
+  notes?: string | null
+}
+
+export type UpdateCorporateActionInput = Omit<CreateCorporateActionInput, 'symbol'>
+
+export interface ReconEvent {
+  date: string
+  kind: string
+  label: string
+  amount: string
+  running: string
+}
+
+export interface PositionDelta {
+  symbol: string
+  replay_quantity: string
+  snapshot_quantity: string
+  delta: string
+}
+
+export interface AccountReconciliation {
+  account_id: number
+  account_name: string
+  currency: string
+  snapshot_date: string | null
+  snapshot_balance: string
+  expected_balance: string
+  reconciliation_delta: string
+  over_threshold: boolean
+  settled_only: boolean
+  events: ReconEvent[]
+  position_deltas: PositionDelta[]
+}
+
+export interface TransactionFilter {
+  account_id?: number
+  symbol?: string
+  limit?: number
+}
+
+function listQuery(params: Record<string, string | number | undefined>) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '' && v !== 0) q.set(k, String(v))
+  })
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
+export function listTransactions(filter: TransactionFilter = {}): Promise<ListEnvelope<Transaction>> {
+  return request<ListEnvelope<Transaction>>(`/api/transactions${listQuery(filter as Record<string, string | number | undefined>)}`)
+}
+
+export function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
+  return request<Transaction>('/api/transactions', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateTransaction(id: number, input: UpdateTransactionInput): Promise<Transaction> {
+  return request<Transaction>(`/api/transactions/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteTransaction(id: number): Promise<void> {
+  return request<void>(`/api/transactions/${id}`, { method: 'DELETE' })
+}
+
+export function listTransfers(accountId?: number): Promise<ListEnvelope<Transfer>> {
+  return request<ListEnvelope<Transfer>>(`/api/transfers${listQuery({ account_id: accountId })}`)
+}
+
+export function createTransfer(input: CreateTransferInput): Promise<Transfer> {
+  return request<Transfer>('/api/transfers', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateTransfer(id: number, input: UpdateTransferInput): Promise<Transfer> {
+  return request<Transfer>(`/api/transfers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteTransfer(id: number): Promise<void> {
+  return request<void>(`/api/transfers/${id}`, { method: 'DELETE' })
+}
+
+export function listIncomeEvents(filter: { account_id?: number; symbol?: string; event_kind?: string } = {}): Promise<ListEnvelope<IncomeEvent>> {
+  return request<ListEnvelope<IncomeEvent>>(`/api/income-events${listQuery(filter)}`)
+}
+
+export function createIncomeEvent(input: CreateIncomeEventInput): Promise<IncomeEvent> {
+  return request<IncomeEvent>('/api/income-events', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateIncomeEvent(id: number, input: UpdateIncomeEventInput): Promise<IncomeEvent> {
+  return request<IncomeEvent>(`/api/income-events/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteIncomeEvent(id: number): Promise<void> {
+  return request<void>(`/api/income-events/${id}`, { method: 'DELETE' })
+}
+
+export function listCorporateActions(symbol?: string): Promise<ListEnvelope<CorporateAction>> {
+  return request<ListEnvelope<CorporateAction>>(`/api/corporate-actions${listQuery({ symbol })}`)
+}
+
+export function createCorporateAction(input: CreateCorporateActionInput): Promise<CorporateAction> {
+  return request<CorporateAction>('/api/corporate-actions', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateCorporateAction(id: number, input: UpdateCorporateActionInput): Promise<CorporateAction> {
+  return request<CorporateAction>(`/api/corporate-actions/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteCorporateAction(id: number): Promise<void> {
+  return request<void>(`/api/corporate-actions/${id}`, { method: 'DELETE' })
+}
+
+export function getAccountReconciliation(
+  accountId: number,
+  params: { date?: string; settled_only?: boolean } = {},
+): Promise<AccountReconciliation> {
+  const qs = new URLSearchParams()
+  if (params.date) qs.set('date', params.date)
+  if (params.settled_only) qs.set('settled_only', 'true')
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return request<AccountReconciliation>(`/api/accounts/${accountId}/reconciliation${suffix}`)
 }
