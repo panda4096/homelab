@@ -8,7 +8,7 @@ import {
   type AccountTemplate,
   type ValuationBucket,
 } from '../api'
-import { currencyLabel, KIND_LABEL, KIND_TONE, MARKET_TONE } from '../lib/format'
+import { currencyLabel, KIND_LABEL, KIND_TONE, MARKET_TONE, native } from '../lib/format'
 import {
   CurrencyValue,
   DeltaValue,
@@ -176,8 +176,8 @@ export function Dashboard() {
         </div>
 
         <div className="fb-grid split-2">
-          <SmallMetric icon="badge-check" label="本年已实现盈亏" value="待 P4" />
-          <SmallMetric icon="coins" label="累计收益 · 本年" value="待 P4" />
+          <SmallMetric icon="badge-check" label="本年已实现盈亏" value={native(v.realized_pl_ytd, v.display_currency)} />
+          <SmallMetric icon="coins" label="累计收益 · 本年" value={native(v.income_ytd, v.display_currency)} />
         </div>
       </div>
 
