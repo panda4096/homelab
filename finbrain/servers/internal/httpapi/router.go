@@ -85,6 +85,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Delete("/fx-rates/{id}", s.deleteFxRate)
 		r.Get("/valuation", s.getValuation)
 		r.Get("/trend", s.getTrend)
+		r.Get("/attribution", s.getAttribution)
 
 		// P3: monthly review and credit-card liabilities
 		r.Get("/credit-card-bills", s.listCreditCardBills)

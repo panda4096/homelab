@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Segmented, Input } from '../ds'
-import { getValuation, type Valuation } from '../api'
+import { getAttribution, getValuation, type Valuation } from '../api'
 import { native } from '../lib/format'
 import { num } from '../lib/finance'
 import { usePrefStore } from '../store'
@@ -33,6 +33,7 @@ export function Compare() {
 
   const valA = useQuery({ queryKey: ['valuation', from, displayCurrency, fxMode], queryFn: () => getValuation({ date: from, display_currency: displayCurrency, fx_mode: fxMode }) })
   const valB = useQuery({ queryKey: ['valuation', to, displayCurrency, fxMode], queryFn: () => getValuation({ date: to, display_currency: displayCurrency, fx_mode: fxMode }) })
+  const attr = useQuery({ queryKey: ['attribution', from, to, displayCurrency, fxMode], queryFn: () => getAttribution({ from, to, display_currency: displayCurrency, fx_mode: fxMode }) })
 
   const dimRows = useMemo(() => {
     const a = valA.data, b = valB.data
@@ -63,6 +64,18 @@ export function Compare() {
         <DiffStat label="总资产变化" a={valA.data} b={valB.data} pick={(v) => v.total_assets} ccy={displayCurrency} />
         <DiffStat label="负债变化" a={valA.data} b={valB.data} pick={(v) => v.total_liabilities} ccy={displayCurrency} />
       </div>
+
+      {attr.data ? (
+        <div className="fb-card" style={{ padding: 16 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10 }}>增长归因（§6.12）· 净变化 {native(attr.data.net_change, displayCurrency)}</div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <AttrBucket label="价格变动" v={attr.data.price_effect} ccy={displayCurrency} />
+            <AttrBucket label="数量 / 余额变动" v={attr.data.quantity_effect} ccy={displayCurrency} />
+            <AttrBucket label="收益事件" v={attr.data.income_effect} ccy={displayCurrency} />
+            <AttrBucket label="汇率 / 其他" v={attr.data.fx_effect} ccy={displayCurrency} />
+          </div>
+        </div>
+      ) : null}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Segmented size="sm" value={dim} onChange={setDim} options={DIMENSIONS} />
@@ -114,6 +127,18 @@ function DiffStat({ label, a, b, pick, ccy }: { label: string; a?: Valuation; b?
         {change > 0 ? '+' : ''}{native(String(change), ccy)}
       </span>
       {pct != null ? <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--text-tertiary)' }}>{Number(pct) > 0 ? '+' : ''}{pct}%</span> : null}
+    </div>
+  )
+}
+
+function AttrBucket({ label, v, ccy }: { label: string; v: string; ccy: string }) {
+  const n = num(v) ?? 0
+  return (
+    <div style={{ minWidth: 120 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{label}</div>
+      <span className="fb-num" style={{ fontSize: 16, fontWeight: 600, color: n > 0 ? 'var(--gain)' : n < 0 ? 'var(--loss)' : 'var(--text-strong)' }}>
+        {n > 0 ? '+' : ''}{native(v, ccy)}
+      </span>
     </div>
   )
 }

@@ -1135,3 +1135,23 @@ export function createAnnotation(input: CreateAnnotationInput): Promise<Annotati
 export function deleteAnnotation(id: number): Promise<void> {
   return request<void>(`/api/annotations/${id}`, { method: 'DELETE' })
 }
+
+// ---------- P5 growth attribution (§6.12) ----------
+
+export interface AttributionResult {
+  from: string
+  to: string
+  display_currency: string
+  net_change: string
+  price_effect: string
+  quantity_effect: string
+  income_effect: string
+  fx_effect: string
+}
+
+export function getAttribution(params: { from: string; to: string; display_currency?: string; fx_mode?: FxMode }): Promise<AttributionResult> {
+  const q = new URLSearchParams({ from: params.from, to: params.to })
+  if (params.display_currency) q.set('display_currency', params.display_currency)
+  if (params.fx_mode) q.set('fx_mode', params.fx_mode)
+  return request<AttributionResult>(`/api/attribution?${q.toString()}`)
+}
