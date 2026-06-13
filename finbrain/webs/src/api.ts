@@ -978,3 +978,63 @@ export function getTrend(params: {
   const s = q.toString()
   return request<TrendSeries>(`/api/trend${s ? `?${s}` : ''}`)
 }
+
+// ---------- P5 allocation targets ----------
+
+export interface AllocationTargetItem {
+  id?: number
+  dimension_value: string
+  target_pct: string
+  actual_pct?: string
+  drift?: string
+  rebalance?: string
+  over_threshold?: boolean
+}
+
+export interface AllocationTargetSet {
+  id: number
+  name: string
+  dimension: string
+  drift_threshold_pct: string
+  is_dashboard_visible: boolean
+  is_archived: boolean
+  note: string | null
+  items: AllocationTargetItem[]
+  net_worth?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SaveAllocationTargetInput {
+  name: string
+  dimension: string
+  drift_threshold_pct?: string
+  is_dashboard_visible?: boolean
+  is_archived?: boolean
+  note?: string | null
+  items: { dimension_value: string; target_pct: string }[]
+}
+
+export function listAllocationTargets(): Promise<AllocationTargetSet[]> {
+  return request<AllocationTargetSet[]>('/api/allocation-targets')
+}
+
+export function createAllocationTarget(input: SaveAllocationTargetInput): Promise<AllocationTargetSet> {
+  return request<AllocationTargetSet>('/api/allocation-targets', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateAllocationTarget(id: number, input: SaveAllocationTargetInput): Promise<AllocationTargetSet> {
+  return request<AllocationTargetSet>(`/api/allocation-targets/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteAllocationTarget(id: number): Promise<void> {
+  return request<void>(`/api/allocation-targets/${id}`, { method: 'DELETE' })
+}
+
+export function getAllocationTargetDrift(id: number, params: { display_currency?: string; fx_mode?: FxMode } = {}): Promise<AllocationTargetSet> {
+  const q = new URLSearchParams()
+  if (params.display_currency) q.set('display_currency', params.display_currency)
+  if (params.fx_mode) q.set('fx_mode', params.fx_mode)
+  const s = q.toString()
+  return request<AllocationTargetSet>(`/api/allocation-targets/${id}/drift${s ? `?${s}` : ''}`)
+}

@@ -20,6 +20,7 @@ import { Transfers } from './screens/Transfers'
 import { CorporateActions } from './screens/CorporateActions'
 import { Reconciliation } from './screens/Reconciliation'
 import { TrendAnalysis } from './screens/TrendAnalysis'
+import { Targets } from './screens/Targets'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { getAccount } from './api'
@@ -28,7 +29,6 @@ import { getAccount } from './api'
 const PLACEHOLDER_IDS = [
   'compare',
   'pivot',
-  'targets',
 ]
 
 export function App() {
@@ -100,6 +100,7 @@ export function App() {
               <Route path="/transfers" element={<Transfers />} />
               <Route path="/corporate-actions" element={<CorporateActions />} />
               <Route path="/recon" element={<Reconciliation />} />
+              <Route path="/targets" element={<Targets />} />
               <Route path="/settings" element={<Settings />} />
               {PLACEHOLDER_IDS.map((id) => (
                 <Route key={id} path={`/${id}`} element={<Placeholder id={id} />} />
