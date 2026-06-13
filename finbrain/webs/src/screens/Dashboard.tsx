@@ -404,6 +404,11 @@ function EmptyDashboard({ onBuild }: { onBuild: () => void }) {
             <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0, maxWidth: 640 }}>
               当前还没有任何账户。可以从内置模板快速建账，或手动添加单个账户，然后开始更新余额 / 持仓。
             </p>
+            <ol style={{ fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.9, margin: '10px 0 0', paddingLeft: 18, maxWidth: 640 }}>
+              <li><strong style={{ color: 'var(--text-secondary)' }}>建账</strong> — 从模板或手动创建机构与账户</li>
+              <li><strong style={{ color: 'var(--text-secondary)' }}>录入</strong> — 更新余额 / 持仓快照（或用月度盘点向导一次录完），价格 / 汇率在「价格 / 汇率 / 基准」维护</li>
+              <li><strong style={{ color: 'var(--text-secondary)' }}>查看</strong> — 仪表盘看净资产与分布，持仓总览、趋势、对账逐步点亮</li>
+            </ol>
             <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
               <Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />} onClick={onBuild}>
                 新增账户

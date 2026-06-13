@@ -145,3 +145,12 @@ NL 录入抽取正确并经确认落库；NL 查询沙箱不可越权写/读非�
 - P4:盘点向导步4/5/7/8 真实回填;AccountDetail 交易/收益/转账区块 + 对账卡。
 - P7:onboarding 打磨、annotations 标注 UI、metrics(已具备结构化日志 + /healthz)。
 - 分支 feat/finbrain-p4-p7,~26 提交;未合并 main(待业主审阅)。
+
+### 收尾 refinement — 全部清零 ✅
+- ✅ §6.13 基准叠加(趋势 rebase=100 + is_benchmark 价格序列采样)。
+- ✅ §6.12 期间对比四桶归因(价格/数量/收益/汇率残差,后端恒等于净变化,Compare 卡片)。
+- ✅ 标注 annotations(§5.2.11):后端 CRUD + 趋势页 标注面板。
+- ✅ 盘点向导步4/5/7/8/9 真实回顾(公司动作/转账/收益/对账/漂移,替换占位)。
+- ✅ AccountDetail 活动区块:现金对账(§6.19)+ 最近交易 + 快捷录入(替换过时占位)。
+- ✅ onboarding 快速上手三步提示。
+**P4–P7 + 全部 refinement 完成。** 后端新端点:/attribution、/annotations。
