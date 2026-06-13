@@ -31,6 +31,7 @@ export const NAV: NavGroup[] = [
       { id: 'transactions', label: '持仓交易', icon: 'arrow-left-right' },
       { id: 'income', label: '收益事件', icon: 'coins' },
       { id: 'transfers', label: '账户转账', icon: 'repeat' },
+      { id: 'corporate-actions', label: '公司动作', icon: 'git-fork' },
     ],
   },
   {
@@ -55,6 +56,7 @@ export const TITLES: Record<string, string> = {
   transactions: '持仓交易',
   income: '收益事件',
   transfers: '账户转账',
+  'corporate-actions': '公司动作',
   accounts: '账户列表',
   targets: '目标配置',
   recon: '现金对账',

@@ -14,6 +14,11 @@ import { MarketData } from './screens/MarketData'
 import { ReviewWizard } from './screens/ReviewWizard'
 import { QuickEntry } from './screens/QuickEntry'
 import { BuildAccount } from './screens/BuildAccount'
+import { Transactions } from './screens/Transactions'
+import { IncomeEvents } from './screens/IncomeEvents'
+import { Transfers } from './screens/Transfers'
+import { CorporateActions } from './screens/CorporateActions'
+import { Reconciliation } from './screens/Reconciliation'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { getAccount } from './api'
@@ -23,11 +28,7 @@ const PLACEHOLDER_IDS = [
   'trend',
   'compare',
   'pivot',
-  'transactions',
-  'income',
-  'transfers',
   'targets',
-  'recon',
 ]
 
 export function App() {
@@ -93,6 +94,11 @@ export function App() {
               <Route path="/holdings" element={<Holdings />} />
               <Route path="/review" element={<ReviewWizard />} />
               <Route path="/market" element={<MarketData />} />
+              <Route path="/transactions" element={<Transactions />} />
+              <Route path="/income" element={<IncomeEvents />} />
+              <Route path="/transfers" element={<Transfers />} />
+              <Route path="/corporate-actions" element={<CorporateActions />} />
+              <Route path="/recon" element={<Reconciliation />} />
               <Route path="/settings" element={<Settings />} />
               {PLACEHOLDER_IDS.map((id) => (
                 <Route key={id} path={`/${id}`} element={<Placeholder id={id} />} />
