@@ -126,3 +126,22 @@ NL 录入抽取正确并经确认落库；NL 查询沙箱不可越权写/读非�
 - ✅ 全部 14 路由皆为真实屏,Placeholder 清空;vite build 通过(JS 124KB gzip)。
 - ⏳ 基准对比 §6.13(趋势叠加基准曲线)— 待补(可用 is_benchmark 标的的 prices 序列 + LineChart benchmarks 入参)。
 - 之后:P6 LLM(DeepSeek)→ P7 收尾。
+
+### P6 — 完成（需运行时配 DEEPSEEK_API_KEY）
+- ✅ LLM 客户端(DeepSeek 默认 + Anthropic 兜底,未配置优雅降级 503)。
+- ✅ NL 查询 §8.2:NL→单条 SELECT,**只读事务 + statement_timeout + 关键字黑名单 + 单语句**沙箱(SQL guard 单测)。
+- ✅ NL 录入 §8.1:意图识别 + 字段抽取 + 账户模糊匹配 → 草稿,⌘K 浮层确认后写入(6 类核心意图一键写)。
+- ✅ 阶段总结 §8.3:GatherSummaryData + LLM 生成 Markdown,存 summaries;§7.19 总结屏(生成/列表/详情/删除)。
+- ✅ ⌘K 浮层重写为真功能(查询/录入双模);/llm/status、/summaries 路由;status+降级 e2e 验证。
+
+### P7 — 完成（核心）
+- ✅ 全量数据导出 §7.20:`GET /api/export` 打包 16 张表为 CSV(zip),走只读查询路径;Settings「导出 CSV」按钮(e2e 验证 16 文件)。
+- ✅ Settings 增「数据与智能」卡:LLM 状态(provider/model 或未配置)+ 导出 + 关于。
+- ✅ 路由级 ErrorBoundary:单屏报错不再白屏。
+- ✅ 全部偏好(展示币/汇率口径/涨跌约定/默认粒度)回源后端(P0 起已具备)。
+
+### 收尾后仍待补（refinement,已记录,非核心阻塞）
+- P5:基准叠加 §6.13、期间对比四桶归因 §6.12。
+- P4:盘点向导步4/5/7/8 真实回填;AccountDetail 交易/收益/转账区块 + 对账卡。
+- P7:onboarding 打磨、annotations 标注 UI、metrics(已具备结构化日志 + /healthz)。
+- 分支 feat/finbrain-p4-p7,~26 提交;未合并 main(待业主审阅)。
