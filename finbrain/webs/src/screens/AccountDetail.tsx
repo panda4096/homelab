@@ -16,6 +16,8 @@ import {
   deleteBalanceSnapshot,
   deletePositionSnapshot,
   getAccount,
+  getAccountReconciliation,
+  listTransactions,
   listBalanceSnapshots,
   listPositions,
   listPositionSnapshots,
@@ -187,7 +189,7 @@ export function AccountDetail() {
       ) : null}
       {account.kind === 'credit_card' ? <CreditCardBillsSection account={account} /> : null}
       {!balanceKind && !holdingKind ? <UnsupportedAccountKind account={account} /> : null}
-      <PlaceholderSections />
+      <AccountActivity account={account} />
 
       {editing ? (
         <EditAccountModal account={account} onClose={() => setEditing(false)} />
@@ -716,41 +718,70 @@ function UnsupportedAccountKind({ account }: { account: Account }) {
 
 // ---------- placeholder sub-sections ----------
 
-function PlaceholderSections() {
-  const sections: Array<[string, string]> = [
-    ['交易', 'P3 起'],
-    ['收益事件', 'P4 起'],
-    ['转账', 'P4 起'],
-  ]
+// AccountActivity replaces the old static placeholders with live cash reconciliation
+// (§6.19), recent transactions, and quick-entry links (P4 features are now real).
+function AccountActivity({ account }: { account: Account }) {
+  const navigate = useNavigate()
+  const isCard = account.kind === 'credit_card'
+  const isHolding = supportsPositionSnapshots(account.kind)
+  const recon = useQuery({
+    queryKey: ['reconciliation', account.id, false],
+    queryFn: () => getAccountReconciliation(account.id, {}),
+    enabled: !isCard,
+  })
+  const txns = useQuery({
+    queryKey: ['transactions', String(account.id), ''],
+    queryFn: () => listTransactions({ account_id: account.id, limit: 5 }),
+    enabled: isHolding,
+  })
   return (
-    <Card eyebrow="更多记录">
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 12,
-        }}
-      >
-        {sections.map(([label, when]) => (
-          <div
-            key={label}
-            style={{
-              background: 'var(--surface-inset)',
-              border: '1px dashed var(--border-default)',
-              borderRadius: 'var(--radius-md)',
-              padding: '14px 16px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-            }}
-          >
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
-              {label}
-            </span>
-            <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>{when}开放</span>
-          </div>
-        ))}
-      </div>
-    </Card>
+    <>
+      {!isCard ? (
+        <Card eyebrow="现金对账 · §6.19" actions={<Button size="sm" variant="ghost" onClick={() => navigate('/recon')}>查看明细</Button>}>
+          {recon.data ? (
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>
+              <ActivityMetric label="预期余额" v={native(recon.data.expected_balance, account.currency)} />
+              <ActivityMetric label={recon.data.snapshot_date ? `最新快照 · ${recon.data.snapshot_date}` : '最新快照'} v={native(recon.data.snapshot_balance, account.currency)} />
+              <ActivityMetric label="对账差额" v={native(recon.data.reconciliation_delta, account.currency)} tone={recon.data.over_threshold ? 'var(--warning)' : 'var(--gain)'} />
+              {recon.data.over_threshold ? <Badge tone="warning" dot>超阈值</Badge> : <Badge tone="success">在阈值内</Badge>}
+            </div>
+          ) : <span style={{ color: 'var(--text-tertiary)', fontSize: 12.5 }}>{recon.isLoading ? '加载中…' : '暂无对账数据'}</span>}
+        </Card>
+      ) : null}
+
+      {isHolding ? (
+        <Card eyebrow="最近交易" actions={<Button size="sm" variant="ghost" onClick={() => navigate('/transactions')}>全部 / 录入</Button>}>
+          {(txns.data?.items ?? []).length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {(txns.data?.items ?? []).map((t) => (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--divider)' }}>
+                  <Badge tone={t.action === 'buy' ? 'success' : 'warning'}>{t.action === 'buy' ? '买入' : '卖出'}</Badge>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-strong)' }}>{t.symbol}</span>
+                  <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{t.trade_date}</span>
+                  <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>{quantity(t.quantity)} × {native(t.price, t.currency, 4)}</span>
+                </div>
+              ))}
+            </div>
+          ) : <span style={{ color: 'var(--text-tertiary)', fontSize: 12.5 }}>暂无交易,点「全部 / 录入」记录第一笔</span>}
+        </Card>
+      ) : null}
+
+      <Card eyebrow="快捷录入">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {isHolding ? <Button size="sm" variant="secondary" iconLeft={<Icon name="arrow-left-right" size={13} />} onClick={() => navigate('/transactions')}>持仓交易</Button> : null}
+          <Button size="sm" variant="secondary" iconLeft={<Icon name="coins" size={13} />} onClick={() => navigate('/income')}>收益事件</Button>
+          <Button size="sm" variant="secondary" iconLeft={<Icon name="repeat" size={13} />} onClick={() => navigate('/transfers')}>账户转账</Button>
+        </div>
+      </Card>
+    </>
+  )
+}
+
+function ActivityMetric({ label, v, tone }: { label: string; v: string; tone?: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{label}</div>
+      <span className="fb-num" style={{ fontSize: 18, fontWeight: 600, color: tone ?? 'var(--text-strong)' }}>{v}</span>
+    </div>
   )
 }
