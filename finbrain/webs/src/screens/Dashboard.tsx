@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Badge, Button, Card, Icon } from '../ds'
 import {
   getValuation,
+  getTrend,
   listAccountTemplates,
   listAccounts,
   type AccountTemplate,
@@ -37,6 +38,11 @@ export function Dashboard() {
     queryFn: () => getValuation({ display_currency: displayCurrency, fx_mode: fxMode }),
     enabled: accounts.length > 0,
   })
+  const trend = useQuery({
+    queryKey: ['trend', 'dashboard', displayCurrency, fxMode],
+    queryFn: () => getTrend({ granularity: 'month', display_currency: displayCurrency, fx_mode: fxMode }),
+    enabled: accounts.length > 0,
+  })
   const hasAccounts = accounts.length > 0
 
   if (!hasAccounts && !accountsLoading) {
@@ -68,8 +74,12 @@ export function Dashboard() {
   }
 
   const v = valuation.data
-  const positionTrend = staticTrend(v.position_value)
-  const netWorthTrend = staticTrend(v.net_worth)
+  const trendPts = trend.data?.points ?? []
+  const netWorthSeries = trendPts.map((p) => num(p.net_worth) ?? 0)
+  const positionSeries = trendPts.map((p) => num(p.position_value) ?? 0)
+  const positionTrend = positionSeries.length >= 2 ? positionSeries : staticTrend(v.position_value)
+  const netWorthTrend = netWorthSeries.length >= 2 ? netWorthSeries : staticTrend(v.net_worth)
+  const trendIsReal = netWorthSeries.length >= 2
   const missingPriceCount = v.warnings.filter((w) => w.kind === 'missing_price').length
   const fxFallbackCount = v.warnings.filter((w) => w.kind === 'fx_fallback').length
   const liabilityValue = num(v.total_liabilities) ?? 0
@@ -158,7 +168,7 @@ export function Dashboard() {
           <div style={{ marginTop: 16 }}>
             <Sparkline data={positionTrend} width={300} height={34} />
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
-              历史走势待 P5 生成
+              {trendIsReal ? '近 12 个月月度截面（§6.14）' : '历史走势待更多盘点生成'}
             </div>
             <div style={{ display: 'flex', gap: 24, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--divider)' }}>
               <div>
@@ -256,7 +266,7 @@ export function Dashboard() {
 
       <div className="fb-grid db-12">
         <Card
-          eyebrow="净资产趋势 · 静态预览"
+          eyebrow={trendIsReal ? '净资产趋势 · 近 12 月' : '净资产趋势 · 静态预览'}
           actions={
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 11, color: 'var(--text-tertiary)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -274,7 +284,7 @@ export function Dashboard() {
                 <CurrencyValue value={v.net_worth} currency={v.display_currency} compact size="22px" />
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-                历史趋势待 P5 生成；当前仅展示当日估值结构。
+                {trendIsReal ? '按月度盘点截面插值生成（§6.14）；缺历史价格的持仓不计入当期市值。' : '历史趋势待更多盘点快照生成；当前仅展示当日估值结构。'}
               </div>
             </div>
           </div>

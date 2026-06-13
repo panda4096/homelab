@@ -19,13 +19,13 @@ import { IncomeEvents } from './screens/IncomeEvents'
 import { Transfers } from './screens/Transfers'
 import { CorporateActions } from './screens/CorporateActions'
 import { Reconciliation } from './screens/Reconciliation'
+import { TrendAnalysis } from './screens/TrendAnalysis'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { getAccount } from './api'
 
 // Screens that are bespoke in P0/P1; everything else falls back to Placeholder.
 const PLACEHOLDER_IDS = [
-  'trend',
   'compare',
   'pivot',
   'targets',
@@ -92,6 +92,7 @@ export function App() {
               <Route path="/accounts/:id/positions/:symbol" element={<PositionHistory />} />
               <Route path="/accounts/:id" element={<AccountDetail />} />
               <Route path="/holdings" element={<Holdings />} />
+              <Route path="/trend" element={<TrendAnalysis />} />
               <Route path="/review" element={<ReviewWizard />} />
               <Route path="/market" element={<MarketData />} />
               <Route path="/transactions" element={<Transactions />} />

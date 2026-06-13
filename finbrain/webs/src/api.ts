@@ -945,3 +945,36 @@ export function getAccountReconciliation(
   const suffix = qs.toString() ? `?${qs}` : ''
   return request<AccountReconciliation>(`/api/accounts/${accountId}/reconciliation${suffix}`)
 }
+
+// ---------- P5 trend / analysis ----------
+
+export interface TrendPoint {
+  date: string
+  net_worth: string
+  total_assets: string
+  total_liabilities: string
+  cash_value: string
+  position_value: string
+}
+
+export interface TrendSeries {
+  from: string
+  to: string
+  granularity: TimeAggregation
+  display_currency: string
+  fx_mode: FxMode
+  points: TrendPoint[]
+}
+
+export function getTrend(params: {
+  from?: string
+  to?: string
+  granularity?: TimeAggregation
+  display_currency?: string
+  fx_mode?: FxMode
+} = {}): Promise<TrendSeries> {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, String(v)) })
+  const s = q.toString()
+  return request<TrendSeries>(`/api/trend${s ? `?${s}` : ''}`)
+}
