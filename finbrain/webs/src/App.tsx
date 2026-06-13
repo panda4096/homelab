@@ -21,6 +21,7 @@ import { CorporateActions } from './screens/CorporateActions'
 import { Reconciliation } from './screens/Reconciliation'
 import { TrendAnalysis } from './screens/TrendAnalysis'
 import { Targets } from './screens/Targets'
+import { Pivot } from './screens/Pivot'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { getAccount } from './api'
@@ -28,7 +29,6 @@ import { getAccount } from './api'
 // Screens that are bespoke in P0/P1; everything else falls back to Placeholder.
 const PLACEHOLDER_IDS = [
   'compare',
-  'pivot',
 ]
 
 export function App() {
@@ -101,6 +101,7 @@ export function App() {
               <Route path="/corporate-actions" element={<CorporateActions />} />
               <Route path="/recon" element={<Reconciliation />} />
               <Route path="/targets" element={<Targets />} />
+              <Route path="/pivot" element={<Pivot />} />
               <Route path="/settings" element={<Settings />} />
               {PLACEHOLDER_IDS.map((id) => (
                 <Route key={id} path={`/${id}`} element={<Placeholder id={id} />} />
