@@ -78,6 +78,38 @@ func (s *Store) UpsertPrice(ctx context.Context, p Price) (Price, error) {
 	}
 	defer tx.Rollback(ctx)
 
+	out, err := upsertPriceTx(ctx, tx, p)
+	if err != nil {
+		return Price{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Price{}, err
+	}
+	return out, nil
+}
+
+func (s *Store) BatchUpsertPrices(ctx context.Context, prices []Price) ([]Price, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	out := make([]Price, 0, len(prices))
+	for _, p := range prices {
+		price, err := upsertPriceTx(ctx, tx, p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, price)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func upsertPriceTx(ctx context.Context, tx pgx.Tx, p Price) (Price, error) {
 	if _, err := tx.Exec(ctx, `INSERT INTO instruments (symbol, quote_currency) VALUES ($1, $2) ON CONFLICT (symbol) DO NOTHING`, p.Symbol, p.Currency); err != nil {
 		return Price{}, err
 	}
@@ -93,9 +125,6 @@ func (s *Store) UpsertPrice(ctx context.Context, p Price) (Price, error) {
 		RETURNING `+priceCols,
 		p.Symbol, p.PriceDate, p.Price, p.Currency, p.Source, p.Note))
 	if err != nil {
-		return Price{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return Price{}, err
 	}
 	return out, nil
@@ -183,6 +212,36 @@ func (s *Store) UpsertFxRate(ctx context.Context, f FxRate) (FxRate, error) {
 			rate = EXCLUDED.rate, source = EXCLUDED.source, note = EXCLUDED.note, updated_at = now()
 		RETURNING `+fxRateCols,
 		f.BaseCurrency, f.QuoteCurrency, f.RateDate, f.Rate, f.Source, f.Note))
+}
+
+func (s *Store) BatchUpsertFxRates(ctx context.Context, rates []FxRate) ([]FxRate, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	out := make([]FxRate, 0, len(rates))
+	for _, f := range rates {
+		if f.Source == "" {
+			f.Source = "manual"
+		}
+		rate, err := scanFxRate(tx.QueryRow(ctx, `
+			INSERT INTO fx_rates (base_currency, quote_currency, rate_date, rate, source, note, updated_at)
+			VALUES ($1, $2, $3::date, $4::numeric, $5, $6, now())
+			ON CONFLICT (base_currency, quote_currency, rate_date) DO UPDATE SET
+				rate = EXCLUDED.rate, source = EXCLUDED.source, note = EXCLUDED.note, updated_at = now()
+			RETURNING `+fxRateCols,
+			f.BaseCurrency, f.QuoteCurrency, f.RateDate, f.Rate, f.Source, f.Note))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rate)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) UpdateFxRate(ctx context.Context, id int64, f FxRate) (FxRate, error) {

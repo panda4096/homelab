@@ -42,6 +42,30 @@ func (s *Server) upsertPrice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+func (s *Server) batchUpsertPrices(w http.ResponseWriter, r *http.Request) {
+	var prices []store.Price
+	if !decodeJSON(w, r, &prices) {
+		return
+	}
+	errs := make([]batchRowError, 0)
+	for i := range prices {
+		normalizePrice(&prices[i])
+		if msg := validatePrice(prices[i], s.cfg.Location); msg != "" {
+			errs = append(errs, newBatchRowError("prices", i, "", "business_rule_violated", msg))
+		}
+	}
+	if len(errs) > 0 {
+		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "价格批量导入存在无效行", errs)
+		return
+	}
+	out, err := s.store.BatchUpsertPrices(r.Context(), prices)
+	if err != nil {
+		writeStorageError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out, "count": len(out)})
+}
+
 func (s *Server) patchPrice(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -128,6 +152,30 @@ func (s *Server) upsertFxRate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) batchUpsertFxRates(w http.ResponseWriter, r *http.Request) {
+	var rates []store.FxRate
+	if !decodeJSON(w, r, &rates) {
+		return
+	}
+	errs := make([]batchRowError, 0)
+	for i := range rates {
+		normalizeFxRate(&rates[i])
+		if msg := validateFxRate(rates[i], s.cfg.Location); msg != "" {
+			errs = append(errs, newBatchRowError("fx_rates", i, "", "business_rule_violated", msg))
+		}
+	}
+	if len(errs) > 0 {
+		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "汇率批量导入存在无效行", errs)
+		return
+	}
+	out, err := s.store.BatchUpsertFxRates(r.Context(), rates)
+	if err != nil {
+		writeStorageError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out, "count": len(out)})
 }
 
 func (s *Server) patchFxRate(w http.ResponseWriter, r *http.Request) {

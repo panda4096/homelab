@@ -16,11 +16,16 @@ cc_account AS (
     RETURNING id
 ),
 pay_account AS (
-    SELECT id
-    FROM accounts
-    WHERE currency = 'CNY' AND kind <> 'credit_card' AND NOT is_archived
-    ORDER BY id
-    LIMIT 1
+    INSERT INTO accounts (institution_id, name, currency, kind, note, display_order, is_archived)
+    SELECT id, '还款现金账户', 'CNY', 'cash', 'dev seed repayment account', 80, false
+    FROM inst
+    ON CONFLICT (institution_id, name) DO UPDATE SET
+        currency = EXCLUDED.currency,
+        kind = EXCLUDED.kind,
+        note = EXCLUDED.note,
+        is_archived = false,
+        updated_at = now()
+    RETURNING id
 ),
 bill_seed AS (
     INSERT INTO credit_card_bills (
@@ -48,7 +53,7 @@ bill_seed AS (
         pay_account.id,
         'dev seed paid'
     FROM cc_account
-    LEFT JOIN pay_account ON true
+    JOIN pay_account ON true
     ON CONFLICT (account_id, statement_date) DO UPDATE SET
         amount_total = EXCLUDED.amount_total,
         currency = EXCLUDED.currency,

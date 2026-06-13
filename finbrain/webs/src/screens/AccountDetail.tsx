@@ -721,7 +721,6 @@ function PlaceholderSections() {
     ['交易', 'P3 起'],
     ['收益事件', 'P4 起'],
     ['转账', 'P4 起'],
-    ['信用卡账单', 'P3 已开放'],
   ]
   return (
     <Card eyebrow="更多记录">

@@ -76,6 +76,28 @@ func collectCreditCardBills(rows pgx.Rows) ([]CreditCardBill, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) CreateCreditCardBill(ctx context.Context, b CreditCardBill) (CreditCardBill, error) {
+	cats, err := json.Marshal(b.TopCategories)
+	if err != nil {
+		return CreditCardBill{}, err
+	}
+	var id int64
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO credit_card_bills (
+			account_id, statement_date, amount_total, currency, top_categories,
+			paid_at, payment_account_id, note, updated_at
+		)
+		VALUES ($1, $2::date, $3::numeric, $4, $5::jsonb, $6::date, $7, $8, now())
+		RETURNING id`,
+		b.AccountID, b.StatementDate, b.AmountTotal, b.Currency, string(cats),
+		b.PaidAt, b.PaymentAccountID, b.Note,
+	).Scan(&id)
+	if err != nil {
+		return CreditCardBill{}, err
+	}
+	return s.GetCreditCardBill(ctx, id)
+}
+
 func (s *Store) UpsertCreditCardBill(ctx context.Context, b CreditCardBill) (CreditCardBill, error) {
 	cats, err := json.Marshal(b.TopCategories)
 	if err != nil {

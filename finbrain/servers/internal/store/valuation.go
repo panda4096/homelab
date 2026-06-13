@@ -113,7 +113,6 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	totalAssets := decZero
 	totalLiabilities := decZero
 	cashValue := decZero
-	quoteExposureTotal := decZero
 
 	for _, c := range cashRows {
 		balance, err := decimalFromString(c.Balance)
@@ -132,7 +131,6 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		displayValue := balance.Mul(res.Rate)
 		totalAssets = totalAssets.Add(displayValue)
 		cashValue = cashValue.Add(displayValue)
-		quoteExposureTotal = quoteExposureTotal.Add(displayValue.Abs())
 
 		alloc.add("kind", c.AccountKind, c.AccountKind, displayValue)
 		alloc.add("institution", c.Institution, c.Institution, displayValue)
@@ -241,7 +239,6 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 
 		positionValue = positionValue.Add(displayMarketValue)
 		totalAssets = totalAssets.Add(displayMarketValue)
-		quoteExposureTotal = quoteExposureTotal.Add(displayMarketValue.Abs())
 		pos.MarketValue = stringPtr(formatMoneyDecimal(nativeMarketValue))
 		pos.MarketValueDisplay = stringPtr(formatMoneyDecimal(displayMarketValue))
 
@@ -284,7 +281,6 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		}
 		displayLiability := amount.Mul(res.Rate)
 		totalLiabilities = totalLiabilities.Add(displayLiability)
-		quoteExposureTotal = quoteExposureTotal.Add(displayLiability.Abs())
 		alloc.add("quote_currency", l.Currency, l.Currency, displayLiability.Neg())
 	}
 	netWorth = totalAssets.Sub(totalLiabilities)
@@ -318,6 +314,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	if !netWorth.IsZero() {
 		val.PositionShare = stringPtr(formatPercentDecimal(percent(positionValue, netWorth)))
 	}
+	quoteExposureTotal := alloc.absTotal("quote_currency")
 	val.Allocations = alloc.build(map[string]decimal.Decimal{
 		"kind":           totalAssets,
 		"institution":    totalAssets,
@@ -568,6 +565,14 @@ func (a allocationBuilder) add(dim, key, name string, value decimal.Decimal) {
 	b.name = name
 	b.value = b.value.Add(value)
 	a[dim][key] = b
+}
+
+func (a allocationBuilder) absTotal(dim string) decimal.Decimal {
+	total := decZero
+	for _, b := range a[dim] {
+		total = total.Add(b.value.Abs())
+	}
+	return total
 }
 
 func (a allocationBuilder) build(denominators map[string]decimal.Decimal) map[string][]ValuationBucket {

@@ -124,3 +124,51 @@ func TestBuildSymbolPositionGroupsWeightedCost(t *testing.T) {
 		t.Fatalf("asset weight=%v, want 50.00", g.AssetWeight)
 	}
 }
+
+func TestQuoteCurrencyExposureDenominatorUsesNetBucketAbs(t *testing.T) {
+	alloc := newAllocationBuilder()
+	alloc.add("quote_currency", "USD", "USD", decimal.RequireFromString("1000"))
+	alloc.add("quote_currency", "USD", "USD", decimal.RequireFromString("-400"))
+
+	denom := alloc.absTotal("quote_currency")
+	if !denom.Equal(decimal.RequireFromString("600")) {
+		t.Fatalf("denominator=%s, want 600", denom)
+	}
+
+	buckets := alloc.build(map[string]decimal.Decimal{"quote_currency": denom})["quote_currency"]
+	if len(buckets) != 1 {
+		t.Fatalf("bucket count=%d, want 1", len(buckets))
+	}
+	if buckets[0].Value != "600.00" {
+		t.Fatalf("USD exposure value=%s, want 600.00", buckets[0].Value)
+	}
+	if buckets[0].Percent != "100.00" {
+		t.Fatalf("USD exposure percent=%s, want 100.00", buckets[0].Percent)
+	}
+}
+
+func TestQuoteCurrencyExposureDenominatorSumsAbsoluteNetBuckets(t *testing.T) {
+	alloc := newAllocationBuilder()
+	alloc.add("quote_currency", "USD", "USD", decimal.RequireFromString("1000"))
+	alloc.add("quote_currency", "USD", "USD", decimal.RequireFromString("-400"))
+	alloc.add("quote_currency", "HKD", "HKD", decimal.RequireFromString("300"))
+	alloc.add("quote_currency", "HKD", "HKD", decimal.RequireFromString("-800"))
+
+	denom := alloc.absTotal("quote_currency")
+	if !denom.Equal(decimal.RequireFromString("1100")) {
+		t.Fatalf("denominator=%s, want 1100", denom)
+	}
+
+	buckets := alloc.build(map[string]decimal.Decimal{"quote_currency": denom})["quote_currency"]
+	var totalPct decimal.Decimal
+	for _, b := range buckets {
+		pct := decimal.RequireFromString(b.Percent)
+		if pct.IsNegative() {
+			pct = pct.Abs()
+		}
+		totalPct = totalPct.Add(pct)
+	}
+	if totalPct.StringFixed(2) != "100.00" {
+		t.Fatalf("absolute percent sum=%s, want 100.00", totalPct.StringFixed(2))
+	}
+}

@@ -72,10 +72,12 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		// P2: market data and valuation
 		r.Get("/prices", s.listPrices)
 		r.Post("/prices", s.upsertPrice)
+		r.Post("/prices/batch", s.batchUpsertPrices)
 		r.Patch("/prices/{id}", s.patchPrice)
 		r.Delete("/prices/{id}", s.deletePrice)
 		r.Get("/fx-rates", s.listFxRates)
 		r.Post("/fx-rates", s.upsertFxRate)
+		r.Post("/fx-rates/batch", s.batchUpsertFxRates)
 		r.Patch("/fx-rates/{id}", s.patchFxRate)
 		r.Delete("/fx-rates/{id}", s.deleteFxRate)
 		r.Get("/valuation", s.getValuation)

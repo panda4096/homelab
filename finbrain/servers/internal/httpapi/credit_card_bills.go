@@ -9,12 +9,6 @@ import (
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
-type reviewBatchError struct {
-	Resource string `json:"resource"`
-	Index    int    `json:"index"`
-	Message  string `json:"message"`
-}
-
 func (s *Server) listCreditCardBills(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListCreditCardBills(r.Context())
 	if err != nil {
@@ -47,7 +41,7 @@ func (s *Server) upsertCreditCardBill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.UpsertCreditCardBill(r.Context(), b)
+	out, err := s.store.CreateCreditCardBill(r.Context(), b)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "conflict", "该出账日已存在账单")
 		return
@@ -141,15 +135,15 @@ func (s *Server) submitReviewBatch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) normalizeAndValidateReviewBatch(r *http.Request, batch *store.ReviewBatch) []reviewBatchError {
-	errs := []reviewBatchError{}
+func (s *Server) normalizeAndValidateReviewBatch(r *http.Request, batch *store.ReviewBatch) []batchRowError {
+	errs := []batchRowError{}
 	for i := range batch.BalanceSnapshots {
 		b := &batch.BalanceSnapshots[i]
 		if b.SnapshotDate == "" {
 			b.SnapshotDate = batch.ReviewDate
 		}
 		if msg := s.validateBalanceSnapshotRow(r, b); msg != "" {
-			errs = append(errs, reviewBatchError{Resource: "balance_snapshots", Index: i, Message: msg})
+			errs = append(errs, newBatchRowError("balance_snapshots", i, "", "business_rule_violated", msg))
 		}
 	}
 	for i := range batch.PositionSnapshots {
@@ -158,7 +152,7 @@ func (s *Server) normalizeAndValidateReviewBatch(r *http.Request, batch *store.R
 			p.SnapshotDate = batch.ReviewDate
 		}
 		if msg := s.validatePositionSnapshotRow(r, p); msg != "" {
-			errs = append(errs, reviewBatchError{Resource: "position_snapshots", Index: i, Message: msg})
+			errs = append(errs, newBatchRowError("position_snapshots", i, "", "business_rule_violated", msg))
 		}
 	}
 	for i := range batch.CreditCardBills {
@@ -167,7 +161,7 @@ func (s *Server) normalizeAndValidateReviewBatch(r *http.Request, batch *store.R
 			b.StatementDate = batch.ReviewDate
 		}
 		if msg := s.normalizeAndValidateCreditCardBill(r, b); msg != "" {
-			errs = append(errs, reviewBatchError{Resource: "credit_card_bills", Index: i, Message: msg})
+			errs = append(errs, newBatchRowError("credit_card_bills", i, "", "business_rule_violated", msg))
 		}
 	}
 	return errs

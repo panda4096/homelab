@@ -5,6 +5,8 @@ import { Badge, Button, Card, Icon, IconButton, Input, Select } from '../ds'
 import { SectionHint } from '../lib/ui'
 import {
   ACCOUNT_CURRENCIES,
+  isNumericString,
+  maxSnapshotDateISO,
   native,
   quantity,
   supportsBalanceSnapshots,
@@ -83,7 +85,7 @@ export function ReviewWizard() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const toast = useToast()
-  const [step, setStep] = useState(2)
+  const [step, setStep] = useState(1)
   const [reviewDate, setReviewDate] = useState(todayISO())
   const [balances, setBalances] = useState<BalanceDraft[]>([])
   const [positions, setPositions] = useState<PositionDraft[]>([])
@@ -229,14 +231,17 @@ export function ReviewWizard() {
     onSuccess: (res) => {
       localStorage.removeItem(DRAFT_KEY)
       void qc.invalidateQueries({ queryKey: ['accounts'] })
+      void qc.invalidateQueries({ queryKey: ['account'] })
       void qc.invalidateQueries({ queryKey: ['valuation'] })
+      void qc.invalidateQueries({ queryKey: ['balance-snapshots'] })
+      void qc.invalidateQueries({ queryKey: ['positions'] })
       void qc.invalidateQueries({ queryKey: ['credit-card-bills'] })
       toast.success(`盘点已提交：${res.balance_snapshots + res.position_snapshots + res.credit_card_bills} 条记录`)
       navigate('/dashboard')
     },
     onError: (e) => {
       if (e instanceof ApiError && Array.isArray(e.details)) {
-        setBatchErrors(e.details.map((d: any) => `${d.resource} #${d.index + 1}: ${d.message}`))
+        setBatchErrors(e.details.map(formatBatchErrorDetail))
       } else {
         setBatchErrors([e instanceof Error ? e.message : '提交失败'])
       }
@@ -313,8 +318,16 @@ export function ReviewWizard() {
                 disabled={submit.isPending}
                 onClick={() => {
                   setBatchErrors([])
-                  if (step === 10) submit.mutate()
-                  else setStep((s) => Math.min(10, s + 1))
+                  if (step === 10) {
+                    const errors = validateReviewDraft(bills)
+                    if (errors.length) {
+                      setBatchErrors(errors)
+                      return
+                    }
+                    submit.mutate()
+                  } else {
+                    setStep((s) => Math.min(10, s + 1))
+                  }
                 }}
                 iconRight={<Icon name={step === 10 ? 'check' : 'arrow-right'} size={15} />}
               >
@@ -592,8 +605,8 @@ function BillDraftRow({
         }}
         options={creditAccounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))}
       />
-      <Input type="date" value={row.statement_date} onChange={(e) => patch({ statement_date: e.target.value })} size="sm" />
-      <Input numeric prefix={row.currency} placeholder="账单总额" value={row.amount_total} onChange={(e) => patch({ amount_total: e.target.value })} size="sm" />
+      <Input type="date" value={row.statement_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ statement_date: e.target.value })} size="sm" />
+      <Input numeric prefix={row.currency} placeholder="账单总额" value={row.amount_total} min="0.01" onChange={(e) => patch({ amount_total: e.target.value })} size="sm" />
       <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
         <input type="checkbox" checked={row.paid} onChange={(e) => patch({ paid: e.target.checked })} /> 已还
@@ -695,6 +708,35 @@ function Page({ children }: { children: React.ReactNode }) {
 
 function accountLabel(account: Account) {
   return `${account.institution} · ${account.name}`
+}
+
+function formatBatchErrorDetail(detail: any) {
+  const entity = detail?.entity_type ?? detail?.resource ?? 'row'
+  const rawIndex = typeof detail?.line_index === 'number' ? detail.line_index : detail?.index
+  const indexText = typeof rawIndex === 'number' ? ` #${rawIndex + 1}` : ''
+  const fieldText = detail?.field ? `.${detail.field}` : ''
+  const codeText = detail?.error_code ? ` (${detail.error_code})` : ''
+  const message = detail?.message ?? '无效行'
+  return `${entity}${indexText}${fieldText}${codeText}: ${message}`
+}
+
+function validateReviewDraft(bills: BillDraft[]) {
+  const errors: string[] = []
+  const maxDate = maxSnapshotDateISO()
+  bills.forEach((bill, index) => {
+    if (!bill.amount_total.trim()) return
+    const row = `credit_card_bills #${index + 1}`
+    if (!isNumericString(bill.amount_total) || Number(bill.amount_total) <= 0) {
+      errors.push(`${row}: 账单总额必须为大于 0 的金额`)
+    }
+    if ((bill.statement_date || '') > maxDate) {
+      errors.push(`${row}: 出账日不能晚于 ${maxDate}`)
+    }
+    if (bill.paid && bill.paid_at && bill.paid_at > maxDate) {
+      errors.push(`${row}: 还款日不能晚于 ${maxDate}`)
+    }
+  })
+  return errors
 }
 
 function subtitleForStep(step: number) {
