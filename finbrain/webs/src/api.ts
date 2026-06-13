@@ -143,6 +143,28 @@ export interface PositionSnapshot {
   updated_at: string
 }
 
+export interface CreditCardCategory {
+  name: string
+  amount: string
+}
+
+export interface CreditCardBill {
+  id: number
+  account_id: number
+  account_name?: string
+  institution?: string
+  statement_date: string
+  amount_total: string
+  currency: string
+  top_categories: CreditCardCategory[]
+  paid_at: string | null
+  payment_account_id: number | null
+  payment_account_name?: string | null
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface CreateBalanceSnapshotInput {
   account_id: number
   snapshot_date: string
@@ -169,6 +191,33 @@ export type UpdatePositionSnapshotInput = Pick<
   CreatePositionSnapshotInput,
   'snapshot_date' | 'quantity' | 'avg_cost' | 'cost_currency' | 'note'
 >
+
+export interface CreateCreditCardBillInput {
+  account_id: number
+  statement_date: string
+  amount_total: string
+  currency?: string
+  top_categories?: CreditCardCategory[]
+  paid_at?: string | null
+  payment_account_id?: number | null
+  note?: string | null
+}
+
+export type UpdateCreditCardBillInput = Omit<CreateCreditCardBillInput, 'account_id'>
+
+export interface ReviewBatchInput {
+  review_date: string
+  balance_snapshots: CreateBalanceSnapshotInput[]
+  position_snapshots: CreatePositionSnapshotInput[]
+  credit_card_bills: CreateCreditCardBillInput[]
+}
+
+export interface ReviewBatchResult {
+  review_date: string
+  balance_snapshots: number
+  position_snapshots: number
+  credit_card_bills: number
+}
 
 export interface AccountBlueprint {
   name_suffix: string
@@ -312,6 +361,8 @@ export interface PriceFilter {
 }
 
 export interface FxRateFilter {
+  base?: string
+  quote?: string
   base_currency?: string
   quote_currency?: string
   date_from?: string
@@ -330,11 +381,13 @@ export type ApiErrorCode =
 export class ApiError extends Error {
   status: number
   code: ApiErrorCode
-  constructor(status: number, code: ApiErrorCode, message: string) {
+  details: unknown
+  constructor(status: number, code: ApiErrorCode, message: string, details?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.details = details
   }
 }
 
@@ -348,14 +401,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // toast/inline message is the human-readable backend message.
     let code: ApiErrorCode = 'error'
     let message = `${init?.method ?? 'GET'} ${path} failed (${res.status})`
+    let details: unknown
     try {
-      const body = (await res.json()) as { error?: { code?: string; message?: string } }
+      const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } }
       if (body?.error?.message) message = body.error.message
       if (body?.error?.code) code = body.error.code
+      details = body?.error?.details
     } catch {
       /* non-JSON body — keep the generic message */
     }
-    throw new ApiError(res.status, code, message)
+    throw new ApiError(res.status, code, message, details)
   }
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
@@ -532,6 +587,41 @@ export function updatePositionSnapshot(
 
 export function deletePositionSnapshot(id: number): Promise<void> {
   return request<void>(`/api/position-snapshots/${id}`, { method: 'DELETE' })
+}
+
+// ---------- P3 credit-card bills + monthly review ----------
+
+export function listCreditCardBills(): Promise<CreditCardBill[]> {
+  return request<CreditCardBill[]>('/api/credit-card-bills')
+}
+
+export function listAccountCreditCardBills(accountId: number): Promise<CreditCardBill[]> {
+  return request<CreditCardBill[]>(`/api/accounts/${accountId}/credit-card-bills`)
+}
+
+export function upsertCreditCardBill(input: CreateCreditCardBillInput): Promise<CreditCardBill> {
+  return request<CreditCardBill>('/api/credit-card-bills', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateCreditCardBill(id: number, input: UpdateCreditCardBillInput): Promise<CreditCardBill> {
+  return request<CreditCardBill>(`/api/credit-card-bills/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteCreditCardBill(id: number): Promise<void> {
+  return request<void>(`/api/credit-card-bills/${id}`, { method: 'DELETE' })
+}
+
+export function submitReviewBatch(input: ReviewBatchInput): Promise<ReviewBatchResult> {
+  return request<ReviewBatchResult>('/api/reviews/batch', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 // ---------- P2 market data + valuation ----------

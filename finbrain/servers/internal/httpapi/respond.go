@@ -29,6 +29,10 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]any{"error": apiError{Code: code, Message: message}})
 }
 
+func writeErrorDetails(w http.ResponseWriter, status int, code, message string, details any) {
+	writeJSON(w, status, map[string]any{"error": apiError{Code: code, Message: message, Details: details}})
+}
+
 func writeInternal(w http.ResponseWriter, r *http.Request, err error) {
 	log.Printf("internal error: method=%s path=%s err=%v", r.Method, r.URL.Path, err)
 	writeError(w, http.StatusInternalServerError, "internal", "内部错误")

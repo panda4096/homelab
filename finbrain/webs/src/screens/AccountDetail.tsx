@@ -27,6 +27,7 @@ import { useToast } from '../shell/Toast'
 import { ConfirmDialog } from '../shell/ConfirmDialog'
 import { useUiStore } from '../uiStore'
 import { EditAccountModal } from './EditAccount'
+import { CreditCardBillsSection } from './CreditCardBills'
 
 const detailTableStyle: CSSProperties = {
   width: '100%',
@@ -184,6 +185,7 @@ export function AccountDetail() {
       {holdingKind ? (
         <Positions accountId={account.id} accountCurrency={account.currency} />
       ) : null}
+      {account.kind === 'credit_card' ? <CreditCardBillsSection account={account} /> : null}
       {!balanceKind && !holdingKind ? <UnsupportedAccountKind account={account} /> : null}
       <PlaceholderSections />
 
@@ -705,7 +707,7 @@ function UnsupportedAccountKind({ account }: { account: Account }) {
     <Card eyebrow="记录入口">
       <SectionHint>
         {account.kind === 'credit_card'
-          ? '信用卡账户暂不录入余额或持仓，信用卡账单在 P4 起开放。'
+          ? '信用卡账户不录入余额或持仓；账单记录用于计算总负债。'
           : '当前账户类型暂未配置录入入口。'}
       </SectionHint>
     </Card>
@@ -717,9 +719,9 @@ function UnsupportedAccountKind({ account }: { account: Account }) {
 function PlaceholderSections() {
   const sections: Array<[string, string]> = [
     ['交易', 'P3 起'],
-    ['收益事件', 'P3 起'],
-    ['转账', 'P3 起'],
-    ['信用卡账单', 'P4 起'],
+    ['收益事件', 'P4 起'],
+    ['转账', 'P4 起'],
+    ['信用卡账单', 'P3 已开放'],
   ]
   return (
     <Card eyebrow="更多记录">

@@ -90,9 +90,17 @@ func (s *Server) deletePrice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listFxRates(w http.ResponseWriter, r *http.Request) {
+	base := r.URL.Query().Get("base")
+	if base == "" {
+		base = r.URL.Query().Get("base_currency")
+	}
+	quote := r.URL.Query().Get("quote")
+	if quote == "" {
+		quote = r.URL.Query().Get("quote_currency")
+	}
 	items, err := s.store.ListFxRates(r.Context(), store.FxRateFilter{
-		BaseCurrency:  r.URL.Query().Get("base_currency"),
-		QuoteCurrency: r.URL.Query().Get("quote_currency"),
+		BaseCurrency:  base,
+		QuoteCurrency: quote,
 		DateFrom:      r.URL.Query().Get("date_from"),
 		DateTo:        r.URL.Query().Get("date_to"),
 		Sort:          r.URL.Query().Get("sort"),

@@ -72,6 +72,7 @@ export function Dashboard() {
   const netWorthTrend = staticTrend(v.net_worth)
   const missingPriceCount = v.warnings.filter((w) => w.kind === 'missing_price').length
   const fxFallbackCount = v.warnings.filter((w) => w.kind === 'fx_fallback').length
+  const liabilityValue = num(v.total_liabilities) ?? 0
 
   return (
     <Page>
@@ -231,6 +232,7 @@ export function Dashboard() {
         <div className="fb-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="fb-card__eyebrow">估值口径</div>
           <StatusBox icon="landmark" label="现金账户" value={shortMoney(v.cash_value, v.display_currency)} />
+          <StatusBox icon="receipt" label="信用卡负债" value={shortMoney(v.total_liabilities, v.display_currency)} warning={liabilityValue > 0} />
           <StatusBox icon="badge-alert" label="无价格持仓" value={`${missingPriceCount} 项`} warning={missingPriceCount > 0} />
           <StatusBox icon="repeat-2" label="汇率降级" value={`${fxFallbackCount} 项`} warning={fxFallbackCount > 0} />
           <Button

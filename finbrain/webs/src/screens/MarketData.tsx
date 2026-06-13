@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
 import {
@@ -19,21 +19,29 @@ import {
   type Price,
 } from '../api'
 import { ACCOUNT_CURRENCIES, MARKET_TONE, native, todayISO } from '../lib/format'
-import { Row, Td, Th } from '../lib/ui'
+import { LineChart, type LineSeriesPoint } from '../lib/finance'
+import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 
-type Tab = 'prices' | 'fx' | 'instruments' | 'benchmarks'
+type Tab = 'instruments' | 'fx' | 'benchmarks'
 type Editor =
-  | { kind: 'price'; item?: Price }
+  | { kind: 'price'; item?: Price; defaultSymbol?: string; defaultCurrency?: string }
   | { kind: 'fx'; item?: FxRate }
   | { kind: 'instrument'; item?: Instrument; benchmark?: boolean }
   | null
 
+interface FxPairGroup {
+  key: string
+  base: string
+  quote: string
+  count: number
+  latest: FxRate
+}
+
 const TAB_OPTIONS = [
-  { value: 'prices', label: '价格' },
-  { value: 'fx', label: '汇率' },
   { value: 'instruments', label: '标的' },
+  { value: 'fx', label: '汇率' },
   { value: 'benchmarks', label: '基准' },
 ]
 
@@ -47,27 +55,63 @@ const ASSET_KIND_OPTIONS = [
 ]
 
 export function MarketData() {
-  const [tab, setTab] = useState<Tab>('prices')
+  const [tab, setTab] = useState<Tab>('instruments')
   const [editor, setEditor] = useState<Editor>(null)
-  const [priceSymbol, setPriceSymbol] = useState('')
-  const [priceSort, setPriceSort] = useState<'date_desc' | 'date_asc'>('date_desc')
   const [fxSort, setFxSort] = useState<'date_desc' | 'date_asc'>('date_desc')
+  const [instrumentFilter, setInstrumentFilter] = useState('')
+  const [selectedFxPair, setSelectedFxPair] = useState('')
+  const [selectedInstrumentSymbol, setSelectedInstrumentSymbol] = useState('')
+  const [selectedBenchmarkSymbol, setSelectedBenchmarkSymbol] = useState('')
   const qc = useQueryClient()
   const toast = useToast()
 
-  const prices = useQuery({
-    queryKey: ['prices', priceSymbol, priceSort],
-    queryFn: () => listPrices({ symbol: priceSymbol.trim(), sort: priceSort }),
-  })
   const fxRates = useQuery({
-    queryKey: ['fx-rates', fxSort],
+    queryKey: ['fx-rates', 'all', fxSort],
     queryFn: () => listFxRates({ sort: fxSort }),
   })
   const instruments = useQuery({ queryKey: ['instruments'], queryFn: listInstruments })
-  const benchmarks = useMemo(
-    () => (instruments.data ?? []).filter((i) => i.is_benchmark),
-    [instruments.data],
+
+  const benchmarks = useMemo(() => (instruments.data ?? []).filter((i) => i.is_benchmark), [instruments.data])
+  const fxPairs = useMemo(() => groupFxRates(fxRates.data?.items ?? []), [fxRates.data?.items])
+  const filteredInstruments = useMemo(
+    () => filterInstruments(instruments.data ?? [], instrumentFilter),
+    [instruments.data, instrumentFilter],
   )
+  const filteredBenchmarks = useMemo(
+    () => filterInstruments(benchmarks, instrumentFilter),
+    [benchmarks, instrumentFilter],
+  )
+
+  useEffect(() => {
+    pickFirstAvailable(fxPairs.map((p) => p.key), selectedFxPair, setSelectedFxPair)
+  }, [fxPairs, selectedFxPair])
+  useEffect(() => {
+    pickFirstAvailable(filteredInstruments.map((i) => i.symbol), selectedInstrumentSymbol, setSelectedInstrumentSymbol)
+  }, [filteredInstruments, selectedInstrumentSymbol])
+  useEffect(() => {
+    pickFirstAvailable(filteredBenchmarks.map((i) => i.symbol), selectedBenchmarkSymbol, setSelectedBenchmarkSymbol)
+  }, [filteredBenchmarks, selectedBenchmarkSymbol])
+
+  const historySymbol =
+    tab === 'instruments'
+        ? selectedInstrumentSymbol
+        : tab === 'benchmarks'
+          ? selectedBenchmarkSymbol
+          : ''
+  const selectedFx = parseFxPair(selectedFxPair)
+  const priceHistory = useQuery({
+    queryKey: ['prices', 'history', historySymbol],
+    queryFn: () => listPrices({ symbol: historySymbol, sort: 'date_asc' }),
+    enabled: !!historySymbol && tab !== 'fx',
+  })
+  const fxHistory = useQuery({
+    queryKey: ['fx-rates', 'history', selectedFx?.base, selectedFx?.quote],
+    queryFn: () => listFxRates({ base: selectedFx?.base, quote: selectedFx?.quote, sort: 'date_asc' }),
+    enabled: tab === 'fx' && selectedFx != null,
+  })
+
+  const selectedPriceRows = exactPriceRows(priceHistory.data?.items ?? [], historySymbol)
+  const selectedFxRows = selectedFx ? exactFxRows(fxHistory.data?.items ?? [], selectedFx.base, selectedFx.quote) : []
 
   const removePrice = useMutation({
     mutationFn: deletePrice,
@@ -96,8 +140,22 @@ export function MarketData() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败；已被持仓或价格引用的标的不能删除'),
   })
+  const removeBenchmark = useMutation({
+    mutationFn: (symbol: string) => updateInstrument(symbol, { is_benchmark: false }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['instruments'] })
+      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      toast.success('已移出基准')
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '移出基准失败'),
+  })
 
-  const actionText = { prices: '价格', fx: '汇率', instruments: '标的', benchmarks: '基准' }[tab]
+  const actionText = { fx: '汇率', instruments: '标的', benchmarks: '基准' }[tab]
+  const hint = {
+    fx: '反向汇率自动互换；缺失时按 1:1 降级并在仪表盘提示。批量补历史走后端 API §4.10.1。',
+    instruments: '标的是价格历史的归属实体；价格点在标的详情里维护，切换展示币种不影响本页原币种展示。',
+    benchmarks: '基准是标的的一种身份，历史价格仍来自同一张 prices 表；后续趋势图会使用这些曲线做基准对比。',
+  }[tab]
 
   return (
     <Page>
@@ -110,9 +168,7 @@ export function MarketData() {
           iconLeft={<Icon name="plus" size={14} />}
           onClick={() =>
             setEditor(
-              tab === 'prices'
-                ? { kind: 'price' }
-                : tab === 'fx'
+              tab === 'fx'
                   ? { kind: 'fx' }
                   : { kind: 'instrument', benchmark: tab === 'benchmarks' },
             )
@@ -123,146 +179,69 @@ export function MarketData() {
       </div>
 
       <Card padded={false}>
-        {tab === 'prices' ? (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 12, borderBottom: '1px solid var(--divider)' }}>
-            <Input
-              value={priceSymbol}
-              onChange={(e) => setPriceSymbol(e.target.value)}
-              placeholder="按标的过滤"
-              style={{ maxWidth: 220 }}
-            />
-            <Segmented
-              size="sm"
-              value={priceSort}
-              onChange={(v) => setPriceSort(v as 'date_desc' | 'date_asc')}
-              options={[
-                { value: 'date_desc', label: '日期降序' },
-                { value: 'date_asc', label: '日期升序' },
-              ]}
-            />
-            {prices.data?.truncated ? <Badge tone="warning">仅显示前 {prices.data.limit} 行</Badge> : null}
-          </div>
-        ) : tab === 'fx' ? (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 12, borderBottom: '1px solid var(--divider)' }}>
-            <Segmented
-              size="sm"
-              value={fxSort}
-              onChange={(v) => setFxSort(v as 'date_desc' | 'date_asc')}
-              options={[
-                { value: 'date_desc', label: '日期降序' },
-                { value: 'date_asc', label: '日期升序' },
-              ]}
-            />
-            {fxRates.data?.truncated ? <Badge tone="warning">仅显示前 {fxRates.data.limit} 行</Badge> : null}
-          </div>
-        ) : null}
-        <div style={{ overflowX: 'auto', width: '100%' }}>
-          {tab === 'prices' ? (
-            <MarketTable>
-              <thead>
-                <tr>
-                  <Th>标的</Th>
-                  <Th>日期</Th>
-                  <Th right>价格</Th>
-                  <Th>币种</Th>
-                  <Th>来源</Th>
-                  <Th w={92}></Th>
-                </tr>
-              </thead>
-              <tbody>
-                {(prices.data?.items ?? []).map((p) => (
-                  <Row key={p.id}>
-                    <Td mono color="var(--text-strong)">{p.symbol}</Td>
-                    <Td mono dim>{p.price_date}</Td>
-                    <Td right mono color="var(--text-strong)">{native(p.price, p.currency, 4)}</Td>
-                    <Td><Badge tone="neutral">{p.currency}</Badge></Td>
-                    <Td dim>{p.source || 'manual'}</Td>
-                    <Td right>
-                      <RowActions
-                        onEdit={() => setEditor({ kind: 'price', item: p })}
-                        onDelete={() => removePrice.mutate(p.id)}
-                      />
-                    </Td>
-                  </Row>
-                ))}
-                {!prices.isLoading && !(prices.data?.items ?? []).length ? <EmptyRow text="暂无价格" /> : null}
-              </tbody>
-            </MarketTable>
-          ) : tab === 'fx' ? (
-            <MarketTable>
-              <thead>
-                <tr>
-                  <Th>币种对</Th>
-                  <Th>日期</Th>
-                  <Th right>汇率</Th>
-                  <Th>来源</Th>
-                  <Th w={92}></Th>
-                </tr>
-              </thead>
-              <tbody>
-                {(fxRates.data?.items ?? []).map((r) => (
-                  <Row key={r.id}>
-                    <Td mono color="var(--text-strong)">{r.base_currency}/{r.quote_currency}</Td>
-                    <Td mono dim>{r.rate_date}</Td>
-                    <Td right mono color="var(--text-strong)">{Number(r.rate).toLocaleString(undefined, { maximumFractionDigits: 8 })}</Td>
-                    <Td dim>{r.source || 'manual'}</Td>
-                    <Td right>
-                      <RowActions onEdit={() => setEditor({ kind: 'fx', item: r })} onDelete={() => removeFx.mutate(r.id)} />
-                    </Td>
-                  </Row>
-                ))}
-                {!fxRates.isLoading && !(fxRates.data?.items ?? []).length ? <EmptyRow text="暂无汇率" /> : null}
-              </tbody>
-            </MarketTable>
-          ) : (
-            <MarketTable>
-              <thead>
-                <tr>
-                  <Th>标的</Th>
-                  <Th>名称</Th>
-                  <Th>市场</Th>
-                  <Th>计价币种</Th>
-                  <Th>资产类型</Th>
-                  <Th>基准</Th>
-                  <Th w={92}></Th>
-                </tr>
-              </thead>
-              <tbody>
-                {(tab === 'benchmarks' ? benchmarks : instruments.data ?? []).map((m) => (
-                  <Row key={m.symbol}>
-                    <Td mono color="var(--text-strong)">{m.symbol}</Td>
-                    <Td>{m.display_name ?? '—'}</Td>
-                    <Td><MarketBadge market={m.market} /></Td>
-                    <Td><Badge tone="neutral">{m.quote_currency ?? '—'}</Badge></Td>
-                    <Td dim>{assetKindLabel(m.asset_kind)}</Td>
-                    <Td>{m.is_benchmark ? <Badge tone="gold">基准</Badge> : <span style={{ color: 'var(--text-tertiary)' }}>—</span>}</Td>
-                    <Td right>
-                      <RowActions
-                        onEdit={() => setEditor({ kind: 'instrument', item: m, benchmark: tab === 'benchmarks' })}
-                        onDelete={() => removeInstrument.mutate(m.symbol)}
-                      />
-                    </Td>
-                  </Row>
-                ))}
-                {!instruments.isLoading && !(tab === 'benchmarks' ? benchmarks : instruments.data ?? []).length ? (
-                  <EmptyRow text={tab === 'benchmarks' ? '暂无基准' : '暂无标的'} />
-                ) : null}
-              </tbody>
-            </MarketTable>
-          )}
-        </div>
+        {tab === 'fx' ? (
+          <FxManager
+            pairs={fxPairs}
+            selectedPair={selectedFxPair}
+            onSelect={setSelectedFxPair}
+            rows={selectedFxRows}
+            sort={fxSort}
+            onSort={setFxSort}
+            listTruncated={fxRates.data?.truncated}
+            historyTruncated={fxHistory.data?.truncated}
+            limit={fxRates.data?.limit}
+            onEdit={(r) => setEditor({ kind: 'fx', item: r })}
+            onDelete={(r) => removeFx.mutate(r.id)}
+          />
+        ) : tab === 'instruments' ? (
+          <InstrumentManager
+            items={filteredInstruments}
+            selectedSymbol={selectedInstrumentSymbol}
+            onSelect={setSelectedInstrumentSymbol}
+            filter={instrumentFilter}
+            onFilter={setInstrumentFilter}
+            rows={selectedPriceRows}
+            historyTruncated={priceHistory.data?.truncated}
+            limit={priceHistory.data?.limit}
+            onEditInstrument={(m) => setEditor({ kind: 'instrument', item: m })}
+            onDeleteInstrument={(m) => removeInstrument.mutate(m.symbol)}
+            onAddPrice={(m) =>
+              setEditor({ kind: 'price', defaultSymbol: m.symbol, defaultCurrency: m.quote_currency ?? undefined })
+            }
+            onEditPrice={(p) => setEditor({ kind: 'price', item: p })}
+            onDeletePrice={(p) => removePrice.mutate(p.id)}
+          />
+        ) : (
+          <BenchmarkManager
+            items={filteredBenchmarks}
+            selectedSymbol={selectedBenchmarkSymbol}
+            onSelect={setSelectedBenchmarkSymbol}
+            filter={instrumentFilter}
+            onFilter={setInstrumentFilter}
+            rows={selectedPriceRows}
+            historyTruncated={priceHistory.data?.truncated}
+            limit={priceHistory.data?.limit}
+            onEditInstrument={(m) => setEditor({ kind: 'instrument', item: m, benchmark: true })}
+            onRemoveBenchmark={(m) => removeBenchmark.mutate(m.symbol)}
+            onAddPrice={(m) =>
+              setEditor({ kind: 'price', defaultSymbol: m.symbol, defaultCurrency: m.quote_currency ?? undefined })
+            }
+            onEditPrice={(p) => setEditor({ kind: 'price', item: p })}
+            onDeletePrice={(p) => removePrice.mutate(p.id)}
+          />
+        )}
       </Card>
 
-      <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 8, lineHeight: 1.6 }}>
-        <Icon name="info" size={13} />
-        {tab === 'fx'
-          ? '反向汇率自动互换；缺失时按 1:1 降级并在仪表盘提示。'
-          : tab === 'prices'
-            ? '市价手动维护或后续接入自动数据源；无价格时市值显示“无价格”，不阻塞其他计算。'
-            : '标的元数据用于市场、计价币种和基准展示；已有持仓引用的标的不能直接删除。'}
-      </div>
+      <SectionHint>{hint}</SectionHint>
 
-      {editor?.kind === 'price' ? <PriceModal item={editor.item} onClose={() => setEditor(null)} /> : null}
+      {editor?.kind === 'price' ? (
+        <PriceModal
+          item={editor.item}
+          defaultSymbol={editor.defaultSymbol}
+          defaultCurrency={editor.defaultCurrency}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
       {editor?.kind === 'fx' ? <FxModal item={editor.item} onClose={() => setEditor(null)} /> : null}
       {editor?.kind === 'instrument' ? (
         <InstrumentModal item={editor.item} benchmark={editor.benchmark} onClose={() => setEditor(null)} />
@@ -271,7 +250,7 @@ export function MarketData() {
   )
 }
 
-function Page({ children }: { children: React.ReactNode }) {
+function Page({ children }: { children: ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 22, maxWidth: 1320, margin: '0 auto' }}>
       {children}
@@ -279,38 +258,621 @@ function Page({ children }: { children: React.ReactNode }) {
   )
 }
 
-function MarketTable({ children }: { children: React.ReactNode }) {
-  return <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>{children}</table>
+function FxManager({
+  pairs,
+  selectedPair,
+  onSelect,
+  rows,
+  sort,
+  onSort,
+  listTruncated,
+  historyTruncated,
+  limit,
+  onEdit,
+  onDelete,
+}: {
+  pairs: FxPairGroup[]
+  selectedPair: string
+  onSelect: (pair: string) => void
+  rows: FxRate[]
+  sort: 'date_desc' | 'date_asc'
+  onSort: (sort: 'date_desc' | 'date_asc') => void
+  listTruncated?: boolean
+  historyTruncated?: boolean
+  limit?: number
+  onEdit: (rate: FxRate) => void
+  onDelete: (rate: FxRate) => void
+}) {
+  const cur = pairs.find((p) => p.key === selectedPair)
+  const historyRows = sortFxRates(rows, 'date_asc')
+  const tableRows = sortFxRates(historyRows, sort)
+  const series = fxSeries(historyRows)
+  const latest = latestFxRate(historyRows) ?? cur?.latest
+
+  return (
+    <MasterDetail
+      rail={
+        <Rail empty="暂无汇率">
+          {pairs.map((p) => (
+            <RailButton key={p.key} active={p.key === selectedPair} onClick={() => onSelect(p.key)}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <RailTitle active={p.key === selectedPair}>{p.key}</RailTitle>
+                <RailSub>{p.count} 点</RailSub>
+              </div>
+              <span className="fb-num" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                {formatRate(p.latest.rate)}
+              </span>
+            </RailButton>
+          ))}
+        </Rail>
+      }
+    >
+      <DetailHead
+        title={selectedPair || '汇率'}
+        sub={latest ? `1 ${latest.base_currency} = ${formatRate(latest.rate)} ${latest.quote_currency}` : undefined}
+        series={series}
+        actions={
+          <HistoryToolbar
+            sort={sort}
+            onSort={onSort}
+            listTruncated={listTruncated}
+            historyTruncated={historyTruncated}
+            limit={limit}
+          />
+        }
+      />
+      <HistoryChart
+        series={series}
+        yFmt={formatAxisRate}
+        emptyText={
+          series.length === 0
+            ? '暂无历史汇率'
+            : '历史汇率不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'
+        }
+        pointLabel="汇率点"
+      />
+      <FxPointTable rows={tableRows} onEdit={onEdit} onDelete={onDelete} />
+    </MasterDetail>
+  )
 }
 
-function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+function InstrumentManager({
+  items,
+  selectedSymbol,
+  onSelect,
+  filter,
+  onFilter,
+  rows,
+  historyTruncated,
+  limit,
+  onEditInstrument,
+  onDeleteInstrument,
+  onAddPrice,
+  onEditPrice,
+  onDeletePrice,
+}: {
+  items: Instrument[]
+  selectedSymbol: string
+  onSelect: (symbol: string) => void
+  filter: string
+  onFilter: (value: string) => void
+  rows: Price[]
+  historyTruncated?: boolean
+  limit?: number
+  onEditInstrument: (instrument: Instrument) => void
+  onDeleteInstrument: (instrument: Instrument) => void
+  onAddPrice: (instrument: Instrument) => void
+  onEditPrice: (price: Price) => void
+  onDeletePrice: (price: Price) => void
+}) {
+  const cur = items.find((i) => i.symbol === selectedSymbol)
+  const historyRows = sortPrices(exactPriceRows(rows, selectedSymbol), 'date_asc')
+  const series = priceSeries(historyRows)
+  const currency = latestPrice(historyRows)?.currency ?? cur?.quote_currency ?? 'USD'
+
+  return (
+    <MasterDetail
+      rail={
+        <InstrumentRail
+          items={items}
+          selectedSymbol={selectedSymbol}
+          onSelect={onSelect}
+          filter={filter}
+          onFilter={onFilter}
+          empty="暂无标的"
+        />
+      }
+    >
+      {cur ? (
+        <>
+          <DetailHead
+            title={cur.symbol}
+            sub={cur.display_name ?? undefined}
+            series={series}
+            actions={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {historyTruncated ? <Badge tone="warning">当前历史已截断 {limit ?? 5000} 点</Badge> : null}
+                <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={13} />} onClick={() => onAddPrice(cur)}>
+                  新增价格
+                </Button>
+                <RowActions onEdit={() => onEditInstrument(cur)} onDelete={() => onDeleteInstrument(cur)} />
+              </div>
+            }
+          />
+          <InstrumentMeta instrument={cur} />
+          <HistoryChart
+            series={series}
+            yFmt={(v) => native(v, currency, 4)}
+            emptyText={series.length === 0 ? '暂无历史价格' : '历史价格不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'}
+            pointLabel="价格点"
+          />
+          <PricePointTable rows={sortPrices(historyRows, 'date_desc')} onEdit={onEditPrice} onDelete={onDeletePrice} />
+        </>
+      ) : (
+        <EmptyPanel text="暂无标的" />
+      )}
+    </MasterDetail>
+  )
+}
+
+function BenchmarkManager({
+  items,
+  selectedSymbol,
+  onSelect,
+  filter,
+  onFilter,
+  rows,
+  historyTruncated,
+  limit,
+  onEditInstrument,
+  onRemoveBenchmark,
+  onAddPrice,
+  onEditPrice,
+  onDeletePrice,
+}: {
+  items: Instrument[]
+  selectedSymbol: string
+  onSelect: (symbol: string) => void
+  filter: string
+  onFilter: (value: string) => void
+  rows: Price[]
+  historyTruncated?: boolean
+  limit?: number
+  onEditInstrument: (instrument: Instrument) => void
+  onRemoveBenchmark: (instrument: Instrument) => void
+  onAddPrice: (instrument: Instrument) => void
+  onEditPrice: (price: Price) => void
+  onDeletePrice: (price: Price) => void
+}) {
+  const cur = items.find((i) => i.symbol === selectedSymbol)
+  const historyRows = sortPrices(exactPriceRows(rows, selectedSymbol), 'date_asc')
+  const series = priceSeries(historyRows)
+  const currency = latestPrice(historyRows)?.currency ?? cur?.quote_currency ?? 'USD'
+  const order = cur ? items.findIndex((i) => i.symbol === cur.symbol) + 1 : 0
+
+  return (
+    <MasterDetail
+      rail={
+        <InstrumentRail
+          items={items}
+          selectedSymbol={selectedSymbol}
+          onSelect={onSelect}
+          filter={filter}
+          onFilter={onFilter}
+          empty="暂无基准"
+          benchmark
+        />
+      }
+    >
+      {cur ? (
+        <>
+          <DetailHead
+            title={cur.display_name ?? cur.symbol}
+            sub={cur.symbol}
+            series={series}
+            actions={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {historyTruncated ? <Badge tone="warning">当前历史已截断 {limit ?? 5000} 点</Badge> : null}
+                <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={13} />} onClick={() => onAddPrice(cur)}>
+                  新增价格
+                </Button>
+                <RowActions onEdit={() => onEditInstrument(cur)} onDelete={() => onRemoveBenchmark(cur)} deleteLabel="移出基准" />
+              </div>
+            }
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <Meta label="显示名" value={cur.display_name ?? '—'} />
+            <Meta label="计价币种" value={cur.quote_currency ?? '—'} />
+            <Meta label="资产类型" value={assetKindLabel(cur.asset_kind)} />
+            <Meta label="默认叠加" value="是" />
+            <Meta label="排序" value={order ? `#${order}` : '—'} />
+          </div>
+          <HistoryChart
+            series={series}
+            yFmt={(v) => native(v, currency, 4)}
+            emptyText={series.length === 0 ? '暂无历史价格' : '历史价格不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'}
+            pointLabel="价格点"
+          />
+          <PricePointTable rows={sortPrices(historyRows, 'date_desc')} onEdit={onEditPrice} onDelete={onDeletePrice} />
+        </>
+      ) : (
+        <EmptyPanel text="暂无基准；可在新增/编辑标的时勾选“用作基准”" />
+      )}
+    </MasterDetail>
+  )
+}
+
+function MasterDetail({ rail, children }: { rail: ReactNode; children: ReactNode }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr)', minHeight: 520 }}>
+      <div style={{ borderRight: '1px solid var(--divider)', minWidth: 0 }}>{rail}</div>
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>{children}</div>
+    </div>
+  )
+}
+
+function Rail({ search, empty, children }: { search?: ReactNode; empty: string; children: ReactNode }) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : !!children
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 620, minHeight: 520 }}>
+      {search ? <div style={{ padding: 12, borderBottom: '1px solid var(--divider)' }}>{search}</div> : null}
+      <div style={{ overflowY: 'auto', flex: 1 }}>{hasChildren ? children : <EmptyPanel text={empty} compact />}</div>
+    </div>
+  )
+}
+
+function RailButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '11px 14px',
+        cursor: 'pointer',
+        background: active ? 'var(--accent-bg)' : 'transparent',
+        border: 'none',
+        borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+        borderBottom: '1px solid var(--divider)',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function RailTitle({ active, children }: { active: boolean; children: ReactNode }) {
+  return (
+    <div
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontWeight: 600,
+        fontSize: 12.5,
+        color: active ? 'var(--accent-bright)' : 'var(--text-strong)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function RailSub({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ fontSize: 10.5, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      {children}
+    </div>
+  )
+}
+
+function InstrumentRail({
+  items,
+  selectedSymbol,
+  onSelect,
+  filter,
+  onFilter,
+  empty,
+  benchmark,
+}: {
+  items: Instrument[]
+  selectedSymbol: string
+  onSelect: (symbol: string) => void
+  filter: string
+  onFilter: (value: string) => void
+  empty: string
+  benchmark?: boolean
+}) {
+  return (
+    <Rail
+      search={<Input value={filter} onChange={(e) => onFilter(e.target.value)} placeholder="过滤标的" aria-label="过滤标的" />}
+      empty={empty}
+    >
+      {items.map((m, index) => (
+        <RailButton key={m.symbol} active={m.symbol === selectedSymbol} onClick={() => onSelect(m.symbol)}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <RailTitle active={m.symbol === selectedSymbol}>{benchmark ? (m.display_name ?? m.symbol) : m.symbol}</RailTitle>
+            <RailSub>{benchmark ? `${m.symbol} · 默认叠加 · #${index + 1}` : (m.display_name ?? '—')}</RailSub>
+          </div>
+          <MarketBadge market={m.market} />
+        </RailButton>
+      ))}
+    </Rail>
+  )
+}
+
+function DetailHead({
+  title,
+  sub,
+  series,
+  actions,
+}: {
+  title: string
+  sub?: ReactNode
+  series: LineSeriesPoint[]
+  actions?: ReactNode
+}) {
+  const range = series.length ? `${series[0].m} → ${series[series.length - 1].m} · ${series.length} 点` : '— · 0 点'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 15, color: 'var(--text-strong)' }}>{title}</span>
+      {sub ? <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{sub}</span> : null}
+      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{range}</span>
+      {actions}
+    </div>
+  )
+}
+
+function HistoryToolbar({
+  sort,
+  onSort,
+  listTruncated,
+  historyTruncated,
+  limit,
+}: {
+  sort: 'date_desc' | 'date_asc'
+  onSort: (sort: 'date_desc' | 'date_asc') => void
+  listTruncated?: boolean
+  historyTruncated?: boolean
+  limit?: number
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      {listTruncated ? <Badge tone="warning">左栏基于前 {limit ?? 5000} 行聚合</Badge> : null}
+      {historyTruncated ? <Badge tone="warning">当前历史已截断 {limit ?? 5000} 点</Badge> : null}
+      <Segmented
+        size="sm"
+        value={sort}
+        onChange={(v) => onSort(v as 'date_desc' | 'date_asc')}
+        options={[
+          { value: 'date_desc', label: '日期降序' },
+          { value: 'date_asc', label: '日期升序' },
+        ]}
+      />
+    </div>
+  )
+}
+
+function HistoryChart({
+  series,
+  yFmt,
+  emptyText,
+  pointLabel,
+}: {
+  series: LineSeriesPoint[]
+  yFmt: (v: number) => string
+  emptyText: string
+  pointLabel: string
+}) {
+  const hints = historyHints(series, pointLabel)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {series.length >= 2 ? (
+        <LineChart series={series} height={210} yFmt={yFmt} />
+      ) : (
+        <div
+          style={{
+            height: 150,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            fontSize: 12,
+            color: 'var(--text-tertiary)',
+            background: 'var(--surface-inset)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-md)',
+            padding: 16,
+          }}
+        >
+          {emptyText}
+        </div>
+      )}
+      {hints.map((hint) => (
+        <div key={hint} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--warning)' }}>
+          <Icon name="triangle-alert" size={13} />
+          {hint} · 可用批量导入(API §4.10.1)补足
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function InstrumentMeta({ instrument }: { instrument: Instrument }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <Meta label="显示名" value={instrument.display_name ?? '—'} />
+      <Meta label="市场" value={instrument.market ?? '—'} />
+      <Meta label="计价币种" value={instrument.quote_currency ?? '—'} />
+      <Meta label="资产类型" value={assetKindLabel(instrument.asset_kind)} />
+      <Meta label="基准" value={instrument.is_benchmark ? '是' : '否'} />
+    </div>
+  )
+}
+
+function Meta({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px', background: 'var(--surface-inset)', borderRadius: 'var(--radius-md)', minWidth: 84 }}>
+      <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{label}</span>
+      <span style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>{value}</span>
+    </div>
+  )
+}
+
+function MarketTable({ children }: { children: ReactNode }) {
+  return <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>{children}</table>
+}
+
+function PricePointTable({
+  rows,
+  onEdit,
+  onDelete,
+}: {
+  rows: Price[]
+  onEdit: (price: Price) => void
+  onDelete: (price: Price) => void
+}) {
+  return (
+    <MarketTable>
+      <thead>
+        <tr>
+          <Th w="23%">日期</Th>
+          <Th right w="25%">价格</Th>
+          <Th w="16%">币种</Th>
+          <Th>来源</Th>
+          <Th w={88}></Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((p) => (
+          <Row key={p.id}>
+            <Td mono dim>{p.price_date}</Td>
+            <Td right mono color="var(--text-strong)">{native(p.price, p.currency, 4)}</Td>
+            <Td><Badge tone="neutral">{p.currency}</Badge></Td>
+            <Td dim>{p.source || 'manual'}</Td>
+            <Td right><RowActions onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} /></Td>
+          </Row>
+        ))}
+        {!rows.length ? <EmptyTableRow text="暂无价格点" colSpan={5} /> : null}
+      </tbody>
+    </MarketTable>
+  )
+}
+
+function FxPointTable({
+  rows,
+  onEdit,
+  onDelete,
+}: {
+  rows: FxRate[]
+  onEdit: (rate: FxRate) => void
+  onDelete: (rate: FxRate) => void
+}) {
+  return (
+    <MarketTable>
+      <thead>
+        <tr>
+          <Th w="23%">日期</Th>
+          <Th right w="28%">汇率</Th>
+          <Th>来源</Th>
+          <Th w={88}></Th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <Row key={r.id}>
+            <Td mono dim>{r.rate_date}</Td>
+            <Td right mono color="var(--text-strong)">{formatRate(r.rate)}</Td>
+            <Td dim>{r.source || 'manual'}</Td>
+            <Td right><RowActions onEdit={() => onEdit(r)} onDelete={() => onDelete(r)} /></Td>
+          </Row>
+        ))}
+        {!rows.length ? <EmptyTableRow text="暂无汇率点" colSpan={4} /> : null}
+      </tbody>
+    </MarketTable>
+  )
+}
+
+function RowActions({
+  onEdit,
+  onDelete,
+  deleteLabel = '删除',
+}: {
+  onEdit: () => void
+  onDelete: () => void
+  deleteLabel?: string
+}) {
   return (
     <div style={{ display: 'inline-flex', gap: 4 }}>
       <IconButton aria-label="编辑" size="sm" onClick={onEdit}>
         <Icon name="pencil" size={13} />
       </IconButton>
-      <IconButton aria-label="删除" size="sm" onClick={onDelete}>
+      <IconButton aria-label={deleteLabel} size="sm" onClick={onDelete}>
         <Icon name="trash-2" size={13} />
       </IconButton>
     </div>
   )
 }
 
-function EmptyRow({ text }: { text: string }) {
+function EmptyTableRow({ text, colSpan }: { text: string; colSpan: number }) {
   return (
     <tr>
-      <Td dim>{text}</Td>
+      <td
+        colSpan={colSpan}
+        style={{
+          padding: '22px 12px',
+          fontSize: 12.5,
+          color: 'var(--text-tertiary)',
+          textAlign: 'center',
+        }}
+      >
+        {text}
+      </td>
     </tr>
   )
 }
 
-function PriceModal({ item, onClose }: { item?: Price; onClose: () => void }) {
+function EmptyPanel({ text, compact }: { text: string; compact?: boolean }) {
+  return (
+    <div
+      style={{
+        minHeight: compact ? 120 : 220,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        color: 'var(--text-tertiary)',
+        fontSize: 12.5,
+        padding: 18,
+      }}
+    >
+      {text}
+    </div>
+  )
+}
+
+function PriceModal({
+  item,
+  defaultSymbol,
+  defaultCurrency,
+  onClose,
+}: {
+  item?: Price
+  defaultSymbol?: string
+  defaultCurrency?: string
+  onClose: () => void
+}) {
   const qc = useQueryClient()
   const toast = useToast()
-  const [symbol, setSymbol] = useState(item?.symbol ?? '')
+  const [symbol, setSymbol] = useState(item?.symbol ?? defaultSymbol ?? '')
   const [priceDate, setPriceDate] = useState(item?.price_date ?? todayISO())
   const [price, setPrice] = useState(item?.price ?? '')
-  const [currency, setCurrency] = useState(item?.currency ?? 'HKD')
+  const [currency, setCurrency] = useState(item?.currency ?? defaultCurrency ?? 'HKD')
   const [source, setSource] = useState(item?.source ?? 'manual')
   const [note, setNote] = useState(item?.note ?? '')
   const [touched, setTouched] = useState(false)
@@ -549,6 +1111,117 @@ function InstrumentModal({
       </div>
     </Modal>
   )
+}
+
+function groupFxRates(rows: FxRate[]) {
+  const map = new Map<string, FxPairGroup>()
+  rows.forEach((row) => {
+    const key = `${row.base_currency}/${row.quote_currency}`
+    const cur = map.get(key)
+    if (!cur) {
+      map.set(key, { key, base: row.base_currency, quote: row.quote_currency, count: 1, latest: row })
+      return
+    }
+    cur.count += 1
+    if (row.rate_date > cur.latest.rate_date) cur.latest = row
+  })
+  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key))
+}
+
+function filterInstruments(items: Instrument[], filter: string) {
+  const q = filter.trim().toLowerCase()
+  const sorted = [...items].sort((a, b) => a.symbol.localeCompare(b.symbol))
+  if (!q) return sorted
+  return sorted.filter(
+    (i) =>
+      i.symbol.toLowerCase().includes(q) ||
+      (i.display_name ?? '').toLowerCase().includes(q) ||
+      (i.market ?? '').toLowerCase().includes(q),
+  )
+}
+
+function pickFirstAvailable(values: string[], current: string, setCurrent: (value: string) => void) {
+  if (!values.length) {
+    if (current) setCurrent('')
+    return
+  }
+  if (!current || !values.includes(current)) setCurrent(values[0])
+}
+
+function parseFxPair(pair: string) {
+  const [base, quote] = pair.split('/')
+  if (!base || !quote) return null
+  return { base, quote }
+}
+
+function exactPriceRows(rows: Price[], symbol: string) {
+  if (!symbol) return []
+  return rows.filter((row) => row.symbol === symbol)
+}
+
+function exactFxRows(rows: FxRate[], base: string, quote: string) {
+  return rows.filter((row) => row.base_currency === base && row.quote_currency === quote)
+}
+
+function sortPrices(rows: Price[], sort: 'date_desc' | 'date_asc') {
+  return [...rows].sort((a, b) => (sort === 'date_asc' ? a.price_date.localeCompare(b.price_date) : b.price_date.localeCompare(a.price_date)))
+}
+
+function sortFxRates(rows: FxRate[], sort: 'date_desc' | 'date_asc') {
+  return [...rows].sort((a, b) => (sort === 'date_asc' ? a.rate_date.localeCompare(b.rate_date) : b.rate_date.localeCompare(a.rate_date)))
+}
+
+function priceSeries(rows: Price[]): LineSeriesPoint[] {
+  return rows
+    .map((row) => ({ m: row.price_date, v: Number(row.price) }))
+    .filter((point) => Number.isFinite(point.v))
+}
+
+function fxSeries(rows: FxRate[]): LineSeriesPoint[] {
+  return rows
+    .map((row) => ({ m: row.rate_date, v: Number(row.rate) }))
+    .filter((point) => Number.isFinite(point.v))
+}
+
+function latestPrice(rows: Price[]) {
+  return sortPrices(rows, 'date_desc')[0]
+}
+
+function latestFxRate(rows: FxRate[]) {
+  return sortFxRates(rows, 'date_desc')[0]
+}
+
+function historyHints(series: LineSeriesPoint[], pointLabel: string) {
+  const hints: string[] = []
+  if (series.length > 0 && series.length < 4) {
+    hints.push(`${pointLabel}偏少,趋势/基准曲线可能不平滑`)
+  }
+  const gap = maxGapDays(series)
+  if (gap > 45) hints.push(`存在 ${gap} 天缺口`)
+  return hints
+}
+
+function maxGapDays(series: LineSeriesPoint[]) {
+  let max = 0
+  for (let i = 1; i < series.length; i += 1) {
+    const prev = new Date(`${series[i - 1].m}T00:00:00`).getTime()
+    const cur = new Date(`${series[i].m}T00:00:00`).getTime()
+    if (Number.isFinite(prev) && Number.isFinite(cur)) {
+      max = Math.max(max, Math.round((cur - prev) / 86_400_000))
+    }
+  }
+  return max
+}
+
+function formatRate(rate: string | number | null | undefined) {
+  if (rate == null || rate === '') return '—'
+  const n = typeof rate === 'number' ? rate : Number(rate)
+  if (!Number.isFinite(n)) return String(rate)
+  return n.toLocaleString(undefined, { maximumFractionDigits: 8 })
+}
+
+function formatAxisRate(rate: number) {
+  return rate.toLocaleString(undefined, { maximumFractionDigits: 6 })
 }
 
 function currencyOptions() {

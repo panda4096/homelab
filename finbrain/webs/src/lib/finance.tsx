@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useId, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { SYM } from './format'
 
 export const VIZ = [
@@ -204,6 +204,178 @@ export function Sparkline({
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
       <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export interface LineSeriesPoint {
+  m: string
+  v: number
+}
+
+export interface LineBenchmark {
+  name: string
+  series: LineSeriesPoint[]
+  color?: string
+}
+
+export function LineChart({
+  series,
+  benchmarks = [],
+  height = 240,
+  yFmt,
+}: {
+  series: LineSeriesPoint[]
+  benchmarks?: LineBenchmark[]
+  height?: number
+  yFmt?: (v: number) => string
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const gradientId = `lineArea${useId().replace(/:/g, '')}`
+  const width = 720
+  const padL = 56
+  const padR = 18
+  const padT = 16
+  const padB = 28
+  const iw = width - padL - padR
+  const ih = height - padT - padB
+  const data = series.filter((p) => Number.isFinite(p.v))
+
+  if (data.length < 2) {
+    return <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+  }
+
+  const benchmarkSeries = benchmarks
+    .map((b) => ({
+      ...b,
+      series: b.series.filter((p) => Number.isFinite(p.v)),
+    }))
+    .filter((b) => b.series.length >= 2)
+  const allValues = [
+    ...data.map((d) => d.v),
+    ...benchmarkSeries.flatMap((b) => b.series.map((d) => d.v)),
+  ]
+  const rawMin = Math.min(...allValues)
+  const rawMax = Math.max(...allValues)
+  const padding = Math.max(Math.abs(rawMax - rawMin) * 0.08, Math.abs(rawMax) * 0.01, 1)
+  const min = rawMin === rawMax ? rawMin - padding : rawMin - padding
+  const max = rawMin === rawMax ? rawMax + padding : rawMax + padding
+  const span = max - min || 1
+  const fmt = yFmt ?? ((v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 }))
+  const x = (i: number, count = data.length) => padL + (count <= 1 ? 0 : (i / (count - 1)) * iw)
+  const y = (v: number) => padT + ih - ((v - min) / span) * ih
+  const path = data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(d.v).toFixed(1)}`).join(' ')
+  const area = `${path} L${x(data.length - 1).toFixed(1)} ${padT + ih} L${padL} ${padT + ih} Z`
+  const gridY = [0, 0.25, 0.5, 0.75, 1].map((t) => ({
+    t,
+    v: min + span * (1 - t),
+    y: padT + ih * t,
+  }))
+  const xTicks = Array.from(
+    new Set(
+      [0, 0.33, 0.66, 1]
+        .map((t) => Math.round(t * (data.length - 1)))
+        .filter((i) => i >= 0 && i < data.length),
+    ),
+  )
+  const hoverPoint = hover == null ? null : data[hover]
+
+  const onMouseMove = (e: MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = (e.clientX - rect.left) / rect.width
+    const svgX = ratio * width
+    if (svgX < padL || svgX > width - padR) {
+      setHover(null)
+      return
+    }
+    const next = Math.round(((svgX - padL) / iw) * (data.length - 1))
+    setHover(Math.max(0, Math.min(data.length - 1, next)))
+  }
+
+  return (
+    <svg
+      width="100%"
+      viewBox={`0 0 ${width} ${height}`}
+      onMouseMove={onMouseMove}
+      onMouseLeave={() => setHover(null)}
+      style={{ display: 'block', overflow: 'visible' }}
+      role="img"
+      aria-label="历史走势折线图"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="var(--accent)" stopOpacity="0.22" />
+          <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {gridY.map((g) => (
+        <g key={g.t}>
+          <line x1={padL} y1={g.y} x2={width - padR} y2={g.y} stroke="var(--border-subtle)" />
+          <text
+            x={padL - 8}
+            y={g.y + 3}
+            textAnchor="end"
+            fontFamily="var(--font-mono)"
+            fontSize="9.5"
+            fill="var(--text-tertiary)"
+          >
+            {fmt(g.v)}
+          </text>
+        </g>
+      ))}
+      <path d={area} fill={`url(#${gradientId})`} />
+      {benchmarkSeries.map((b, bi) => {
+        const d = b.series
+          .map((p, i) => `${i ? 'L' : 'M'}${x(i, b.series.length).toFixed(1)} ${y(p.v).toFixed(1)}`)
+          .join(' ')
+        return (
+          <path
+            key={b.name}
+            d={d}
+            fill="none"
+            stroke={b.color ?? VIZ[(bi + 1) % VIZ.length]}
+            strokeWidth="1.4"
+            strokeDasharray="4 3"
+            opacity="0.7"
+          />
+        )
+      })}
+      <path d={path} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {hover != null && hoverPoint ? (
+        <g>
+          <line x1={x(hover)} y1={padT} x2={x(hover)} y2={padT + ih} stroke="var(--border-strong)" />
+          <circle
+            cx={x(hover)}
+            cy={y(hoverPoint.v)}
+            r="4"
+            fill="var(--accent-bright)"
+            stroke="var(--surface-base)"
+            strokeWidth="2"
+          />
+          <g transform={`translate(${Math.min(x(hover) + 8, width - 132)}, ${padT + 6})`}>
+            <rect width="124" height="42" rx="6" fill="var(--surface-overlay)" stroke="var(--border-default)" />
+            <text x="9" y="16" fontFamily="var(--font-mono)" fontSize="9.5" fill="var(--text-tertiary)">
+              {hoverPoint.m}
+            </text>
+            <text x="9" y="32" fontFamily="var(--font-num)" fontSize="12.5" fontWeight="600" fill="var(--text-strong)">
+              {fmt(hoverPoint.v)}
+            </text>
+          </g>
+        </g>
+      ) : null}
+      {xTicks.map((i) => (
+        <text
+          key={i}
+          x={x(i)}
+          y={height - 9}
+          textAnchor="middle"
+          fontFamily="var(--font-mono)"
+          fontSize="9"
+          fill="var(--text-tertiary)"
+        >
+          {data[i].m.slice(5)}
+        </text>
+      ))}
     </svg>
   )
 }

@@ -77,6 +77,42 @@ type FxRateList struct {
 	Limit     int      `json:"limit"`
 }
 
+type CreditCardCategory struct {
+	Name   string `json:"name"`
+	Amount string `json:"amount"`
+}
+
+type CreditCardBill struct {
+	ID                 int64                `json:"id"`
+	AccountID          int64                `json:"account_id"`
+	AccountName        string               `json:"account_name,omitempty"`
+	Institution        string               `json:"institution,omitempty"`
+	StatementDate      string               `json:"statement_date"`
+	AmountTotal        string               `json:"amount_total"`
+	Currency           string               `json:"currency"`
+	TopCategories      []CreditCardCategory `json:"top_categories"`
+	PaidAt             *string              `json:"paid_at"`
+	PaymentAccountID   *int64               `json:"payment_account_id"`
+	PaymentAccountName *string              `json:"payment_account_name,omitempty"`
+	Note               *string              `json:"note"`
+	CreatedAt          time.Time            `json:"created_at"`
+	UpdatedAt          time.Time            `json:"updated_at"`
+}
+
+type ReviewBatch struct {
+	ReviewDate        string             `json:"review_date"`
+	BalanceSnapshots  []BalanceSnapshot  `json:"balance_snapshots"`
+	PositionSnapshots []PositionSnapshot `json:"position_snapshots"`
+	CreditCardBills   []CreditCardBill   `json:"credit_card_bills"`
+}
+
+type ReviewBatchResult struct {
+	ReviewDate        string `json:"review_date"`
+	BalanceSnapshots  int    `json:"balance_snapshots"`
+	PositionSnapshots int    `json:"position_snapshots"`
+	CreditCardBills   int    `json:"credit_card_bills"`
+}
+
 // Valuation is the P2 current valuation payload consumed by the dashboard and
 // holding overview. Money fields are decimal strings in DisplayCurrency.
 type Valuation struct {

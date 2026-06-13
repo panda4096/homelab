@@ -11,6 +11,7 @@ import { Accounts } from './screens/Accounts'
 import { AccountDetail, PositionHistory } from './screens/AccountDetail'
 import { Holdings } from './screens/Holdings'
 import { MarketData } from './screens/MarketData'
+import { ReviewWizard } from './screens/ReviewWizard'
 import { QuickEntry } from './screens/QuickEntry'
 import { BuildAccount } from './screens/BuildAccount'
 import { TITLES } from './nav'
@@ -20,7 +21,6 @@ import { getAccount } from './api'
 // Screens that are bespoke in P0/P1; everything else falls back to Placeholder.
 const PLACEHOLDER_IDS = [
   'trend',
-  'review',
   'compare',
   'pivot',
   'transactions',
@@ -91,6 +91,7 @@ export function App() {
               <Route path="/accounts/:id/positions/:symbol" element={<PositionHistory />} />
               <Route path="/accounts/:id" element={<AccountDetail />} />
               <Route path="/holdings" element={<Holdings />} />
+              <Route path="/review" element={<ReviewWizard />} />
               <Route path="/market" element={<MarketData />} />
               <Route path="/settings" element={<Settings />} />
               {PLACEHOLDER_IDS.map((id) => (

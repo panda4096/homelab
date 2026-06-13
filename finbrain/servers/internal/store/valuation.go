@@ -48,6 +48,18 @@ type valuationPositionRow struct {
 	HoldingDays      *int
 }
 
+type valuationLiabilityRow struct {
+	AccountID       int64
+	AccountName     string
+	AccountCurrency string
+	AccountKind     string
+	Institution     string
+	StatementDate   string
+	AmountTotal     string
+	Currency        string
+	PaidAt          *string
+}
+
 type fxResult struct {
 	Rate     decimal.Decimal
 	Source   string
@@ -118,7 +130,6 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		}
 
 		displayValue := balance.Mul(res.Rate)
-		netWorth = netWorth.Add(displayValue)
 		totalAssets = totalAssets.Add(displayValue)
 		cashValue = cashValue.Add(displayValue)
 		quoteExposureTotal = quoteExposureTotal.Add(displayValue.Abs())
@@ -230,7 +241,6 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 
 		positionValue = positionValue.Add(displayMarketValue)
 		totalAssets = totalAssets.Add(displayMarketValue)
-		netWorth = netWorth.Add(displayMarketValue)
 		quoteExposureTotal = quoteExposureTotal.Add(displayMarketValue.Abs())
 		pos.MarketValue = stringPtr(formatMoneyDecimal(nativeMarketValue))
 		pos.MarketValueDisplay = stringPtr(formatMoneyDecimal(displayMarketValue))
@@ -254,6 +264,30 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 
 		val.Positions = append(val.Positions, pos)
 	}
+
+	liabilityRows, err := s.currentLiabilityRows(ctx, onDate)
+	if err != nil {
+		return Valuation{}, err
+	}
+	for _, l := range liabilityRows {
+		amount, err := decimalFromString(l.AmountTotal)
+		if err != nil {
+			return Valuation{}, err
+		}
+		res, err := fx.resolve(l.Currency, displayCurrency)
+		if err != nil {
+			return Valuation{}, err
+		}
+		if res.Source == "fallback" {
+			pair := l.Currency + "/" + displayCurrency
+			addWarning("fx_fallback", pair, fmt.Sprintf("%s 缺少可用汇率，信用卡账单已按 1:1 暂估", pair))
+		}
+		displayLiability := amount.Mul(res.Rate)
+		totalLiabilities = totalLiabilities.Add(displayLiability)
+		quoteExposureTotal = quoteExposureTotal.Add(displayLiability.Abs())
+		alloc.add("quote_currency", l.Currency, l.Currency, displayLiability.Neg())
+	}
+	netWorth = totalAssets.Sub(totalLiabilities)
 
 	for i := range val.Positions {
 		if val.Positions[i].MarketValueDisplay == nil {
@@ -380,6 +414,36 @@ func (s *Store) currentPositionRows(ctx context.Context, onDate string) ([]valua
 			&r.Symbol, &r.DisplayName, &r.Market, &r.QuoteCurrency,
 			&r.Quantity, &r.AvgCost, &r.CostCurrency, &r.SnapshotDate,
 			&r.PriceDate, &r.Price, &r.PriceCurrency, &r.HoldingStartDate, &r.HoldingDays,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) currentLiabilityRows(ctx context.Context, onDate string) ([]valuationLiabilityRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.name, a.currency, a.kind, i.name,
+		       b.statement_date::text, b.amount_total::text, b.currency, b.paid_at::text
+		FROM credit_card_bills b
+		JOIN accounts a ON a.id = b.account_id
+		JOIN institutions i ON i.id = a.institution_id
+		WHERE NOT a.is_archived
+		  AND a.kind = 'credit_card'
+		  AND b.statement_date <= $1::date
+		  AND (b.paid_at IS NULL OR b.paid_at > $1::date)
+		ORDER BY b.statement_date DESC, i.display_order, i.name, a.display_order, a.name`, onDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []valuationLiabilityRow{}
+	for rows.Next() {
+		var r valuationLiabilityRow
+		if err := rows.Scan(
+			&r.AccountID, &r.AccountName, &r.AccountCurrency, &r.AccountKind, &r.Institution,
+			&r.StatementDate, &r.AmountTotal, &r.Currency, &r.PaidAt,
 		); err != nil {
 			return nil, err
 		}

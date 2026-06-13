@@ -59,6 +59,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Get("/accounts/{id}/balance-snapshots", s.listAccountBalanceSnapshots)
 		r.Get("/accounts/{id}/position-snapshots", s.listAccountPositionSnapshots)
 		r.Get("/accounts/{id}/positions", s.listAccountPositions)
+		r.Get("/accounts/{id}/credit-card-bills", s.listAccountCreditCardBills)
 
 		// P1: snapshots
 		r.Post("/balance-snapshots", s.upsertBalanceSnapshot)
@@ -78,6 +79,13 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Patch("/fx-rates/{id}", s.patchFxRate)
 		r.Delete("/fx-rates/{id}", s.deleteFxRate)
 		r.Get("/valuation", s.getValuation)
+
+		// P3: monthly review and credit-card liabilities
+		r.Get("/credit-card-bills", s.listCreditCardBills)
+		r.Post("/credit-card-bills", s.upsertCreditCardBill)
+		r.Patch("/credit-card-bills/{id}", s.patchCreditCardBill)
+		r.Delete("/credit-card-bills/{id}", s.deleteCreditCardBill)
+		r.Post("/reviews/batch", s.submitReviewBatch)
 	})
 
 	if cfg.StaticDir != "" {

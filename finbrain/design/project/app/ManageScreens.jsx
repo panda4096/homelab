@@ -3,7 +3,7 @@
   const Icon = window.FBIcon;
   const D = window.FBData;
   const { Card, Button, Input, Select, Segmented, Switch, Badge, Tag, IconButton } = window.Finbrain_9e1a03;
-  const { DriftBars } = window.FBCharts;
+  const { DriftBars, LineChart } = window.FBCharts;
   const { Page, Th, Td, Row, native, SectionHint } = window.FBUI;
   const { useState } = React;
 
@@ -161,54 +161,171 @@
     );
   }
 
-  /* ============ 价格 / 汇率 / 标的 / 基准 §7.18 ============ */
-  function Market({ ccy }) {
-    const [tab, setTab] = useState("prices");
+  /* ============ 标的 / 汇率 / 基准 维护 §7.18（价格点位并入「标的」详情，不再单列价格 tab） ============ */
+
+  // ---- §7.18 共享：左栏 + 历史折线 + 缺口提示 + 点表格（标的/汇率/基准共用同一套形态） ----
+  const yFmtNum = (v) => (v >= 1000 ? Math.round(v).toLocaleString() : v >= 100 ? v.toFixed(0) : v.toFixed(2));
+  function histGap(hist) { let g = 0; for (let i = 1; i < hist.length; i++) g = Math.max(g, Math.round((new Date(hist[i].m) - new Date(hist[i - 1].m)) / 86400000)); return g; }
+
+  function Rail({ items, sel, onSel, render }) {
+    return (
+      <div style={{ borderRight: "1px solid var(--divider)", maxHeight: 470, overflowY: "auto" }}>
+        {items.map((it) => {
+          const active = it.key === sel;
+          return (
+            <button key={it.key} onClick={() => onSel(it.key)}
+              style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", cursor: "pointer",
+                background: active ? "var(--accent-bg)" : "transparent", border: "none",
+                borderLeft: "2px solid " + (active ? "var(--accent)" : "transparent"), borderBottom: "1px solid var(--divider)" }}>
+              {render(it, active)}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function HistoryChart({ hist, emptyMsg }) {
+    const sparse = hist.length > 0 && hist.length < 4;
+    const gap = histGap(hist);
+    return (<>
+      {hist.length >= 2 ? (
+        <LineChart series={hist} height={188} yFmt={yFmtNum} />
+      ) : (
+        <div style={{ height: 120, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--text-tertiary)", background: "var(--surface-inset)", borderRadius: "var(--radius-md)" }}>
+          {hist.length === 0 ? (emptyMsg || "暂无历史 — 用批量导入（API §4.10.1）补足") : "历史不足 2 点，无法绘制走势 — 用批量导入（API §4.10.1）补足"}
+        </div>
+      )}
+      {(sparse || gap > 45) ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "var(--warning)" }}>
+          <Icon name="alert-triangle" size={13} />
+          {sparse ? "历史点偏少，趋势 / 基准曲线可能不平滑" : "存在 " + gap + " 天缺口"} · 可用批量导入（API §4.10.1）补足
+        </div>
+      ) : null}
+    </>);
+  }
+
+  function DetailHead({ title, sub, hist, action }) {
+    const span = hist.length ? hist[0].m + " → " + hist[hist.length - 1].m : "—";
+    return (
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 15, color: "var(--text-strong)" }}>{title}</span>
+        {sub ? <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{sub}</span> : null}
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{span} · {hist.length} 点</span>
+        {action}
+      </div>
+    );
+  }
+
+  function PointTable({ hist, unit, kind }) {
+    if (!hist.length) return null;
+    return (
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr><Th>日期</Th><Th right>{kind === "rate" ? "汇率" : "价格"}</Th>{kind === "rate" ? null : <Th>币种</Th>}<Th>来源</Th><Th w="50"></Th></tr></thead>
+        <tbody>{[...hist].reverse().map((pt, i) => (
+          <Row key={i}><Td mono dim>{pt.m}</Td>
+            <Td right mono color="var(--text-strong)">{kind === "rate" ? pt.v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : native(pt.v, unit)}</Td>
+            {kind === "rate" ? null : <Td><Badge tone="neutral">{unit}</Badge></Td>}
+            <Td><span style={{ fontSize: 11, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>manual</span></Td>
+            <Td><IconButton aria-label="编辑" size="sm"><Icon name="pencil" size={13} /></IconButton></Td></Row>
+        ))}</tbody>
+      </table>
+    );
+  }
+
+  function Meta({ k, v }) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 12px", background: "var(--surface-inset)", borderRadius: "var(--radius-md)", minWidth: 84 }}>
+        <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{k}</span>
+        <span style={{ fontSize: 12.5, color: "var(--text-primary)" }}>{v}</span>
+      </div>
+    );
+  }
+
+  /* ---- 汇率：左栏币种对、右栏汇率历史折线 ---- */
+  function FxManager() {
+    const rows = D.fxRates.map((r) => ({ ...r, pair: r.base + "/" + r.quote, hist: D.fxHistory[r.base + "/" + r.quote] || [] }));
+    const [sel, setSel] = useState(rows[0].pair);
+    const cur = rows.find((r) => r.pair === sel) || rows[0];
+    return (
+      <Card padded={false}>
+        <div style={{ display: "grid", gridTemplateColumns: "232px 1fr" }}>
+          <Rail items={rows.map((r) => ({ key: r.pair, ...r }))} sel={sel} onSel={setSel} render={(it, active) => (<>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 12.5, color: active ? "var(--accent-bright)" : "var(--text-strong)" }}>{it.pair}</div>
+              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{(D.fxHistory[it.pair] || []).length} 点</div>
+            </div>
+            <span className="fb-num" style={{ fontSize: 12, color: "var(--text-secondary)" }}>{it.rate}</span>
+          </>)} />
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+            <DetailHead title={cur.pair} sub={"1 " + cur.base + " = " + cur.rate + " " + cur.quote} hist={cur.hist} />
+            <HistoryChart hist={cur.hist} emptyMsg="暂无历史汇率 — 用批量导入（API §4.10.1）补足" />
+            <PointTable hist={cur.hist} unit={cur.quote} kind="rate" />
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  /* ---- 标的 / 基准：左栏标的、右栏元数据 + 价格历史折线（来自 prices 表，§4.18/§5.2.9） ---- */
+  function InstrumentManager({ benchOnly }) {
+    const list = D.instruments.filter((m) => !benchOnly || m.bench);
+    const [sel, setSel] = useState(list[0].sym);
+    const cur = list.find((m) => m.sym === sel) || list[0];
+    const hist = D.priceHistory[cur.sym] || [];
+    const bm = benchOnly ? D.benchmarks.find((b) => b.sym === cur.sym) : null;
+    return (
+      <Card padded={false}>
+        <div style={{ display: "grid", gridTemplateColumns: "232px 1fr" }}>
+          <Rail items={list.map((m) => ({ key: m.sym, ...m }))} sel={sel} onSel={setSel} render={(it, active) => (<>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 12.5, color: active ? "var(--accent-bright)" : "var(--text-strong)" }}>{it.sym}</div>
+              <div style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{it.name}</div>
+            </div>
+            <span className="fb-badge fb-badge--neutral" style={{ color: window.FBUI.MARKET_TONE[it.market] || "var(--text-secondary)" }}><span className="fb-badge__dot" style={{ background: window.FBUI.MARKET_TONE[it.market] || "var(--text-secondary)" }} />{it.market}</span>
+          </>)} />
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 15, color: "var(--text-strong)" }}>{cur.sym}</span>
+              <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{cur.name}</span>
+              <IconButton aria-label="编辑" size="sm" style={{ marginLeft: "auto" }}><Icon name="pencil" size={14} /></IconButton>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <Meta k="市场" v={cur.market} />
+              <Meta k="计价币种" v={cur.qccy} />
+              <Meta k="资产类型" v={D.ASSET_CN[cur.assetKind] || cur.assetKind} />
+              <Meta k="基准" v={cur.bench ? "是" : "否"} />
+              {bm ? <Meta k="默认叠加" v={bm.defaultVisible ? "是" : "否"} /> : null}
+              {bm ? <Meta k="排序" v={bm.order} /> : null}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>价格历史（来自 prices 表，与普通持仓共用）</span>
+              <Button variant="secondary" size="sm" style={{ marginLeft: "auto" }} iconLeft={<Icon name="plus" size={13} />}>新增价格</Button>
+            </div>
+            <HistoryChart hist={hist} emptyMsg="该标的暂无历史价格 — 用批量导入（API §4.10.1）补足" />
+            <PointTable hist={hist} unit={cur.qccy} kind="price" />
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  function Market() {
+    const [tab, setTab] = useState("instruments");
+    const hint = tab === "fx"
+      ? "汇率按 (币种对, 日期) 时间序列存储：左栏选币种对看历史折线；反向汇率自动互换 USD/CNY ⇄ CNY/USD，缺失按 1:1 降级；批量导入走 API（§4.10.1）"
+      : tab === "benchmarks"
+        ? "基准与普通持仓共用 prices 表存历史价；折线密度决定趋势叠加曲线质量，可用批量导入（API §4.10.1）补足"
+        : "标的元数据 + 其价格历史折线与点位（来自 prices 表，单条增改删在此完成）；批量导入走后端 API（§4.10.1），此页不提供批量录入界面";
     return (
       <Page>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Segmented value={tab} onChange={setTab} size="sm"
-            options={[{ value: "prices", label: "价格" }, { value: "fx", label: "汇率" }, { value: "instruments", label: "标的" }, { value: "benchmarks", label: "基准" }]} />
-          <Button variant="primary" size="sm" style={{ marginLeft: "auto" }} iconLeft={<Icon name="plus" size={14} />}>新增{{ prices: "价格", fx: "汇率", instruments: "标的", benchmarks: "基准" }[tab]}</Button>
+            options={[{ value: "instruments", label: "标的" }, { value: "fx", label: "汇率" }, { value: "benchmarks", label: "基准" }]} />
+          <Button variant="primary" size="sm" style={{ marginLeft: "auto" }} iconLeft={<Icon name="plus" size={14} />}>新增{{ instruments: "标的", fx: "汇率", benchmarks: "基准" }[tab]}</Button>
         </div>
-        <Card padded={false}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            {tab === "prices" ? (<>
-              <thead><tr><Th>标的</Th><Th>日期</Th><Th right>价格</Th><Th>币种</Th><Th>来源</Th><Th w="50"></Th></tr></thead>
-              <tbody>{D.prices.map((p, i) => (
-                <Row key={i}><Td><span style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{p.sym}</span></Td><Td mono dim>{p.date}</Td>
-                  <Td right mono color="var(--text-strong)">{native(p.price, p.ccy)}</Td><Td><Badge tone="neutral">{p.ccy}</Badge></Td>
-                  <Td><span style={{ fontSize: 11, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{p.source}</span></Td>
-                  <Td><IconButton aria-label="编辑" size="sm"><Icon name="pencil" size={13} /></IconButton></Td></Row>
-              ))}</tbody>
-            </>) : tab === "fx" ? (<>
-              <thead><tr><Th>币种对</Th><Th>日期</Th><Th right>汇率</Th><Th>来源</Th><Th w="50"></Th></tr></thead>
-              <tbody>{D.fxRates.map((r, i) => (
-                <Row key={i}><Td><span style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{r.base}/{r.quote}</span></Td><Td mono dim>{r.date}</Td>
-                  <Td right mono color="var(--text-strong)">{r.rate}</Td>
-                  <Td><span style={{ fontSize: 11, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{r.source}</span></Td>
-                  <Td><IconButton aria-label="编辑" size="sm"><Icon name="pencil" size={13} /></IconButton></Td></Row>
-              ))}</tbody>
-            </>) : tab === "instruments" ? (<>
-              <thead><tr><Th>标的</Th><Th>名称</Th><Th>市场</Th><Th>计价币种</Th><Th>资产类型</Th><Th>基准</Th><Th w="50"></Th></tr></thead>
-              <tbody>{D.instruments.map((m, i) => (
-                <Row key={i}><Td><span style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{m.sym}</span></Td><Td>{m.name}</Td>
-                  <Td><span className="fb-badge fb-badge--neutral" style={{ color: window.FBUI.MARKET_TONE[m.market] || "var(--text-secondary)" }}><span className="fb-badge__dot" style={{ background: window.FBUI.MARKET_TONE[m.market] || "var(--text-secondary)" }} />{m.market}</span></Td>
-                  <Td><Badge tone="neutral">{m.qccy}</Badge></Td><Td><span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{D.ASSET_CN[m.assetKind] || m.assetKind}</span></Td>
-                  <Td>{m.bench ? <Badge tone="gold">基准</Badge> : <span style={{ color: "var(--text-tertiary)" }}>—</span>}</Td>
-                  <Td><IconButton aria-label="编辑" size="sm"><Icon name="pencil" size={13} /></IconButton></Td></Row>
-              ))}</tbody>
-            </>) : (<>
-              <thead><tr><Th>标的</Th><Th>显示名</Th><Th>默认叠加</Th><Th right>排序</Th><Th w="50"></Th></tr></thead>
-              <tbody>{D.benchmarks.map((b, i) => (
-                <Row key={i}><Td><span style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{b.sym}</span></Td><Td>{b.name}</Td>
-                  <Td>{b.defaultVisible ? <Badge tone="success">默认</Badge> : <Badge tone="neutral">关</Badge>}</Td><Td right mono dim>{b.order}</Td>
-                  <Td><IconButton aria-label="编辑" size="sm"><Icon name="pencil" size={13} /></IconButton></Td></Row>
-              ))}</tbody>
-            </>)}
-          </table>
-        </Card>
-        <SectionHint>{tab === "fx" ? "反向汇率自动互换：USD/CNY=7.2 ⇄ CNY/USD=1/7.2 · 缺失时按 1:1 降级并提示" : "市价手动维护或后续接入自动数据源；无价格时市值显示「无价格」，不阻塞其他计算"}</SectionHint>
+        {tab === "fx" ? <FxManager /> : tab === "benchmarks" ? <InstrumentManager benchOnly /> : <InstrumentManager />}
+        <SectionHint>{hint}</SectionHint>
       </Page>
     );
   }

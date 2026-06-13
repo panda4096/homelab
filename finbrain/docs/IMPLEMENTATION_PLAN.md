@@ -66,7 +66,7 @@ PRD 就绪度评审里点名的"工程补遗",在此一次性定死,各阶段直
 
 ### 2.4 安全(PRD §9)
 - 单用户工具,app **不实现登录页**:开发期免登录(固定 dev 用户);鉴权中间件做成可插拔(默认放行),未来置于反代之后时再开启"信任反代身份头"(可配 `FINBRAIN_AUTH_HEADER`)。具体认证形态随部署决定,不在本方案范围。
-- DB / LLM 凭据从环境变量读取(`DATABASE_URL`、`ANTHROPIC_API_KEY`)。NL 查询沙箱见 §5 P6。日志不落金额/余额,只记操作类型 + 账户 ID。
+- DB / LLM 凭据从环境变量读取(`DATABASE_URL`、`DEEPSEEK_API_KEY`,可选 `ANTHROPIC_API_KEY` 兜底),**秘钥不入仓库文档或代码**。LLM/Copilot 默认先用 DeepSeek;NL 查询沙箱见 §5 P6。日志不落金额/余额,只记操作类型 + 账户 ID。
 
 ### 2.5 PRD 修订项 ✅ 已完成(入场条件已满足)
 - ✅ `credit_card_bills` 已补字段:`payment_account_id bigint`(可空,FK→`accounts.id`;为空=该期未指定还款账户;仅当 `paid_at` 非空时参与 §6.19)。PRD §5.2.5 + §4.4 已更新。
@@ -147,8 +147,8 @@ PRD 就绪度评审里点名的"工程补遗",在此一次性定死,各阶段直
 ### P2 · 估值与仪表盘
 **目标**:有价格/汇率后,算净资产、浮动盈亏、多维分布,点亮仪表盘(快照口径)。
 
-- **后端**:迁移 `prices` `fx_rates`;§6.2 市值、§6.3 跨币种折算(current/historical + 反向/经 USD 中转 + 1:1 降级标记)、§6.4 净资产、§6.6 跨账户合并、§6.7 浮动盈亏与权重、§6.8 持仓时长、§6.9 币种暴露;聚合 API(按用途/机构/币种/市场/真实计价币种);**成本口径**:`weighted_buy_cost` 回退到 `position_snapshots.avg_cost`(P4 交易录入后按 §6.15 自动升级为回放派生);**market 维度**动态枚举现有值(推荐 US/HK/CN/CRYPTO/INDEX/OTHER,业主可自定义,不预置死);为 P5 每日曲线**种子一只标的的历史价格**(如 HSI,半年每 5 天一条)。
-- **前端**:仪表盘 §7.1(净资产 hero、配置饼图×4;趋势小图先静态;**已实现盈亏 YTD / 累计收益事件等交易类指标本阶段标"—/待 P4",不放假数据**);持仓总览 §7.4(多列可排序筛选、双成本口径切换、"无价格"置底);价格/汇率/标的维护 §7.18;展示币种全局联动;缺数据降级 UI。
+- **后端**:迁移 `prices` `fx_rates`;§6.2 市值、§6.3 跨币种折算(current/historical + 反向/经 USD 中转 + 1:1 降级标记)、§6.4 净资产、§6.6 跨账户合并、§6.7 浮动盈亏与权重、§6.8 持仓时长、§6.9 币种暴露;聚合 API(按用途/机构/币种/市场/真实计价币种);**§4.10.1 批量导入 API**(prices + fx_rates,数组入参、整批 upsert、先校验任一行不合法整批拒绝、单事务、逐行报错;仅 API 无前端,供 agent/脚本补录历史);价格/汇率列表按 symbol、币种对、日期范围过滤(供折线取数);**成本口径**:`weighted_buy_cost` 回退到 `position_snapshots.avg_cost`(P4 交易录入后按 §6.15 自动升级为回放派生);**market 维度**动态枚举现有值(推荐 US/HK/CN/CRYPTO/INDEX/OTHER,业主可自定义,不预置死);为 P5 每日曲线**种子一只标的的历史价格**(如 HSI,半年每 5 天一条)。
+- **前端**:仪表盘 §7.1(净资产 hero、配置饼图×4;趋势小图先静态;**已实现盈亏 YTD / 累计收益事件等交易类指标本阶段标"—/待 P4",不放假数据**);持仓总览 §7.4(多列可排序筛选、双成本口径切换、"无价格"置底);标的/汇率/基准维护 §7.18(**三 tab 主从布局 + 历史折线图**:价格点位并入「标的」详情[不单列价格 tab],标的=元数据+价格历史折线+点位单条 CRUD+「新增价格」、汇率=币种对历史折线、基准=基准价历史折线;均为单值折线[非 K 线]带密度/缺口提示;批量导入走 API、此页无批量录入 UI;视觉对标 design 原型 `ManageScreens.jsx::InstrumentManager/FxManager` + `charts.jsx::LineChart`,重写不 import);展示币种全局联动;缺数据降级 UI。
 - **验收**:仪表盘各分布数字与 SQL 校验一致;币种切换即时重算;降级按 §6.3/§6.7 正确标注。
 - **不做**:交易派生的已实现盈亏(P4)、趋势时间序列曲线(P5)、目标漂移卡(P5)。
 
@@ -176,10 +176,10 @@ PRD 就绪度评审里点名的"工程补遗",在此一次性定死,各阶段直
 - **验收**:月度截面与手写 SQL 一致;任意日期单点查询与曲线一致(§11);归因四桶之和=净值变化;基准缺数据自动右移起点;每日曲线本地 Postgres 亚秒级。
 - **不做**:物化视图优化(§6.14 注:观察到瓶颈再做)。
 
-### P6 · LLM 能力
+### P6 · LLM/Copilot 能力
 **目标**:自然语言录入/查询/阶段总结。
 
-- **后端**:Anthropic Claude 集成(凭据走环境变量 `ANTHROPIC_API_KEY`);§8.1 录入解析→结构化 JSON(置信度<0.6 必预览);§8.2 查询→SQL **沙箱**:表白名单 = `accounts, instruments, balance_snapshots, position_snapshots, prices, fx_rates, income_events, transactions, transfers, corporate_actions, credit_card_bills, allocation_target_sets, allocation_target_items, benchmarks, annotations`(不含 `user_preferences`);执行前解析 SQL,FROM/JOIN 仅白名单、拒绝非 SELECT、拒 `pg_*`/`information_schema`;执行层 10s 超时 + `LIMIT 5000`;危险样例写成单元测试 100% 拒绝;§8.3 总结(系统先算指标再交 LLM,落 `summaries`);LLM 日志留 30 天;设置可整体关闭(退化纯手工)。
+- **后端**:LLM/Copilot 集成默认优先 DeepSeek(凭据走环境变量 `DEEPSEEK_API_KEY`,模型默认 `deepseek-chat`,接口按 OpenAI-compatible client 封装);如配置 `ANTHROPIC_API_KEY`,仅在 DeepSeek 未配置/显式关闭/不可用时作为 Anthropic Claude 兜底;§8.1 录入解析→结构化 JSON(置信度<0.6 必预览);§8.2 查询→SQL **沙箱**:表白名单 = `accounts, instruments, balance_snapshots, position_snapshots, prices, fx_rates, income_events, transactions, transfers, corporate_actions, credit_card_bills, allocation_target_sets, allocation_target_items, benchmarks, annotations`(不含 `user_preferences`);执行前解析 SQL,FROM/JOIN 仅白名单、拒绝非 SELECT、拒 `pg_*`/`information_schema`;执行层 10s 超时 + `LIMIT 5000`;危险样例写成单元测试 100% 拒绝;§8.3 总结(系统先算指标再交 LLM,落 `summaries`);LLM 日志留 30 天;设置可整体关闭(退化纯手工)。
 - **前端**:⌘K 浮层接真实后端(意图判定→预览→确认写入);查询结果(数/表/图 + 折叠 SQL);历史阶段总结 §7.19。
 - **验收**:§8.2 危险语句 100% 拒绝;§8.1 示例可解析预览后落库;总结基于预算指标不直读库。
 - **不做**:LLM 自动定时总结(PRD 仅手动触发)。
