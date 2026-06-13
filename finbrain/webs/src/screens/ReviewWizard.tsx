@@ -16,8 +16,12 @@ import {
 import {
   ApiError,
   listAccounts,
+  listAllocationTargets,
   listBalanceSnapshots,
+  listCorporateActions,
+  listIncomeEvents,
   listPositions,
+  listTransfers,
   submitReviewBatch,
   type Account,
 } from '../api'
@@ -295,6 +299,16 @@ export function ReviewWizard() {
               <BillStep rows={bills} setRows={setBills} creditAccounts={creditAccounts} paymentAccounts={paymentAccounts} reviewDate={reviewDate} />
             ) : step === 10 ? (
               <PreviewStep balances={balances} positions={positions} bills={bills} counts={counts} errors={batchErrors} />
+            ) : step === 4 ? (
+              <CorporateActionsReview />
+            ) : step === 5 ? (
+              <TransfersReview />
+            ) : step === 7 ? (
+              <IncomeReview />
+            ) : step === 8 ? (
+              <ReconReview />
+            ) : step === 9 ? (
+              <DriftReview />
             ) : (
               <PlaceholderStep step={current} />
             )}
@@ -682,6 +696,74 @@ function PreviewList({ title, rows }: { title: string; rows: string[] }) {
       )) : <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>无待提交记录</div>}
     </div>
   )
+}
+
+// Review steps (4/5/7/8/9) are read-only "since last review" prompts — they don't
+// add to the batch (those entities are recorded on their own screens), they remind
+// the owner to backfill what's missing before confirming (§7.5).
+const CA_ACTION: Record<string, string> = { split: '拆股', merge: '合股', rights: '配股' }
+const INCOME_KIND: Record<string, string> = { dividend: '分红', interest: '利息', rebate: '返现', other: '其他' }
+
+function ReviewListCard({ title, hint, cta, to, loading, lines }: { title: string; hint: string; cta: string; to: string; loading: boolean; lines: string[] }) {
+  const navigate = useNavigate()
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <SectionHint>{hint}</SectionHint>
+      <div className="fb-card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-strong)' }}>{title}</span>
+          <Button size="sm" variant="ghost" style={{ marginLeft: 'auto' }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate(to)}>{cta}</Button>
+        </div>
+        {lines.length ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {lines.map((l, i) => <div key={i} style={{ fontSize: 12.5, color: 'var(--text-secondary)', padding: '6px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)' }}>{l}</div>)}
+          </div>
+        ) : <span style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>{loading ? '加载中…' : '近期无记录 — 如有遗漏请点右上角补录'}</span>}
+      </div>
+    </div>
+  )
+}
+
+function CorporateActionsReview() {
+  const q = useQuery({ queryKey: ['corporate-actions', ''], queryFn: () => listCorporateActions() })
+  const lines = (q.data?.items ?? []).slice(0, 8).map((c) => `${c.event_date} · ${c.symbol} · ${CA_ACTION[c.action] ?? c.action} ${c.ratio_numerator}:${c.ratio_denominator}`)
+  return <ReviewListCard title="公司动作回顾" hint="确认本期间的拆股 / 合股 / 配股是否已录入（影响持仓回放）" cta="去公司动作" to="/corporate-actions" loading={q.isLoading} lines={lines} />
+}
+
+function TransfersReview() {
+  const q = useQuery({ queryKey: ['transfers'], queryFn: () => listTransfers() })
+  const lines = (q.data?.items ?? []).slice(0, 8).map((t) => `${t.transfer_date} · ${t.from_account_name} → ${t.to_account_name} · ${t.from_amount}/${t.to_amount}`)
+  return <ReviewListCard title="账户转账回顾" hint="确认本期间的账户间转账是否已录入（现金对账差额常源于漏录转账）" cta="去转账" to="/transfers" loading={q.isLoading} lines={lines} />
+}
+
+function IncomeReview() {
+  const q = useQuery({ queryKey: ['income-events', ''], queryFn: () => listIncomeEvents() })
+  const lines = (q.data?.items ?? []).slice(0, 8).map((e) => `${e.event_date} · ${INCOME_KIND[e.event_kind] ?? e.event_kind}${e.symbol ? ' · ' + e.symbol : ''} · ${e.amount} ${e.currency}`)
+  return <ReviewListCard title="收益事件回顾" hint="确认本期间的分红 / 利息 / 返现是否已录入（计入累计收益）" cta="去收益事件" to="/income" loading={q.isLoading} lines={lines} />
+}
+
+function ReconReview() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <SectionHint>每个现金 / 持仓账户的预期余额与最新快照的差额；超阈值表示可能漏录交易或转账（§6.19）。</SectionHint>
+      <div className="fb-card" style={{ padding: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Icon name="scale" size={18} color="var(--accent)" />
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>逐账户对账请到「现金对账」页核对差额。</span>
+        <ReconLink />
+      </div>
+    </div>
+  )
+}
+
+function ReconLink() {
+  const navigate = useNavigate()
+  return <Button size="sm" variant="secondary" style={{ marginLeft: 'auto' }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate('/recon')}>去现金对账</Button>
+}
+
+function DriftReview() {
+  const q = useQuery({ queryKey: ['allocation-targets'], queryFn: () => listAllocationTargets() })
+  const lines = (q.data ?? []).filter((s) => !s.is_archived).map((s) => `${s.name} · ${s.dimension} · 阈值 ±${s.drift_threshold_pct}%`)
+  return <ReviewListCard title="目标漂移检视" hint="检视各目标配置的当前漂移（提醒为主，不阻塞提交）" cta="去目标配置" to="/targets" loading={q.isLoading} lines={lines} />
 }
 
 function PlaceholderStep({ step }: { step: { label: string; icon: string } }) {
