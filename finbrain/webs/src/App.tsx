@@ -22,14 +22,13 @@ import { Reconciliation } from './screens/Reconciliation'
 import { TrendAnalysis } from './screens/TrendAnalysis'
 import { Targets } from './screens/Targets'
 import { Pivot } from './screens/Pivot'
+import { Compare } from './screens/Compare'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { getAccount } from './api'
 
 // Screens that are bespoke in P0/P1; everything else falls back to Placeholder.
-const PLACEHOLDER_IDS = [
-  'compare',
-]
+const PLACEHOLDER_IDS: string[] = []
 
 export function App() {
   const [copilot, setCopilot] = useState(false)
@@ -102,6 +101,7 @@ export function App() {
               <Route path="/recon" element={<Reconciliation />} />
               <Route path="/targets" element={<Targets />} />
               <Route path="/pivot" element={<Pivot />} />
+              <Route path="/compare" element={<Compare />} />
               <Route path="/settings" element={<Settings />} />
               {PLACEHOLDER_IDS.map((id) => (
                 <Route key={id} path={`/${id}`} element={<Placeholder id={id} />} />
