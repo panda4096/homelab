@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Segmented } from '../ds'
-import { getTrend, listInstruments, listPrices, type TimeAggregation } from '../api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, Icon, IconButton, Input, Segmented } from '../ds'
+import { createAnnotation, deleteAnnotation, getTrend, listAnnotations, listInstruments, listPrices, type TimeAggregation } from '../api'
 import { native } from '../lib/format'
 import { CurrencyValue, DeltaValue, LineChart, num, shortMoney, type LineBenchmark, type LineSeriesPoint } from '../lib/finance'
 import { usePrefStore } from '../store'
+import { useToast } from '../shell/Toast'
 
 function Page({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 22, maxWidth: 1100, margin: '0 auto' }}>{children}</div>
@@ -75,6 +76,22 @@ export function TrendAnalysis() {
   const endV = num(last?.net_worth) ?? 0
   const changePct = startV !== 0 ? (((endV - startV) / Math.abs(startV)) * 100).toFixed(2) : null
 
+  const qc = useQueryClient()
+  const toast = useToast()
+  const annotations = useQuery({ queryKey: ['annotations', from, to], queryFn: () => listAnnotations({ from, to }) })
+  const [annDate, setAnnDate] = useState(to)
+  const [annLabel, setAnnLabel] = useState('')
+  const addAnn = useMutation({
+    mutationFn: () => createAnnotation({ event_date: annDate, label: annLabel.trim(), anchor_kind: 'date' }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['annotations'] }); setAnnLabel(''); toast.success('已添加标注') },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '添加失败'),
+  })
+  const delAnn = useMutation({
+    mutationFn: deleteAnnotation,
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['annotations'] }); toast.success('已删除标注') },
+    onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
+  })
+
   return (
     <Page>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -136,6 +153,28 @@ export function TrendAnalysis() {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="fb-card" style={{ padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <Icon name="bookmark" size={15} color="var(--accent)" />
+          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-strong)' }}>标注</span>
+          <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>在时间轴上记录重要事件（区间 {from} → {to}）</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <Input type="date" size="sm" value={annDate} onChange={(e) => setAnnDate(e.target.value)} style={{ maxWidth: 160 }} />
+          <Input size="sm" value={annLabel} onChange={(e) => setAnnLabel(e.target.value)} placeholder="标注内容（如:加仓 / 再平衡 / 大额转入）" style={{ flex: 1, minWidth: 200 }} />
+          <Button size="sm" variant="secondary" disabled={!annLabel.trim() || addAnn.isPending} iconLeft={<Icon name="plus" size={13} />} onClick={() => addAnn.mutate()}>添加</Button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(annotations.data ?? []).map((a) => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--divider)' }}>
+              <span className="fb-num" style={{ fontSize: 11.5, color: 'var(--text-tertiary)', width: 90 }}>{a.event_date}</span>
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>{a.label}</span>
+              <IconButton aria-label="删除" size="sm" onClick={() => delAnn.mutate(a.id)}><Icon name="trash-2" size={13} /></IconButton>
+            </div>
+          ))}
+          {!annotations.isLoading && !(annotations.data ?? []).length ? <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>该区间暂无标注</span> : null}
+        </div>
       </div>
     </Page>
   )

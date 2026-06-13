@@ -1093,3 +1093,45 @@ export function generateSummary(input: {
 export function deleteSummary(id: number): Promise<void> {
   return request<void>(`/api/summaries/${id}`, { method: 'DELETE' })
 }
+
+// ---------- P5 annotations ----------
+
+export type AnchorKind = 'date' | 'account' | 'symbol' | 'position'
+
+export interface Annotation {
+  id: number
+  anchor_kind: AnchorKind
+  anchor_keys: unknown
+  event_date: string
+  label: string
+  body: string | null
+  color: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAnnotationInput {
+  anchor_kind?: AnchorKind
+  anchor_keys?: unknown
+  event_date: string
+  label: string
+  body?: string | null
+  color?: string | null
+}
+
+export function listAnnotations(params: { from?: string; to?: string } = {}): Promise<Annotation[]> {
+  const q = new URLSearchParams()
+  if (params.from) q.set('from', params.from)
+  if (params.to) q.set('to', params.to)
+  const s = q.toString()
+  return request<Annotation[]>(`/api/annotations${s ? `?${s}` : ''}`)
+}
+
+export function createAnnotation(input: CreateAnnotationInput): Promise<Annotation> {
+  return request<Annotation>('/api/annotations', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function deleteAnnotation(id: number): Promise<void> {
+  return request<void>(`/api/annotations/${id}`, { method: 'DELETE' })
+}

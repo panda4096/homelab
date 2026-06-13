@@ -127,6 +127,12 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Get("/summaries/{id}", s.getSummary)
 		r.Delete("/summaries/{id}", s.deleteSummary)
 
+		// P5: annotations (timeline notes)
+		r.Get("/annotations", s.listAnnotations)
+		r.Post("/annotations", s.createAnnotation)
+		r.Patch("/annotations/{id}", s.patchAnnotation)
+		r.Delete("/annotations/{id}", s.deleteAnnotation)
+
 		// P7: data export
 		r.Get("/export", s.exportData)
 	})
