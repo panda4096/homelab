@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>finbrain · 个人资产管理控制台</title>
+<link rel="stylesheet" href="_ds/finbrain-9e1a0319-39ef-435e-8a6c-aa9d4f9a7d5a/styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="_ds/finbrain-9e1a0319-39ef-435e-8a6c-aa9d4f9a7d5a/_ds_bundle.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--surface-base); overflow: hidden; }
+  #app { height: 100vh; }
+  .fb-scroll { overflow-y: auto; }
+  .fb-fade { animation: fbFade .26s var(--ease-out) both; }
+  @media (prefers-reduced-motion: reduce) { .fb-fade { animation: none; } }
+  @keyframes fbFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes fbBlink { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+  /* consuming-project override: keep mono eyebrows on one line so they never collide with the title when actions compete for header width */
+  .fb-card__eyebrow { white-space: nowrap; }
+  /* money figures should never break the currency marker / 万 suffix onto a new line */
+  .fb-metric { white-space: nowrap; }
+  /* card-level tables scroll horizontally instead of overflowing the card on narrow widths */
+  .fb-card > table { display: block; overflow-x: auto; max-width: 100%; }
+
+  /* ---- responsive layout grids (override fixed fr columns as the viewport narrows) ---- */
+  .fb-grid { display: grid; gap: 16px; }
+  .fb-grid--g14 { gap: 14px; }
+  .db-hero { grid-template-columns: 1.15fr 1fr 1fr; }
+  .db-21 { grid-template-columns: 1.6fr 1fr; }
+  .db-12 { grid-template-columns: 1fr 1.6fr; }
+  .kpi-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .kpi-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .split-2 { grid-template-columns: 1fr 1fr; }
+  .split-32 { grid-template-columns: 1.5fr 1fr; }
+  .trend-side { grid-template-columns: 1fr 300px; }
+  .targets-2 { grid-template-columns: 264px 1fr; }
+  .fb-form { display: grid; gap: 12px; align-items: start; }
+  .form-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .form-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .xfer { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: end; }
+
+  @media (max-width: 1240px) {
+    .db-hero { grid-template-columns: 1fr 1fr; }
+    .kpi-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .form-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 1000px) {
+    .db-21, .db-12, .split-32, .trend-side, .targets-2 { grid-template-columns: 1fr; }
+    .kpi-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .form-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 720px) {
+    .db-hero, .split-2, .xfer { grid-template-columns: 1fr; }
+    .kpi-5, .form-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 520px) {
+    .kpi-5, .kpi-4, .form-4, .form-5 { grid-template-columns: 1fr; }
+  }
+  .fb-card__header > div:first-child { min-width: 0; }
+</style>
+</head>
+<body class="fb-root">
+<div id="app"></div>
+<script src="app/data.js"></script>
+<script type="text/babel" src="app/icons.jsx"></script>
+<script type="text/babel" src="app/ui.jsx"></script>
+<script type="text/babel" src="app/charts.jsx"></script>
+<script type="text/babel" src="app/Copilot.jsx"></script>
+<script type="text/babel" src="app/Shell.jsx"></script>
+<script type="text/babel" src="app/Dashboard.jsx"></script>
+<script type="text/babel" src="app/Holdings.jsx"></script>
+<script type="text/babel" src="app/ReviewWizard.jsx"></script>
+<script type="text/babel" src="app/TrendAnalysis.jsx"></script>
+<script type="text/babel" src="app/Accounts.jsx"></script>
+<script type="text/babel" src="app/Transactions.jsx"></script>
+<script type="text/babel" src="app/Pivot.jsx"></script>
+<script type="text/babel" src="app/Compare.jsx"></script>
+<script type="text/babel" src="app/EntryScreens.jsx"></script>
+<script type="text/babel" src="app/ManageScreens.jsx"></script>
+<script type="text/babel">
+  const { useState, useEffect } = React;
+  const Icon = window.FBIcon;
+  const { Sidebar, Topbar, NAV } = window.FBShell;
+  const { Button, Badge, Card } = window.Finbrain_9e1a03;
+
+  const TITLES = {
+    dashboard: "仪表盘", holdings: "持仓总览", trend: "趋势分析", review: "月度盘点",
+    compare: "期间对比", pivot: "多维聚合", transactions: "持仓交易", income: "收益事件",
+    transfers: "账户转账", accounts: "账户列表", targets: "目标配置", recon: "现金对账",
+    market: "价格 / 汇率 / 基准", settings: "设置",
+  };
+
+  const NL_SAMPLES = [
+    { t: "招行 6231 今天 12.3 万", intent: "余额快照", conf: 0.94 },
+    { t: "汇丰美股 GOOG 加到 50 股，成本不变", intent: "持仓快照", conf: 0.88 },
+    { t: "招行信用卡这期 5800，餐饮 2k 网购 1.5k", intent: "信用卡账单", conf: 0.91 },
+    { t: "今天 USD/CNY 7.18", intent: "汇率", conf: 0.97 },
+  ];
+
+  function NLModal({ onClose }) {
+    const [q, setQ] = useState("汇丰美股 GOOG 加到 50 股，成本不变");
+    return (
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(4,6,9,0.62)", backdropFilter: "var(--blur-overlay)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh" }}>
+        <div onClick={(e) => e.stopPropagation()} className="fb-card" style={{ width: 600, maxWidth: "92vw", boxShadow: "var(--shadow-lg)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--divider)" }}>
+            <Icon name="sparkles" size={18} color="var(--accent)" />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="自然语言录入 / 查询…"
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "var(--text-strong)", fontFamily: "var(--font-sans)", fontSize: 15 }} />
+            <kbd style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--text-tertiary)", border: "1px solid var(--border-default)", borderRadius: 4, padding: "2px 6px" }}>esc</kbd>
+          </div>
+          <div style={{ padding: 16 }}>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 8 }}>解析预览 · 置信度 0.88 · 业主确认后写入</div>
+            <div style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-md)", padding: 14, display: "flex", flexDirection: "column", gap: 9 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Badge tone="gold">持仓快照</Badge>
+                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>position_snapshots</span>
+              </div>
+              {[["账户", "富途 · 美股账户 (USD)"], ["标的", "GOOG · Alphabet"], ["数量", "50 股"], ["平均成本", "保留 $142.30"], ["日期", "2026-06-13 (今天)"]].map(([k, v]) => (
+                <div key={k} style={{ display: "grid", gridTemplateColumns: "84px 1fr", fontSize: 13 }}>
+                  <span style={{ color: "var(--text-tertiary)" }}>{k}</span>
+                  <span style={{ color: "var(--text-primary)", fontFamily: k === "数量" || k === "平均成本" ? "var(--font-num)" : "inherit" }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              {NL_SAMPLES.map((s, i) => (
+                <button key={i} onClick={() => setQ(s.t)} className="fb-tag fb-tag--clickable" style={{ fontSize: 11 }}>{s.t}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "12px 16px", borderTop: "1px solid var(--divider)" }}>
+            <Button variant="ghost" size="sm" onClick={onClose}>取消</Button>
+            <Button variant="primary" size="sm" iconLeft={<Icon name="check" size={14} />} onClick={onClose}>确认写入</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function Placeholder({ id }) {
+    return (
+      <div style={{ padding: 22, maxWidth: 1320, margin: "0 auto" }}>
+        <Card>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 14 }}>
+            <div style={{ width: 60, height: 60, borderRadius: "50%", background: "var(--surface-inset)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name={(NAV.flatMap((g) => g.items).find((i) => i.id === id) || {}).icon || "layout-dashboard"} size={28} color="var(--text-secondary)" />
+            </div>
+            <h2 style={{ fontSize: 20, fontWeight: 500, color: "var(--text-strong)", margin: 0 }}>{TITLES[id]}</h2>
+            <Badge tone="neutral">PRD §7</Badge>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  function App() {
+    const [route, setRoute] = useState("dashboard");
+    const [ccy, setCcy] = useState("CNY");
+    const [conv, setConv] = useState("western");
+    const [copilot, setCopilot] = useState(false);
+
+    useEffect(() => {
+      document.documentElement.setAttribute("data-market-convention", conv === "cn" ? "cn" : "western");
+    }, [conv]);
+    useEffect(() => {
+      const h = (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setCopilot((c) => !c); } if (e.key === "Escape") setCopilot(false); };
+      window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
+    }, []);
+
+    let screen;
+    if (route === "dashboard") screen = <window.FBDashboard ccy={ccy} />;
+    else if (route === "holdings") screen = <window.FBHoldings ccy={ccy} />;
+    else if (route === "trend") screen = <window.FBTrend ccy={ccy} />;
+    else if (route === "review") screen = <window.FBReview onClose={() => setRoute("dashboard")} />;
+    else if (route === "compare") screen = <window.FBCompare ccy={ccy} />;
+    else if (route === "pivot") screen = <window.FBPivot ccy={ccy} />;
+    else if (route === "transactions") screen = <window.FBTransactions ccy={ccy} />;
+    else if (route === "income") screen = <window.FBIncome ccy={ccy} />;
+    else if (route === "transfers") screen = <window.FBTransfers ccy={ccy} />;
+    else if (route === "accounts") screen = <window.FBAccounts ccy={ccy} />;
+    else if (route === "targets") screen = <window.FBTargets ccy={ccy} />;
+    else if (route === "recon") screen = <window.FBRecon ccy={ccy} />;
+    else if (route === "market") screen = <window.FBMarket ccy={ccy} />;
+    else if (route === "settings") screen = <window.FBSettings ccy={ccy} onCcy={setCcy} convention={conv} onConvention={setConv} />;
+    else screen = <Placeholder id={route} />;
+
+    return (
+      <div style={{ display: "flex", height: "100vh" }}>
+        <Sidebar active={route} onNav={setRoute} mode={copilot ? "copilot" : "nav"} onMode={(m) => setCopilot(m === "copilot")} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <Topbar title={TITLES[route]} ccy={ccy} onCcy={setCcy}
+            onReview={() => setRoute("review")} onNL={() => setCopilot(true)} />
+          <div className="fb-scroll" style={{ flex: 1 }}>
+            <div key={route}>{screen}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("app")).render(<App />);
+</script>
+</body>
+</html>

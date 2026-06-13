@@ -1,0 +1,54 @@
+/* ============================================================
+   BASE — minimal element defaults for the dark canvas.
+   Scoped lightly: sets the page background, body type, scrollbars,
+   selection, and numeric defaults. Components own the rest.
+   ============================================================ */
+
+.fb-root,
+body.fb {
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-regular);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Selection */
+.fb-root ::selection,
+body.fb ::selection {
+  background: var(--accent-bg);
+  color: var(--text-strong);
+}
+
+/* Custom scrollbars — thin, quiet */
+.fb-root ::-webkit-scrollbar,
+body.fb ::-webkit-scrollbar { width: 10px; height: 10px; }
+.fb-root ::-webkit-scrollbar-track,
+body.fb ::-webkit-scrollbar-track { background: transparent; }
+.fb-root ::-webkit-scrollbar-thumb,
+body.fb ::-webkit-scrollbar-thumb {
+  background: var(--ink-600);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.fb-root ::-webkit-scrollbar-thumb:hover,
+body.fb ::-webkit-scrollbar-thumb:hover { background: var(--ink-550); background-clip: content-box; }
+
+/* Headings inherit sans by default; tabular numbers everywhere they appear */
+.fb-root h1, .fb-root h2, .fb-root h3, .fb-root h4 { font-weight: var(--weight-medium); line-height: var(--leading-tight); margin: 0; }
+
+/* Links */
+.fb-root a { color: var(--accent); text-decoration: none; }
+.fb-root a:hover { color: var(--accent-bright); }
+
+/* Focus-visible baseline */
+.fb-root :focus-visible,
+body.fb :focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--radius-sm);
+}

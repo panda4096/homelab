@@ -1,0 +1,46 @@
+/* ============================================================
+   EFFECTS — elevation, borders, blur, gradients
+   On dark, structure comes from hairlines + faint top sheen,
+   shadows stay deep and quiet. No glassy purple gradients.
+   ============================================================ */
+
+:root {
+  /* ---- Shadows (deep + quiet) ---- */
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.40);
+  --shadow-sm:  0 2px 6px rgba(0, 0, 0, 0.42);
+  --shadow-md:  0 6px 20px rgba(0, 0, 0, 0.46);
+  --shadow-lg:  0 18px 48px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 12px 36px rgba(0, 0, 0, 0.60);
+
+  /* ---- Top-edge sheen: 1px inner highlight that reads as a bevel ---- */
+  --sheen-top:  inset 0 1px 0 rgba(255, 255, 255, 0.045);  /* @kind shadow */
+  --sheen-card: inset 0 1px 0 rgba(255, 255, 255, 0.05);   /* @kind shadow */
+
+  /* ---- Card composite (border handled separately) ---- */
+  --elev-card:  var(--shadow-sm), var(--sheen-card);       /* @kind shadow */
+  --elev-pop:   var(--shadow-pop), var(--sheen-top);       /* @kind shadow */
+
+  /* ---- Focus glow ---- */
+  --glow-focus: 0 0 0 3px var(--accent-bg);                /* @kind shadow */
+  --ring-focus: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-bg); /* @kind shadow */
+
+  /* ---- Blur (used sparingly: sticky bars, overlays) ---- */
+  --blur-bar:     saturate(140%) blur(14px);  /* @kind other */
+  --blur-overlay: saturate(120%) blur(8px);   /* @kind other */
+
+  /* ---- Gradients ---- */
+  --gradient-gold:    linear-gradient(135deg, #E6D09A 0%, #C9A86A 52%, #A6843F 100%); /* @kind other */
+  --gradient-accent:  linear-gradient(135deg, var(--accent-bright) 0%, var(--accent) 55%, var(--accent-deep) 100%); /* @kind other */
+  --gradient-sheen:   linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 40%); /* @kind other */
+  /* hero net-worth number — subtle metallic text fill */
+  --gradient-figure:  linear-gradient(180deg, #FBFAF6 0%, #DFD9CB 100%); /* @kind other */
+  /* chart area fills */
+  --gradient-area-up:   linear-gradient(180deg, var(--up-bg), rgba(0,0,0,0)); /* @kind other */
+  --gradient-area-gold: linear-gradient(180deg, rgba(201,168,106,0.22), rgba(201,168,106,0)); /* @kind other */
+  /* protection scrim for content over imagery / chart edges */
+  --scrim-bottom: linear-gradient(180deg, rgba(8,10,13,0) 0%, rgba(8,10,13,0.9) 100%); /* @kind other */
+
+  /* ---- Layered grid / texture overlays (optional dashboards) ---- */
+  --hairline-grid: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+                   linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px); /* @kind other */
+}

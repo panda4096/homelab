@@ -1,0 +1,70 @@
+/* ============================================================
+   TYPOGRAPHY — 高密度财务排印
+   Noto Sans SC (UI · 中英文) · IBM Plex Mono (数字 / 行情 / 表格)
+   Noto Serif SC (节制的编辑式点缀)
+   All numeric surfaces use tabular figures.
+   ============================================================ */
+
+:root {
+  /* ---- Families ---- */
+  --font-sans: "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei",
+               system-ui, sans-serif;
+  --font-serif: "Noto Serif SC", "Songti SC", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Menlo", monospace;
+  /* Numbers, tickers, currency — always tabular */
+  --font-num: "IBM Plex Mono", "Noto Sans SC", ui-monospace, monospace;
+
+  /* ---- Type scale (dense desktop, Bloomberg-ish) ---- */
+  --text-2xs:  11px;   /* micro labels, table sub-rows */
+  --text-xs:   12px;   /* captions, meta, axis */
+  --text-sm:   13px;   /* table body, secondary UI (DEFAULT density) */
+  --text-base: 14px;   /* body */
+  --text-md:   15px;   /* emphasised body */
+  --text-lg:   17px;   /* card titles */
+  --text-xl:   20px;   /* section headings */
+  --text-2xl:  24px;   /* page titles */
+  --text-3xl:  30px;   /* KPI numbers */
+  --text-4xl:  38px;   /* large figures */
+  --text-5xl:  48px;   /* hero secondary */
+  --text-6xl:  60px;   /* net-worth hero */
+  --text-7xl:  76px;   /* splash / brand */
+
+  /* ---- Weights ---- */
+  --weight-light:    300;
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-bold:     700;
+  --weight-black:    900;
+
+  /* ---- Line heights ---- */
+  --leading-none:   1;
+  --leading-tight:  1.2;    /* numbers, headings */
+  --leading-snug:   1.35;
+  --leading-normal: 1.55;   /* body / Chinese prose */
+  --leading-relaxed:1.75;
+
+  /* ---- Letter spacing ---- */
+  --tracking-tight:  -0.02em;  /* large numbers */
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;
+  --tracking-label:  0.14em;   /* uppercase Latin eyebrows */
+}
+
+/* ---- Numeric utility: ALWAYS tabular + slashed-zero for finance ---- */
+.fb-num,
+[data-numeric] {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  letter-spacing: 0;
+}
+
+/* ---- Latin eyebrow / section label ---- */
+.fb-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}

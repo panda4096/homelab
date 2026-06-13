@@ -1,0 +1,153 @@
+/* ============================================================
+   COLORS — 暗色私人财富色板
+   Layered ink surfaces · champagne gold accent · switchable
+   gain/loss convention (默认红涨绿跌 / CN).
+   ============================================================ */
+
+:root {
+  /* ---- Raw ink ramp (cool graphite, faint warmth) ---- */
+  --ink-1000: #06080A;
+  --ink-950:  #090B0E;
+  --ink-900:  #0B0D11;
+  --ink-850:  #0F1216;
+  --ink-800:  #13161B;
+  --ink-750:  #181C22;
+  --ink-700:  #1D2229;
+  --ink-650:  #242A31;
+  --ink-600:  #2C333B;
+  --ink-550:  #353D46;
+  --ink-500:  #424B55;
+
+  /* ---- Surfaces (semantic elevation) ---- */
+  --surface-sunken:  var(--ink-1000);   /* wells, chart troughs */
+  --surface-base:    var(--ink-900);    /* app background */
+  --surface-panel:   var(--ink-850);    /* sidebars, rails */
+  --surface-card:    var(--ink-800);    /* cards, tables */
+  --surface-raised:  var(--ink-700);    /* popovers, menus, hover row */
+  --surface-overlay: var(--ink-650);    /* dialogs, tooltips */
+  --surface-inset:   var(--ink-950);    /* inputs, code, recessed */
+
+  /* ---- Neutral text ---- */
+  --neutral-white:  #FFFFFF;
+  --text-strong:    #F4F6F8;   /* hero figures, key numbers */
+  --text-primary:   #E3E7EB;   /* default body */
+  --text-secondary: #99A1A9;   /* labels, captions */
+  --text-tertiary:  #67707A;   /* meta, timestamps, axis */
+  --text-disabled:  #454D57;   /* disabled */
+  --text-on-gold:   #1A1407;   /* text sitting on a gold fill */
+
+  /* ---- Hairline borders (alpha over surfaces) ---- */
+  --border-subtle:  rgba(255, 255, 255, 0.055);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+  --border-gold:    rgba(201, 168, 106, 0.42);
+  --divider:        rgba(255, 255, 255, 0.07);
+
+  /* ---- Champagne gold (brand accent) ---- */
+  --gold-50:   #F8F0DA;
+  --gold-100:  #EFE0BB;
+  --gold-200:  #E5CF99;
+  --gold-300:  #DBC084;
+  --gold-400:  #CFAE6F;
+  --gold-500:  #C9A86A;   /* primary brand */
+  --gold-600:  #B08F4E;
+  --gold-700:  #8F723C;
+  --gold-800:  #5F4B26;
+  --gold-900:  #3A2E18;
+  --gold-bright: #E0C589; /* hover (lighter on dark) */
+  --gold-deep:   #A0813F; /* pressed / underlines */
+
+  /* ---- Secondary cool accent (links / info / viz) ---- */
+  --azure-300: #93B4EC;
+  --azure-400: #6E9BE0;
+  --azure-500: #5E8BD6;
+  --azure-600: #4671BC;
+
+  /* ---- Raw finance colors ---- */
+  --red-300:  #F3938E;
+  --red-400:  #EC6F6B;
+  --red-500:  #E0565B;
+  --red-600:  #C2424A;
+  --red-bg:   rgba(224, 86, 91, 0.14);
+  --green-300: #7FD6AC;
+  --green-400: #54C594;
+  --green-500: #3CB57F;
+  --green-600: #2E9568;
+  --green-bg:  rgba(60, 181, 127, 0.14);
+
+  /* ---- Brand accent indirection (theme switch §Directions) ---- */
+  --accent:        var(--gold-500);
+  --accent-bright: var(--gold-bright);
+  --accent-deep:   var(--gold-deep);
+  --accent-border: var(--border-gold);
+  --accent-bg:     rgba(201, 168, 106, 0.12);
+  --accent-text:   var(--text-on-gold);
+
+  /* ---- Gain / Loss (switchable convention) ----
+     Default = CN「红涨绿跌」: gain=red, loss=green.
+     Flip with  <html data-market-convention="western">  */
+  --up-color:     var(--red-500);
+  --up-color-dim: var(--red-400);
+  --up-bg:        var(--red-bg);
+  --down-color:     var(--green-500);
+  --down-color-dim: var(--green-400);
+  --down-bg:        var(--green-bg);
+
+  --gain:     var(--up-color);
+  --gain-dim: var(--up-color-dim);
+  --gain-bg:  var(--up-bg);
+  --loss:     var(--down-color);
+  --loss-dim: var(--down-color-dim);
+  --loss-bg:  var(--down-bg);
+
+  /* ---- State semantics (independent of market convention) ---- */
+  --success:    #3CB57F;
+  --success-bg: rgba(60, 181, 127, 0.14);
+  --warning:    #DDA23E;
+  --warning-bg: rgba(221, 162, 62, 0.15);
+  --danger:     #E0565B;
+  --danger-bg:  rgba(224, 86, 91, 0.14);
+  --info:       #5E8BD6;
+  --info-bg:    rgba(94, 139, 214, 0.14);
+
+  /* ---- Data-viz categorical (muted, premium, on ink) ---- */
+  --viz-1: #C9A86A;  /* gold     */
+  --viz-2: #5E8BD6;  /* steel    */
+  --viz-3: #3CB57F;  /* emerald  */
+  --viz-4: #9B7AC0;  /* plum     */
+  --viz-5: #D98C54;  /* copper   */
+  --viz-6: #4FA8B8;  /* teal     */
+  --viz-7: #C9697A;  /* rose     */
+  --viz-8: #7C8794;  /* slate    */
+
+  /* ---- Focus ring ---- */
+  --focus-ring: rgba(201, 168, 106, 0.55);
+}
+
+/* Western convention「绿涨红跌」 */
+html[data-market-convention="western"] {
+  --up-color:     var(--green-500);
+  --up-color-dim: var(--green-400);
+  --up-bg:        var(--green-bg);
+  --down-color:     var(--red-500);
+  --down-color-dim: var(--red-400);
+  --down-bg:        var(--red-bg);
+}
+
+/* ---- Theme directions (accent-only re-skin, §README Directions) ---- */
+html[data-accent="platinum"] {
+  --accent:        #B9C6D6;
+  --accent-bright: #D2DCE8;
+  --accent-deep:   #8896A6;
+  --accent-border: rgba(185, 198, 214, 0.40);
+  --accent-bg:     rgba(185, 198, 214, 0.12);
+  --accent-text:   #0E1318;
+}
+html[data-accent="jade"] {
+  --accent:        #4FB996;
+  --accent-bright: #76D0B2;
+  --accent-deep:   #38866E;
+  --accent-border: rgba(79, 185, 150, 0.42);
+  --accent-bg:     rgba(79, 185, 150, 0.12);
+  --accent-text:   #04130D;
+}
