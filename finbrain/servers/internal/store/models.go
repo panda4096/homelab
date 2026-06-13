@@ -128,6 +128,8 @@ type Valuation struct {
 	UnrealizedPL     string                       `json:"unrealized_pl"`
 	UnrealizedPLPct  *string                      `json:"unrealized_pl_pct"`
 	PositionShare    *string                      `json:"position_share"`
+	RealizedPLYtd    string                       `json:"realized_pl_ytd"`
+	IncomeYtd        string                       `json:"income_ytd"`
 	Allocations      map[string][]ValuationBucket `json:"allocations"`
 	Positions        []ValuationPosition          `json:"positions"`
 	PositionGroups   []ValuationPosition          `json:"position_groups"`

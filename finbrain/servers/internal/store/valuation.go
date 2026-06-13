@@ -324,7 +324,99 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	})
 	val.PositionGroups = buildSymbolPositionGroups(val.Positions, positionValue, netWorth, displayCurrency)
 
+	realizedYtd, incomeYtd, err := s.tradeKPIs(ctx, onDate, displayCurrency, fx)
+	if err != nil {
+		return Valuation{}, err
+	}
+	val.RealizedPLYtd = formatMoneyDecimal(realizedYtd)
+	val.IncomeYtd = formatMoneyDecimal(incomeYtd)
+
 	return val, nil
+}
+
+// tradeKPIs computes year-to-date realized P&L (§6.16) and cumulative income
+// (§6.11) as of onDate, converted to displayCurrency via the shared resolver.
+// Realized YTD = realized(onDate) − realized(prev year-end) per holding.
+func (s *Store) tradeKPIs(ctx context.Context, onDate, displayCurrency string, fx *fxResolver) (decimal.Decimal, decimal.Decimal, error) {
+	realizedYtd := decZero
+	incomeYtd := decZero
+	if len(onDate) < 4 {
+		return realizedYtd, incomeYtd, nil
+	}
+	yearStart := onDate[:4] + "-01-01"
+	prevYearEnd := prevYearEndDate(onDate[:4])
+
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT account_id, symbol FROM transactions WHERE trade_date <= $1::date`, onDate)
+	if err != nil {
+		return decZero, decZero, err
+	}
+	type holdingKey struct {
+		acct int64
+		sym  string
+	}
+	var holdings []holdingKey
+	for rows.Next() {
+		var h holdingKey
+		if err := rows.Scan(&h.acct, &h.sym); err != nil {
+			rows.Close()
+			return decZero, decZero, err
+		}
+		holdings = append(holdings, h)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return decZero, decZero, err
+	}
+
+	for _, h := range holdings {
+		now, err := s.ReplayHolding(ctx, h.acct, h.sym, onDate, false)
+		if err != nil {
+			return decZero, decZero, err
+		}
+		prev, err := s.ReplayHolding(ctx, h.acct, h.sym, prevYearEnd, false)
+		if err != nil {
+			return decZero, decZero, err
+		}
+		ytdNative := now.RealizedPL.Sub(prev.RealizedPL)
+		if ytdNative.IsZero() {
+			continue
+		}
+		ccy := now.Currency
+		if ccy == "" {
+			ccy = prev.Currency
+		}
+		res, err := fx.resolve(ccy, displayCurrency)
+		if err != nil {
+			return decZero, decZero, err
+		}
+		realizedYtd = realizedYtd.Add(ytdNative.Mul(res.Rate))
+	}
+
+	inRows, err := s.pool.Query(ctx, `SELECT amount::text, currency FROM income_events WHERE event_date >= $1::date AND event_date <= $2::date`, yearStart, onDate)
+	if err != nil {
+		return decZero, decZero, err
+	}
+	defer inRows.Close()
+	for inRows.Next() {
+		var amt, ccy string
+		if err := inRows.Scan(&amt, &ccy); err != nil {
+			return decZero, decZero, err
+		}
+		res, err := fx.resolve(ccy, displayCurrency)
+		if err != nil {
+			return decZero, decZero, err
+		}
+		incomeYtd = incomeYtd.Add(mustDec(amt).Mul(res.Rate))
+	}
+	return realizedYtd, incomeYtd, inRows.Err()
+}
+
+func prevYearEndDate(year string) string {
+	var y int
+	if _, err := fmt.Sscanf(year, "%d", &y); err != nil {
+		return "0001-12-31"
+	}
+	return fmt.Sprintf("%04d-12-31", y-1)
 }
 
 func (s *Store) currentCashRows(ctx context.Context, onDate string) ([]valuationCashRow, error) {
