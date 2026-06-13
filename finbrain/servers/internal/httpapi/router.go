@@ -108,6 +108,13 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Post("/corporate-actions", s.createCorporateAction)
 		r.Patch("/corporate-actions/{id}", s.patchCorporateAction)
 		r.Delete("/corporate-actions/{id}", s.deleteCorporateAction)
+
+		// P5: trend / allocation targets
+		r.Get("/allocation-targets", s.listAllocationTargets)
+		r.Post("/allocation-targets", s.createAllocationTarget)
+		r.Get("/allocation-targets/{id}/drift", s.getAllocationTargetDrift)
+		r.Patch("/allocation-targets/{id}", s.patchAllocationTarget)
+		r.Delete("/allocation-targets/{id}", s.deleteAllocationTarget)
 	})
 
 	if cfg.StaticDir != "" {

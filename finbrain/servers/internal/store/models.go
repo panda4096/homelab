@@ -241,6 +241,47 @@ type IncomeEvent struct {
 	UpdatedAt          time.Time `json:"updated_at"`
 }
 
+// AllocationTargetItem is one dimension-value target within a set (PRD §5.2.10.2).
+// Actual/Drift/Rebalance are populated only by the drift-evaluation endpoint.
+type AllocationTargetItem struct {
+	ID             int64   `json:"id"`
+	DimensionValue string  `json:"dimension_value"`
+	TargetPct      string  `json:"target_pct"`
+	ActualPct      *string `json:"actual_pct,omitempty"`
+	Drift          *string `json:"drift,omitempty"`
+	Rebalance      *string `json:"rebalance,omitempty"`
+	OverThreshold  *bool   `json:"over_threshold,omitempty"`
+}
+
+// AllocationTargetSet is one target configuration (PRD §5.2.10.1 / §6.10).
+type AllocationTargetSet struct {
+	ID                 int64                  `json:"id"`
+	Name               string                 `json:"name"`
+	Dimension          string                 `json:"dimension"`
+	DriftThresholdPct  string                 `json:"drift_threshold_pct"`
+	IsDashboardVisible bool                   `json:"is_dashboard_visible"`
+	IsArchived         bool                   `json:"is_archived"`
+	Note               *string                `json:"note"`
+	Items              []AllocationTargetItem `json:"items"`
+	NetWorth           *string                `json:"net_worth,omitempty"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
+}
+
+// Annotation is a timeline/account/symbol note (PRD §5.2.11).
+type Annotation struct {
+	ID         int64           `json:"id"`
+	AnchorKind string          `json:"anchor_kind"`
+	AnchorKeys json.RawMessage `json:"anchor_keys"`
+	EventDate  string          `json:"event_date"`
+	Label      string          `json:"label"`
+	Body       *string         `json:"body"`
+	Color      *string         `json:"color"`
+	Source     string          `json:"source"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
 // CorporateAction is a split/merge/rights event on an instrument (PRD §5.2.16),
 // replayed in the holdings event stream (§6.17).
 type CorporateAction struct {
