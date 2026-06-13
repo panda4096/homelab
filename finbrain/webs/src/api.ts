@@ -1038,3 +1038,58 @@ export function getAllocationTargetDrift(id: number, params: { display_currency?
   const s = q.toString()
   return request<AllocationTargetSet>(`/api/allocation-targets/${id}/drift${s ? `?${s}` : ''}`)
 }
+
+// ---------- P6 LLM + summaries ----------
+
+export interface LLMStatus {
+  configured: boolean
+  provider: string
+  model: string
+}
+
+export interface QueryResult {
+  columns: string[]
+  rows: unknown[][]
+  truncated: boolean
+}
+
+export interface Summary {
+  id: number
+  period_kind: 'month' | 'quarter' | 'year'
+  period_start: string
+  period_end: string
+  display_currency: string
+  content: string
+  meta?: unknown
+  created_at: string
+}
+
+export function getLLMStatus(): Promise<LLMStatus> {
+  return request<LLMStatus>('/api/llm/status')
+}
+
+export function llmParse(text: string): Promise<{ draft: unknown }> {
+  return request<{ draft: unknown }>('/api/llm/parse', { method: 'POST', body: JSON.stringify({ text }) })
+}
+
+export function llmQuery(text: string): Promise<{ sql: string; result: QueryResult }> {
+  return request<{ sql: string; result: QueryResult }>('/api/llm/query', { method: 'POST', body: JSON.stringify({ text }) })
+}
+
+export function listSummaries(): Promise<Summary[]> {
+  return request<Summary[]>('/api/summaries')
+}
+
+export function generateSummary(input: {
+  period_kind: 'month' | 'quarter' | 'year'
+  period_start: string
+  period_end: string
+  display_currency?: string
+  fx_mode?: FxMode
+}): Promise<Summary> {
+  return request<Summary>('/api/summaries/generate', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function deleteSummary(id: number): Promise<void> {
+  return request<void>(`/api/summaries/${id}`, { method: 'DELETE' })
+}

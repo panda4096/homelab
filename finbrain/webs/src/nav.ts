@@ -41,6 +41,7 @@ export const NAV: NavGroup[] = [
       { id: 'targets', label: '目标配置', icon: 'target' },
       { id: 'recon', label: '现金对账', icon: 'scale' },
       { id: 'market', label: '价格 / 汇率 / 基准', icon: 'candlestick-chart' },
+      { id: 'summaries', label: '阶段总结', icon: 'scroll-text' },
       { id: 'settings', label: '设置', icon: 'settings' },
     ],
   },
@@ -61,6 +62,7 @@ export const TITLES: Record<string, string> = {
   targets: '目标配置',
   recon: '现金对账',
   market: '价格 / 汇率 / 基准',
+  summaries: '阶段总结',
   settings: '设置',
 }
 
