@@ -88,6 +88,24 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Patch("/credit-card-bills/{id}", s.patchCreditCardBill)
 		r.Delete("/credit-card-bills/{id}", s.deleteCreditCardBill)
 		r.Post("/reviews/batch", s.submitReviewBatch)
+
+		// P4: transactions / transfers / income events / corporate actions
+		r.Get("/transactions", s.listTransactions)
+		r.Post("/transactions", s.createTransaction)
+		r.Patch("/transactions/{id}", s.patchTransaction)
+		r.Delete("/transactions/{id}", s.deleteTransaction)
+		r.Get("/transfers", s.listTransfers)
+		r.Post("/transfers", s.createTransfer)
+		r.Patch("/transfers/{id}", s.patchTransfer)
+		r.Delete("/transfers/{id}", s.deleteTransfer)
+		r.Get("/income-events", s.listIncomeEvents)
+		r.Post("/income-events", s.createIncomeEvent)
+		r.Patch("/income-events/{id}", s.patchIncomeEvent)
+		r.Delete("/income-events/{id}", s.deleteIncomeEvent)
+		r.Get("/corporate-actions", s.listCorporateActions)
+		r.Post("/corporate-actions", s.createCorporateAction)
+		r.Patch("/corporate-actions/{id}", s.patchCorporateAction)
+		r.Delete("/corporate-actions/{id}", s.deleteCorporateAction)
 	})
 
 	if cfg.StaticDir != "" {

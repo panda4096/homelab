@@ -176,3 +176,82 @@ type ValuationPosition struct {
 	MissingPrice        bool    `json:"missing_price"`
 	FxFallback          bool    `json:"fx_fallback"`
 }
+
+// Transaction is a buy/sell on a holding account (PRD §5.2.15). Money fields are
+// decimal strings.
+type Transaction struct {
+	ID          int64     `json:"id"`
+	AccountID   int64     `json:"account_id"`
+	AccountName string    `json:"account_name,omitempty"`
+	Institution string    `json:"institution,omitempty"`
+	Symbol      string    `json:"symbol"`
+	DisplayName *string   `json:"display_name,omitempty"`
+	Action      string    `json:"action"`
+	TradeDate   string    `json:"trade_date"`
+	SettleDate  *string   `json:"settle_date"`
+	Quantity    string    `json:"quantity"`
+	Price       string    `json:"price"`
+	Currency    string    `json:"currency"`
+	Fee         *string   `json:"fee"`
+	IsSettled   bool      `json:"is_settled"`
+	Notes       *string   `json:"notes"`
+	Source      string    `json:"source"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Transfer moves cash between two accounts (PRD §5.2.17). Net worth is unchanged.
+type Transfer struct {
+	ID              int64     `json:"id"`
+	FromAccountID   int64     `json:"from_account_id"`
+	ToAccountID     int64     `json:"to_account_id"`
+	FromAccountName *string   `json:"from_account_name,omitempty"`
+	ToAccountName   *string   `json:"to_account_name,omitempty"`
+	FromCurrency    string    `json:"from_currency,omitempty"`
+	ToCurrency      string    `json:"to_currency,omitempty"`
+	FromAmount      string    `json:"from_amount"`
+	ToAmount        string    `json:"to_amount"`
+	TransferDate    string    `json:"transfer_date"`
+	Notes           *string   `json:"notes"`
+	Source          string    `json:"source"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// IncomeEvent is a dividend/interest/rebate/other return not tied to a buy/sell
+// (PRD §5.2.6). It never mutates snapshots, quantity, or cost.
+type IncomeEvent struct {
+	ID                 int64     `json:"id"`
+	EventKind          string    `json:"event_kind"`
+	EventDate          string    `json:"event_date"`
+	AccountID          int64     `json:"account_id"`
+	AccountName        string    `json:"account_name,omitempty"`
+	Institution        string    `json:"institution,omitempty"`
+	Symbol             *string   `json:"symbol"`
+	Amount             string    `json:"amount"`
+	Currency           string    `json:"currency"`
+	PaymentAccountID   *int64    `json:"payment_account_id"`
+	PaymentAccountName *string   `json:"payment_account_name,omitempty"`
+	TaxWithheld        *string   `json:"tax_withheld"`
+	Note               *string   `json:"note"`
+	Source             string    `json:"source"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// CorporateAction is a split/merge/rights event on an instrument (PRD §5.2.16),
+// replayed in the holdings event stream (§6.17).
+type CorporateAction struct {
+	ID               int64           `json:"id"`
+	Symbol           string          `json:"symbol"`
+	DisplayName      *string         `json:"display_name,omitempty"`
+	Action           string          `json:"action"`
+	EventDate        string          `json:"event_date"`
+	RatioNumerator   string          `json:"ratio_numerator"`
+	RatioDenominator string          `json:"ratio_denominator"`
+	Extra            json.RawMessage `json:"extra,omitempty"`
+	Notes            *string         `json:"notes"`
+	Source           string          `json:"source"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+}
