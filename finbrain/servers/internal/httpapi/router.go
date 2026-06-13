@@ -60,6 +60,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Get("/accounts/{id}/position-snapshots", s.listAccountPositionSnapshots)
 		r.Get("/accounts/{id}/positions", s.listAccountPositions)
 		r.Get("/accounts/{id}/credit-card-bills", s.listAccountCreditCardBills)
+		r.Get("/accounts/{id}/reconciliation", s.getAccountReconciliation)
 
 		// P1: snapshots
 		r.Post("/balance-snapshots", s.upsertBalanceSnapshot)
