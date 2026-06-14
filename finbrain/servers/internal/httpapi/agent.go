@@ -350,8 +350,7 @@ func (s *Server) execSkill(w http.ResponseWriter, r *http.Request, apply bool) {
 	if body.Params == nil {
 		body.Params = map[string]any{}
 	}
-	result, rowCount, affected, err := sk.run(s, r.Context(), body.Params)
-	s.recordSkillAudit(r, sk, body, rowCount, affected, err)
+	result, rowCount, affected, err := s.runAndAudit(r, sk, body.Params, body.Confirm, body.NLSource)
 	if err != nil {
 		var bad errSkillInput
 		if errors.As(err, &bad) {
@@ -366,6 +365,90 @@ func (s *Server) execSkill(w http.ResponseWriter, r *http.Request, apply bool) {
 		out["affected_entities"] = affected
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// runAndAudit executes a skill and records the audit row (shared by /run, /apply, /plan).
+func (s *Server) runAndAudit(r *http.Request, sk Skill, params skillArgs, confirm bool, nl string) (any, int, []string, error) {
+	result, rowCount, affected, err := sk.run(s, r.Context(), params)
+	s.recordSkillAudit(r, sk, agentRunBody{Skill: sk.Name, Params: params, Confirm: confirm, NLSource: nl}, rowCount, affected, err)
+	return result, rowCount, affected, err
+}
+
+// planAgent maps a natural-language request to ONE registered read/draft skill +
+// params via the LLM (function-calling style — the model never writes SQL or
+// picks tables), then executes it. Write/apply is never auto-run: a draft result
+// carries requires_confirmation, and the UI confirms via /agent/apply.
+func (s *Server) planAgent(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	body.Text = strings.TrimSpace(body.Text)
+	if body.Text == "" {
+		writeError(w, http.StatusBadRequest, "validation_failed", "text is required")
+		return
+	}
+	if !s.llm.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "未配置 LLM,自然语言助手不可用")
+		return
+	}
+	type tool struct {
+		Name        string          `json:"name"`
+		Type        string          `json:"type"`
+		Description string          `json:"description"`
+		InputSchema json.RawMessage `json:"input_schema"`
+	}
+	var tools []tool
+	for _, sk := range s.catalog() {
+		if sk.Type == "read" || sk.Type == "draft" {
+			tools = append(tools, tool{sk.Name, sk.Type, sk.Description, sk.InputSchema})
+		}
+	}
+	toolsJSON, _ := json.Marshal(tools)
+	system := "你是 finbrain 的 agent。**只能调用下列已注册工具(skill)**,严禁输出 SQL、表名、join 或任意查询。" +
+		"根据用户问题选 1 个最合适的工具并按其 input_schema 填参数;录入类用 draft 工具(写库由业主另行确认)。" +
+		"严格只返回一个 JSON 对象:{\"skill\":\"工具名\",\"params\":{...}}。可用工具(JSON):" + string(toolsJSON)
+	raw, err := s.llm.Complete(r.Context(), system, "今天是 "+s.today()+"。问题:"+body.Text, true)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "LLM 调用失败")
+		return
+	}
+	var plan struct {
+		Skill  string         `json:"skill"`
+		Params map[string]any `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &plan); err != nil {
+		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "规划结果不是有效 JSON", map[string]string{"raw": raw})
+		return
+	}
+	sk, ok := s.findSkill(strings.TrimSpace(plan.Skill))
+	if !ok || (sk.Type != "read" && sk.Type != "draft") {
+		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "规划选择了无效或不可直接执行的 skill", map[string]any{"skill": plan.Skill})
+		return
+	}
+	if plan.Params == nil {
+		plan.Params = map[string]any{}
+	}
+	result, rowCount, affected, rerr := s.runAndAudit(r, sk, plan.Params, false, body.Text)
+	if rerr != nil {
+		var bad errSkillInput
+		if errors.As(rerr, &bad) {
+			writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", bad.Error(), map[string]any{"skill": sk.Name, "params": plan.Params})
+			return
+		}
+		writeStorageError(w, r, rerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"plan":                  map[string]any{"skill": sk.Name, "params": plan.Params},
+		"type":                  sk.Type,
+		"requires_confirmation": sk.Type == "draft",
+		"result":                result,
+		"row_count":             rowCount,
+		"affected_entities":     affected,
+	})
 }
 
 func (s *Server) recordSkillAudit(r *http.Request, sk Skill, body agentRunBody, rowCount int, affected []string, runErr error) {

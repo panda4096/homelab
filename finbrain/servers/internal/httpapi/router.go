@@ -147,6 +147,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Route("/agent", func(r chi.Router) {
 			r.Use(s.agentAuthMiddleware)
 			r.Get("/skills", s.listAgentSkills)
+			r.Post("/plan", s.planAgent)
 			r.Post("/run", s.runAgentSkill)
 			r.Post("/apply", s.applyAgentSkill)
 		})
