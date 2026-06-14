@@ -702,7 +702,7 @@ func (s *Server) buildAnnotationFromArgs(a skillArgs) (store.Annotation, string)
 }
 
 func (s *Server) lookupAccount(ctx context.Context, id int64) (store.Account, string) {
-	acct, err := s.store.GetAccount(ctx, id, s.today())
+	acct, err := s.store.GetAccount(ctx, userIDFromContext(ctx), id, s.today())
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Account{}, "account not found"
 	}

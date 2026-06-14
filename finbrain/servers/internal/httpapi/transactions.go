@@ -143,7 +143,7 @@ func (s *Server) normalizeAndValidateTransaction(r *http.Request, t *store.Trans
 	if msg := validateOptionalTextLen("notes", t.Notes, maxNoteLen); msg != "" {
 		return msg
 	}
-	acct, err := s.store.GetAccount(r.Context(), t.AccountID, s.today())
+	acct, err := s.store.GetAccount(r.Context(), userOf(r), t.AccountID, s.today())
 	if errors.Is(err, store.ErrNotFound) {
 		return "account not found"
 	}

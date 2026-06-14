@@ -172,7 +172,7 @@ func readSkills() []Skill {
 			Description: "全部账户(含机构名、币种、类型、当前余额)。",
 			InputSchema: sch(noArgs),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				rows, err := s.store.ListAccounts(ctx, s.today())
+				rows, err := s.store.ListAccounts(ctx, userIDFromContext(ctx), s.today())
 				return rows, len(rows), nil, err
 			},
 		},
@@ -185,7 +185,7 @@ func readSkills() []Skill {
 				if id == 0 {
 					return nil, 0, nil, errSkillInput{"account_id is required"}
 				}
-				acct, err := s.store.GetAccount(ctx, id, s.today())
+				acct, err := s.store.GetAccount(ctx, userIDFromContext(ctx), id, s.today())
 				if errors.Is(err, store.ErrNotFound) {
 					return nil, 0, nil, errSkillInput{"account not found"}
 				}
@@ -197,7 +197,7 @@ func readSkills() []Skill {
 			Description: "全部机构(含账户数)。",
 			InputSchema: sch(noArgs),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				rows, err := s.store.ListInstitutions(ctx)
+				rows, err := s.store.ListInstitutions(ctx, userIDFromContext(ctx))
 				return rows, len(rows), nil, err
 			},
 		},

@@ -52,12 +52,12 @@ const accountFull = `
 	     SELECT max(snapshot_date) d FROM balance_snapshots WHERE account_id = a.id
 	     UNION ALL
 	     SELECT max(snapshot_date)   FROM position_snapshots WHERE account_id = a.id) t)
-	FROM accounts a JOIN institutions i ON i.id = a.institution_id`
+	FROM accounts a JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id`
 
 // accountMeta selects account + joined institution, no computed fields (NULLs).
 const accountMeta = `
 	SELECT a.id, a.name, a.institution_id, i.name, i.kind, a.currency, a.kind, a.display_order, a.is_archived, a.note, a.created_at, a.updated_at, NULL::text, NULL::text
-	FROM accounts a JOIN institutions i ON i.id = a.institution_id`
+	FROM accounts a JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id`
 
 func scanAccount(row rowScanner) (Account, error) {
 	var a Account
@@ -68,8 +68,8 @@ func scanAccount(row rowScanner) (Account, error) {
 }
 
 // ListAccounts returns all accounts grouped-orderable by institution then account order.
-func (s *Store) ListAccounts(ctx context.Context, today string) ([]Account, error) {
-	rows, err := s.pool.Query(ctx, accountFull+` ORDER BY a.is_archived, i.display_order, i.name, a.display_order, a.kind, a.name`, today)
+func (s *Store) ListAccounts(ctx context.Context, userID int64, today string) ([]Account, error) {
+	rows, err := s.pool.Query(ctx, accountFull+` WHERE a.user_id = $2 /* OWNED accounts */ ORDER BY a.is_archived, i.display_order, i.name, a.display_order, a.kind, a.name`, today, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,16 +86,16 @@ func (s *Store) ListAccounts(ctx context.Context, today string) ([]Account, erro
 }
 
 // GetAccount returns one account (with computed fields) or ErrNotFound.
-func (s *Store) GetAccount(ctx context.Context, id int64, today string) (Account, error) {
-	a, err := scanAccount(s.pool.QueryRow(ctx, accountFull+` WHERE a.id = $2`, today, id))
+func (s *Store) GetAccount(ctx context.Context, userID, id int64, today string) (Account, error) {
+	a, err := scanAccount(s.pool.QueryRow(ctx, accountFull+` WHERE a.user_id = $2 AND a.id = $3 /* OWNED accounts */`, today, userID, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}
 	return a, err
 }
 
-func (s *Store) accountMetaByID(ctx context.Context, id int64) (Account, error) {
-	a, err := scanAccount(s.pool.QueryRow(ctx, accountMeta+` WHERE a.id = $1`, id))
+func (s *Store) accountMetaByID(ctx context.Context, userID, id int64) (Account, error) {
+	a, err := scanAccount(s.pool.QueryRow(ctx, accountMeta+` WHERE a.user_id = $1 AND a.id = $2 /* OWNED accounts */`, userID, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}
@@ -103,52 +103,55 @@ func (s *Store) accountMetaByID(ctx context.Context, id int64) (Account, error) 
 }
 
 // CreateAccount inserts a new account (institution_id must exist).
-func (s *Store) CreateAccount(ctx context.Context, a Account) (Account, error) {
+func (s *Store) CreateAccount(ctx context.Context, userID int64, a Account) (Account, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO accounts (name, institution_id, currency, kind, note, display_order)
-		VALUES ($1, $2, $3, $4, $5,
-		        (SELECT COALESCE(MAX(display_order), -10) + 10 FROM accounts WHERE institution_id = $2))
+		INSERT INTO accounts (user_id, name, institution_id, currency, kind, note, display_order)
+		VALUES ($1, $2, $3, $4, $5, $6,
+		        (SELECT COALESCE(MAX(display_order), -10) + 10 FROM accounts WHERE user_id = $1 AND institution_id = $3 /* OWNED accounts */))
 		RETURNING id`,
-		a.Name, a.InstitutionID, a.Currency, a.Kind, a.Note).Scan(&id)
+		userID, a.Name, a.InstitutionID, a.Currency, a.Kind, a.Note).Scan(&id)
 	if err != nil {
 		return Account{}, err
 	}
-	return s.accountMetaByID(ctx, id)
+	return s.accountMetaByID(ctx, userID, id)
 }
 
 // UpdateAccount updates mutable fields by id. Institution and currency are fixed
 // at creation because they define the account identity and snapshot semantics.
-func (s *Store) UpdateAccount(ctx context.Context, a Account) (Account, error) {
+func (s *Store) UpdateAccount(ctx context.Context, userID int64, a Account) (Account, error) {
 	ct, err := s.pool.Exec(ctx, `
 		UPDATE accounts SET name=$2, kind=$3, display_order=$4, note=$5, is_archived=$6, updated_at=now()
-		WHERE id=$1`,
-		a.ID, a.Name, a.Kind, a.DisplayOrder, a.Note, a.IsArchived)
+		WHERE id=$1 AND user_id=$7 /* OWNED accounts */`,
+		a.ID, a.Name, a.Kind, a.DisplayOrder, a.Note, a.IsArchived, userID)
 	if err != nil {
 		return Account{}, err
 	}
 	if ct.RowsAffected() == 0 {
 		return Account{}, ErrNotFound
 	}
-	return s.accountMetaByID(ctx, a.ID)
+	return s.accountMetaByID(ctx, userID, a.ID)
 }
 
 // AccountHasData reports whether the account has any balance or position snapshot.
-func (s *Store) AccountHasData(ctx context.Context, id int64) (bool, error) {
+func (s *Store) AccountHasData(ctx context.Context, userID, id int64) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$1 OR payment_account_id=$1)
-		    OR EXISTS(SELECT 1 FROM transactions WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM transfers WHERE from_account_id=$1 OR to_account_id=$1)
-		    OR EXISTS(SELECT 1 FROM income_events WHERE account_id=$1 OR payment_account_id=$1)`, id).Scan(&exists)
+		SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.user_id=$1 AND a.id=$2 /* OWNED accounts */)
+		   AND (
+		       EXISTS(SELECT 1 FROM balance_snapshots WHERE account_id=$2)
+		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE account_id=$2)
+		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$2 OR payment_account_id=$2)
+		    OR EXISTS(SELECT 1 FROM transactions WHERE account_id=$2)
+		    OR EXISTS(SELECT 1 FROM transfers WHERE from_account_id=$2 OR to_account_id=$2)
+		    OR EXISTS(SELECT 1 FROM income_events WHERE account_id=$2 OR payment_account_id=$2)
+		   )`, userID, id).Scan(&exists)
 	return exists, err
 }
 
 // DeleteAccount removes an account; caller must ensure AccountHasData is false.
-func (s *Store) DeleteAccount(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, id)
+func (s *Store) DeleteAccount(ctx context.Context, userID, id int64) error {
+	ct, err := s.pool.Exec(ctx, `DELETE FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */`, userID, id)
 	if err != nil {
 		return err
 	}
@@ -160,7 +163,7 @@ func (s *Store) DeleteAccount(ctx context.Context, id int64) error {
 
 // DeleteAccountIfEmpty removes an account only if it has no balance/position data.
 // The existence check and delete run in one transaction to avoid check-then-delete races.
-func (s *Store) DeleteAccountIfEmpty(ctx context.Context, id int64) error {
+func (s *Store) DeleteAccountIfEmpty(ctx context.Context, userID, id int64) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -168,7 +171,7 @@ func (s *Store) DeleteAccountIfEmpty(ctx context.Context, id int64) error {
 	defer tx.Rollback(ctx)
 
 	var lockedID int64
-	if err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE id=$1 FOR UPDATE`, id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */ FOR UPDATE`, userID, id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -188,7 +191,7 @@ func (s *Store) DeleteAccountIfEmpty(ctx context.Context, id int64) error {
 		return ErrInUse
 	}
 
-	ct, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, id)
+	ct, err := tx.Exec(ctx, `DELETE FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */`, userID, id)
 	if err != nil {
 		return err
 	}
@@ -200,7 +203,7 @@ func (s *Store) DeleteAccountIfEmpty(ctx context.Context, id int64) error {
 
 // CreateAccountsFromTemplate creates one account per blueprint under the given
 // institution, in a single transaction. Account name = "<institution> <name_suffix>".
-func (s *Store) CreateAccountsFromTemplate(ctx context.Context, templateID, institutionID int64) ([]Account, error) {
+func (s *Store) CreateAccountsFromTemplate(ctx context.Context, userID, templateID, institutionID int64) ([]Account, error) {
 	t, err := s.GetAccountTemplate(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -216,16 +219,24 @@ func (s *Store) CreateAccountsFromTemplate(ctx context.Context, templateID, inst
 	}
 	defer tx.Rollback(ctx)
 
+	var institutionExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM institutions WHERE user_id=$1 AND id=$2 /* OWNED institutions */)`, userID, institutionID).Scan(&institutionExists); err != nil {
+		return nil, err
+	}
+	if !institutionExists {
+		return nil, ErrNotFound
+	}
+
 	ids := make([]int64, 0, len(blueprints))
 	for _, bp := range blueprints {
 		var id int64
 		name := bp.NameSuffix
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO accounts (name, institution_id, currency, kind, note, display_order)
-			VALUES ($1, $2, $3, $4, $5,
-			        (SELECT COALESCE(MAX(display_order), -10) + 10 FROM accounts WHERE institution_id = $2))
+			INSERT INTO accounts (user_id, name, institution_id, currency, kind, note, display_order)
+			VALUES ($1, $2, $3, $4, $5, $6,
+			        (SELECT COALESCE(MAX(display_order), -10) + 10 FROM accounts WHERE user_id = $1 AND institution_id = $3 /* OWNED accounts */))
 			RETURNING id`,
-			name, institutionID, bp.Currency, bp.Kind, bp.Note).Scan(&id); err != nil {
+			userID, name, institutionID, bp.Currency, bp.Kind, bp.Note).Scan(&id); err != nil {
 			return nil, err
 		}
 		ids = append(ids, id)
@@ -234,7 +245,7 @@ func (s *Store) CreateAccountsFromTemplate(ctx context.Context, templateID, inst
 		return nil, err
 	}
 
-	rows, err := s.pool.Query(ctx, accountMeta+` WHERE a.id = ANY($1::bigint[]) ORDER BY a.id`, ids)
+	rows, err := s.pool.Query(ctx, accountMeta+` WHERE a.user_id = $1 AND a.id = ANY($2::bigint[]) /* OWNED accounts */ ORDER BY a.id`, userID, ids)
 	if err != nil {
 		return nil, err
 	}

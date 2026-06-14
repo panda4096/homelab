@@ -213,7 +213,7 @@ func (s *Server) validateBalanceSnapshotRow(r *http.Request, b *store.BalanceSna
 	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.cfg.Location); err != nil {
 		return err.Error()
 	}
-	acct, err := s.store.GetAccount(r.Context(), b.AccountID, s.today())
+	acct, err := s.store.GetAccount(r.Context(), userOf(r), b.AccountID, s.today())
 	if errors.Is(err, store.ErrNotFound) {
 		return "account not found"
 	}
@@ -249,7 +249,7 @@ func (s *Server) validatePositionSnapshotRow(r *http.Request, p *store.PositionS
 	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.cfg.Location); err != nil {
 		return err.Error()
 	}
-	acct, err := s.store.GetAccount(r.Context(), p.AccountID, s.today())
+	acct, err := s.store.GetAccount(r.Context(), userOf(r), p.AccountID, s.today())
 	if errors.Is(err, store.ErrNotFound) {
 		return "account not found"
 	}
@@ -272,7 +272,7 @@ func (s *Server) normalizeAndValidateCreditCardBill(r *http.Request, b *store.Cr
 	if b.AccountID == 0 {
 		return "account_id is required"
 	}
-	acct, err := s.store.GetAccount(r.Context(), b.AccountID, s.today())
+	acct, err := s.store.GetAccount(r.Context(), userOf(r), b.AccountID, s.today())
 	if errors.Is(err, store.ErrNotFound) {
 		return "account not found"
 	}
@@ -312,7 +312,7 @@ func (s *Server) normalizeAndValidateCreditCardBill(r *http.Request, b *store.Cr
 		return msg
 	}
 	if b.PaymentAccountID != nil {
-		payAcct, err := s.store.GetAccount(r.Context(), *b.PaymentAccountID, s.today())
+		payAcct, err := s.store.GetAccount(r.Context(), userOf(r), *b.PaymentAccountID, s.today())
 		if errors.Is(err, store.ErrNotFound) {
 			return "payment_account_id 不存在"
 		}

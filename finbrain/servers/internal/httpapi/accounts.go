@@ -22,7 +22,7 @@ func pathID(r *http.Request, key string) (int64, error) {
 }
 
 func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListAccounts(r.Context(), s.today())
+	items, err := s.store.ListAccounts(r.Context(), userOf(r), s.today())
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -36,7 +36,7 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	a, err := s.store.GetAccount(r.Context(), id, s.today())
+	a, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today())
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
@@ -64,14 +64,14 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "validation_failed", msg)
 		return
 	}
-	if _, err := s.store.GetInstitution(r.Context(), a.InstitutionID); errors.Is(err, store.ErrNotFound) {
+	if _, err := s.store.GetInstitution(r.Context(), userOf(r), a.InstitutionID); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "institution_id 不存在")
 		return
 	} else if err != nil {
 		writeInternal(w, r, err)
 		return
 	}
-	out, err := s.store.CreateAccount(r.Context(), a)
+	out, err := s.store.CreateAccount(r.Context(), userOf(r), a)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "conflict", "该机构下已存在同名账户")
 		return
@@ -89,7 +89,7 @@ func (s *Server) patchAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	cur, err := s.store.GetAccount(r.Context(), id, s.today())
+	cur, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today())
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
@@ -138,7 +138,7 @@ func (s *Server) patchAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "validation_failed", msg)
 		return
 	}
-	out, err := s.store.UpdateAccount(r.Context(), cur)
+	out, err := s.store.UpdateAccount(r.Context(), userOf(r), cur)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "conflict", "该机构下已存在同名账户")
 		return
@@ -156,7 +156,7 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	if err := s.store.DeleteAccountIfEmpty(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteAccountIfEmpty(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
 	} else if errors.Is(err, store.ErrInUse) {
@@ -190,7 +190,7 @@ func (s *Server) createAccountsFromTemplate(w http.ResponseWriter, r *http.Reque
 	instID := body.InstitutionID
 	switch {
 	case instID > 0:
-		if _, err := s.store.GetInstitution(r.Context(), instID); errors.Is(err, store.ErrNotFound) {
+		if _, err := s.store.GetInstitution(r.Context(), userOf(r), instID); errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "institution_id 不存在")
 			return
 		} else if err != nil {
@@ -203,7 +203,7 @@ func (s *Server) createAccountsFromTemplate(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusUnprocessableEntity, "validation_failed", msg)
 			return
 		}
-		inst, err := s.store.GetOrCreateInstitutionByName(r.Context(), body.InstitutionName)
+		inst, err := s.store.GetOrCreateInstitutionByName(r.Context(), userOf(r), body.InstitutionName)
 		if err != nil {
 			writeStorageError(w, r, err)
 			return
@@ -214,7 +214,7 @@ func (s *Server) createAccountsFromTemplate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	out, err := s.store.CreateAccountsFromTemplate(r.Context(), body.TemplateID, instID)
+	out, err := s.store.CreateAccountsFromTemplate(r.Context(), userOf(r), body.TemplateID, instID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "template not found")
 		return

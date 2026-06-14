@@ -143,7 +143,7 @@ func (s *Server) agentToolContext(ctx context.Context) ([]byte, string) {
 	toolsJSON, _ := json.Marshal(tools)
 
 	acctCtx := ""
-	if accts, err := s.store.ListAccounts(ctx, s.today()); err == nil {
+	if accts, err := s.store.ListAccounts(ctx, userIDFromContext(ctx), s.today()); err == nil {
 		type accountLite struct {
 			ID          int64  `json:"id"`
 			Name        string `json:"name"`

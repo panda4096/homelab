@@ -141,13 +141,13 @@ func (s *Server) normalizeAndValidateIncomeEvent(r *http.Request, e *store.Incom
 	if msg := validateOptionalTextLen("note", e.Note, maxNoteLen); msg != "" {
 		return msg
 	}
-	if _, err := s.store.GetAccount(r.Context(), e.AccountID, s.today()); errors.Is(err, store.ErrNotFound) {
+	if _, err := s.store.GetAccount(r.Context(), userOf(r), e.AccountID, s.today()); errors.Is(err, store.ErrNotFound) {
 		return "account not found"
 	} else if err != nil {
 		return "account lookup failed"
 	}
 	if e.PaymentAccountID != nil {
-		if _, err := s.store.GetAccount(r.Context(), *e.PaymentAccountID, s.today()); errors.Is(err, store.ErrNotFound) {
+		if _, err := s.store.GetAccount(r.Context(), userOf(r), *e.PaymentAccountID, s.today()); errors.Is(err, store.ErrNotFound) {
 			return "payment_account_id 不存在"
 		} else if err != nil {
 			return "payment account lookup failed"

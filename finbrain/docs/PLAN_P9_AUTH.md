@@ -86,12 +86,12 @@
 
 ## 3. P9.1 · `user_id` 列落地 + 网关表隔离（先做先测）
 
-- [ ] 跑 §1 迁移（建列/约束/触发器/索引/回填）
-- [ ] `store/accounts.go`：`ListAccounts/GetAccount/accountFull/accountMeta/CreateAccount/AccountHasData/DeleteAccountIfEmpty` 全部加 `userID` 参数 + `/* OWNED */` 谓词；`CreateAccount` 的 display_order 子查询加 `AND user_id=$`
-- [ ] `store/institutions.go`：同上
-- [ ] handler 层从 `userOf(r)` 取 `userID` 下传；agent 路径从 `ctxUserID` 取
-- [ ] `store/preferences.go`：`Get/UpdatePreferences` 由 `WHERE id=1`/`ON CONFLICT(id)` 改为 `WHERE user_id=$1`/`ON CONFLICT(user_id)`；返回含 timezone
-- [ ] **隔离测试**：建两个用户各自的机构/账户，互查/互删/直传他人 account_id 全部被拒；全局行情仍共享
+- [x] 跑 P9.1 gateway 迁移（`accounts/institutions` 建列/回填 user 1/约束/索引；子表触发器留到 P9.2）
+- [x] `store/accounts.go`：`ListAccounts/GetAccount/accountFull/accountMeta/CreateAccount/AccountHasData/DeleteAccountIfEmpty` 全部加 `userID` 参数 + `/* OWNED */` 谓词；`CreateAccount` 的 display_order 子查询加 `AND user_id=$`
+- [x] `store/institutions.go`：同上
+- [x] handler 层从 `userOf(r)` 取 `userID` 下传；agent 路径从 `ctxUserID` 取
+- [x] `store/preferences.go`：`Get/UpdatePreferences` 由 `WHERE id=1`/`ON CONFLICT(id)` 改为 `WHERE user_id=$1`/`ON CONFLICT(user_id)`；返回含 timezone
+- [x] **隔离测试**：建两个用户各自的机构/账户，互查/互删/直传他人 account_id 全部被拒；全局行情仍共享
 
 **DoD（P9.1）**：accounts/institutions/preferences 完全按用户隔离并通过跨用户测试。
 
@@ -150,3 +150,4 @@
 |---|---|---|---|
 | 2026-06-15 | 设计 + 本清单 | 完成 | PRD §9 重写；本文件创建（未动实现代码） |
 | 2026-06-15 | P9.0 认证基座 | 完成 | 新增 argon2id 密码、users/user_identities/sessions、session middleware、auth API、admin set-password、登录页；NUC dev 01400 up 通过，curl 验证注册/登录/改密/重置/登出，浏览器验证 dev user 1 免登录 |
+| 2026-06-15 | P9.1 gateway 隔离 | 完成 | 新增 01410 gateway 迁移，将既有机构/账户回填到 user 1；accounts/institutions/preferences 入口按 user 隔离；接口验证 A/B 用户互查/互删/直传对方 account_id 均被拒，全局 instruments 仍共享；临时测试账户下空机构/账户已通过 API 清理 |

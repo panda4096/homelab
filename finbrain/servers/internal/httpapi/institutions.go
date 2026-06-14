@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Server) listInstitutions(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListInstitutions(r.Context())
+	items, err := s.store.ListInstitutions(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -23,7 +23,7 @@ func (s *Server) getInstitution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	in, err := s.store.GetInstitution(r.Context(), id)
+	in, err := s.store.GetInstitution(r.Context(), userOf(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "institution not found")
 		return
@@ -49,7 +49,7 @@ func (s *Server) createInstitution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.CreateInstitution(r.Context(), in)
+	out, err := s.store.CreateInstitution(r.Context(), userOf(r), in)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "conflict", "机构名已存在")
 		return
@@ -67,7 +67,7 @@ func (s *Server) patchInstitution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	cur, err := s.store.GetInstitution(r.Context(), id)
+	cur, err := s.store.GetInstitution(r.Context(), userOf(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "institution not found")
 		return
@@ -106,7 +106,7 @@ func (s *Server) patchInstitution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.UpdateInstitution(r.Context(), cur)
+	out, err := s.store.UpdateInstitution(r.Context(), userOf(r), cur)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "conflict", "机构名已存在")
 		return
@@ -124,7 +124,7 @@ func (s *Server) deleteInstitution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	err = s.store.DeleteInstitutionIfEmpty(r.Context(), id)
+	err = s.store.DeleteInstitutionIfEmpty(r.Context(), userOf(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "institution not found")
 		return
