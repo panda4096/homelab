@@ -53,6 +53,10 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
         return
       }
       const plan = await planAgent(t)
+      if (plan.type === 'chat' || !plan.plan) {
+        push({ role: 'assistant', text: plan.reply ?? '我没太理解,换个说法?可以问净资产、持仓、对账,或记一笔。' })
+        return
+      }
       push({
         role: 'assistant',
         text: plan.requires_confirmation ? '已理解为一次录入,确认后写入账本:' : '已通过 skill 取数:',

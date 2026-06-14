@@ -1166,12 +1166,14 @@ export interface AgentRunResult {
 }
 
 export interface AgentPlanResult {
-  plan: { skill: string; params: Record<string, unknown> }
-  type: SkillType
-  requires_confirmation: boolean
-  result: unknown
-  row_count: number
+  // chat path: no skill chosen — just a conversational reply (type='chat')
+  plan?: { skill: string; params: Record<string, unknown> }
+  type: SkillType | 'chat'
+  requires_confirmation?: boolean
+  result?: unknown
+  row_count?: number
   affected_entities?: string[]
+  reply?: string
 }
 
 export interface APIKey {

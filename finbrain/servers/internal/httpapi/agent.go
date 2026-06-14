@@ -425,10 +425,12 @@ func (s *Server) planAgent(w http.ResponseWriter, r *http.Request) {
 		b, _ := json.Marshal(lite)
 		acctCtx = "\n需要 account_id 的工具:从下方账户列表按名称/机构模糊匹配取最可能的 id(现金类 cash/time_deposit/wealth_product 才能记余额,持仓类 brokerage/fund/crypto_wallet 才能记交易,credit_card 才能记账单)。账户列表(JSON):" + string(b)
 	}
-	system := "你是 finbrain 的 agent。**只能调用下列已注册工具(skill)**,严禁输出 SQL、表名、join 或任意查询。" +
-		"根据用户问题选 1 个最合适的工具并按其 input_schema 填参数;录入类用 draft 工具(写库由业主另行确认)。" +
-		"严格只返回一个 JSON 对象:{\"skill\":\"工具名\",\"params\":{...}}。可用工具(JSON):" + string(toolsJSON) + acctCtx
-	raw, err := s.llm.Complete(r.Context(), system, "今天是 "+s.today()+"。问题:"+body.Text, true)
+	system := "你是 finbrain 的资产管理助手。可调用下列已注册工具(skill)取数/记账,**严禁输出 SQL、表名、join 或任意查询**。\n" +
+		"二选一,严格只返回一个 JSON 对象:\n" +
+		"① 当用户想查数据或记一笔时:{\"skill\":\"工具名\",\"params\":{...按其 input_schema}};录入类用 draft 工具(写库由业主另行确认)。\n" +
+		"② 当用户只是打招呼 / 感谢 / 闲聊 / 意图不清 / 超出工具范围时:{\"reply\":\"一句自然中文回应\"};可顺带提示他能问什么(如净资产、持仓、对账、记账),**不要为闲聊硬选工具**。\n" +
+		"可用工具(JSON):" + string(toolsJSON) + acctCtx
+	raw, err := s.llm.Complete(r.Context(), system, "今天是 "+s.today()+"。用户说:"+body.Text, true)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "LLM 调用失败")
 		return
@@ -436,9 +438,19 @@ func (s *Server) planAgent(w http.ResponseWriter, r *http.Request) {
 	var plan struct {
 		Skill  string         `json:"skill"`
 		Params map[string]any `json:"params"`
+		Reply  string         `json:"reply"`
 	}
 	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &plan); err != nil {
 		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "规划结果不是有效 JSON", map[string]string{"raw": raw})
+		return
+	}
+	// chat / no-tool path: greeting, chitchat, unclear, out-of-scope — no data access.
+	if strings.TrimSpace(plan.Skill) == "" {
+		reply := strings.TrimSpace(plan.Reply)
+		if reply == "" {
+			reply = "我可以帮你查资产或记一笔 —— 试试「本月净资产」「持有 GOOG 的账户和数量」「人民币活期 今天 12.3 万」。"
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"type": "chat", "reply": reply})
 		return
 	}
 	sk, ok := s.findSkill(strings.TrimSpace(plan.Skill))
