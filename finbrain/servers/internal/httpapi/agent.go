@@ -83,10 +83,10 @@ func (s *Server) resolveDisplay(ctx context.Context, a skillArgs) (string, strin
 	return disp, fxMode
 }
 
-func (s *Server) asOf(a skillArgs) (string, error) {
+func (s *Server) asOf(ctx context.Context, a skillArgs) (string, error) {
 	d := argStr(a, "as_of")
 	if d == "" {
-		return s.today(), nil
+		return s.today(ctx), nil
 	}
 	if _, err := domain.ParseDate(d, s.cfg.Location); err != nil {
 		return "", errSkillInput{"as_of must be YYYY-MM-DD"}
@@ -118,12 +118,12 @@ func readSkills() []Skill {
 			Description: "净资产快照:总资产/负债/净值、现金与持仓总值、多维配置占比(按用途/币种/真实计价币种/机构)。",
 			InputSchema: sch(`{"type":"object","properties":{` + disp + `},"additionalProperties":false}`),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				onDate, err := s.asOf(a)
+				onDate, err := s.asOf(ctx, a)
 				if err != nil {
 					return nil, 0, nil, err
 				}
 				d, fx := s.resolveDisplay(ctx, a)
-				v, err := s.store.GetValuation(ctx, userIDFromContext(ctx), onDate, d, fx, s.today())
+				v, err := s.store.GetValuation(ctx, userIDFromContext(ctx), onDate, d, fx, s.today(ctx))
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -135,12 +135,12 @@ func readSkills() []Skill {
 			Description: "当前全部持仓(按标的跨账户合并),含市值、浮动盈亏、权重;无价格的标的单列。",
 			InputSchema: sch(`{"type":"object","properties":{` + disp + `},"additionalProperties":false}`),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				onDate, err := s.asOf(a)
+				onDate, err := s.asOf(ctx, a)
 				if err != nil {
 					return nil, 0, nil, err
 				}
 				d, fx := s.resolveDisplay(ctx, a)
-				v, err := s.store.GetValuation(ctx, userIDFromContext(ctx), onDate, d, fx, s.today())
+				v, err := s.store.GetValuation(ctx, userIDFromContext(ctx), onDate, d, fx, s.today(ctx))
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -152,7 +152,7 @@ func readSkills() []Skill {
 			Description: "某账户在某日(默认今天)的持仓快照清单(取最近一条)。",
 			InputSchema: sch(`{"type":"object","properties":{"account_id":{"type":"integer"},"as_of":{"type":"string"}},"required":["account_id"],"additionalProperties":false}`),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				onDate, err := s.asOf(a)
+				onDate, err := s.asOf(ctx, a)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -172,7 +172,7 @@ func readSkills() []Skill {
 			Description: "全部账户(含机构名、币种、类型、当前余额)。",
 			InputSchema: sch(noArgs),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				rows, err := s.store.ListAccounts(ctx, userIDFromContext(ctx), s.today())
+				rows, err := s.store.ListAccounts(ctx, userIDFromContext(ctx), s.today(ctx))
 				return rows, len(rows), nil, err
 			},
 		},
@@ -185,7 +185,7 @@ func readSkills() []Skill {
 				if id == 0 {
 					return nil, 0, nil, errSkillInput{"account_id is required"}
 				}
-				acct, err := s.store.GetAccount(ctx, userIDFromContext(ctx), id, s.today())
+				acct, err := s.store.GetAccount(ctx, userIDFromContext(ctx), id, s.today(ctx))
 				if errors.Is(err, store.ErrNotFound) {
 					return nil, 0, nil, errSkillInput{"account not found"}
 				}
@@ -238,7 +238,7 @@ func readSkills() []Skill {
 			Description: "某账户的现金对账:预期余额、最新快照、差额、事件流、持仓回放差额(§6.19/6.20)。",
 			InputSchema: sch(`{"type":"object","properties":{"account_id":{"type":"integer"},"as_of":{"type":"string"},"settled_only":{"type":"boolean"}},"required":["account_id"],"additionalProperties":false}`),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				onDate, err := s.asOf(a)
+				onDate, err := s.asOf(ctx, a)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -275,7 +275,7 @@ func readSkills() []Skill {
 			Description: "目标配置漂移与再平衡建议;不传 set_id 则返回全部目标集。",
 			InputSchema: sch(`{"type":"object","properties":{"set_id":{"type":"integer"},"as_of":{"type":"string"},` + disp + `},"additionalProperties":false}`),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				onDate, err := s.asOf(a)
+				onDate, err := s.asOf(ctx, a)
 				if err != nil {
 					return nil, 0, nil, err
 				}

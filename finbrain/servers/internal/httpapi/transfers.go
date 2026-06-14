@@ -107,7 +107,7 @@ func (s *Server) normalizeAndValidateTransfer(r *http.Request, t *store.Transfer
 		return msg
 	}
 	for _, id := range []int64{t.FromAccountID, t.ToAccountID} {
-		if _, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today()); errors.Is(err, store.ErrNotFound) {
+		if _, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today(r.Context())); errors.Is(err, store.ErrNotFound) {
 			return "account not found"
 		} else if err != nil {
 			return "account lookup failed"

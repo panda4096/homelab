@@ -128,7 +128,7 @@ func (s *Server) upsertBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
-	acct, err := s.store.GetAccount(r.Context(), userOf(r), b.AccountID, s.today())
+	acct, err := s.store.GetAccount(r.Context(), userOf(r), b.AccountID, s.today(r.Context()))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
@@ -239,7 +239,7 @@ func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
-	acct, err := s.store.GetAccount(r.Context(), userOf(r), p.AccountID, s.today())
+	acct, err := s.store.GetAccount(r.Context(), userOf(r), p.AccountID, s.today(r.Context()))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return

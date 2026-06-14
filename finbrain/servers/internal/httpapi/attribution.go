@@ -11,7 +11,7 @@ func (s *Server) getAttribution(w http.ResponseWriter, r *http.Request) {
 	from := strings.TrimSpace(r.URL.Query().Get("from"))
 	to := strings.TrimSpace(r.URL.Query().Get("to"))
 	if to == "" {
-		to = s.today()
+		to = s.today(r.Context())
 	}
 	if _, err := domain.ParseDate(from, s.cfg.Location); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_failed", "from must be YYYY-MM-DD")

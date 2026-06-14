@@ -114,7 +114,7 @@ func (s *Server) getAllocationTargetDrift(w http.ResponseWriter, r *http.Request
 	if fxMode != "current" && fxMode != "historical" {
 		fxMode = "current"
 	}
-	out, err := s.store.EvaluateDrift(r.Context(), userOf(r), id, s.today(), displayCurrency, fxMode)
+	out, err := s.store.EvaluateDrift(r.Context(), userOf(r), id, s.today(r.Context()), displayCurrency, fxMode)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "目标配置不存在")
 		return

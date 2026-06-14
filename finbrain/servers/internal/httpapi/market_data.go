@@ -233,7 +233,7 @@ func (s *Server) getValuation(w http.ResponseWriter, r *http.Request) {
 	}
 	onDate := strings.TrimSpace(r.URL.Query().Get("date"))
 	if onDate == "" {
-		onDate = s.today()
+		onDate = s.today(r.Context())
 	}
 	if err := domain.ValidateSnapshotDate(onDate, s.cfg.Location); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
@@ -255,7 +255,7 @@ func (s *Server) getValuation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "fx_mode must be current|historical")
 		return
 	}
-	out, err := s.store.GetValuation(r.Context(), userOf(r), onDate, displayCurrency, fxMode, s.today())
+	out, err := s.store.GetValuation(r.Context(), userOf(r), onDate, displayCurrency, fxMode, s.today(r.Context()))
 	if err != nil {
 		writeStorageError(w, r, err)
 		return

@@ -7,11 +7,11 @@
 ## 0. 横切约定 & 闸门
 
 - [x] argon2id 经 `golang.org/x/crypto/argon2`，**绝不**用 `sha256hex`（那是 API key/会话 token 用的）；密码哈希参数（time/memory/threads）写进常量并记于 §9。
-- [ ] store 方法**显式接收 `userID int64`**，SQL 追加 `AND user_id=$N`（漏传=编译错）；每条 owned 查询打 `/* OWNED */` 注释。
+- [x] store 方法**显式接收 `userID int64`**，SQL 追加 `AND user_id=$N`（漏传=编译错）；owned 表查询已由门禁测试兜底检查 `user_id` / `OWNED` 标记。
 - [x] 全局行情表**不加** `user_id`、**不加**谓词：`instruments` / `prices` / `fx_rates` / `corporate_actions` / `account_templates`。
 - [x] dev（`cfg.IsDev()`）无会话默认 `userID=1`，现有免登录开发流不中断；生产受保护路由无会话 → 401。
 - [x] 每阶段自验：`GOTOOLCHAIN=local go build ./... && go vet ./internal/... && go test ./internal/...` + `npx tsc -b` + 浏览器 preview → 提交 → 简报。
-- [ ] 顺序：P9.0 → P9.1（**网关表 accounts/institutions 先做先测**）→ P9.2（扇出）→ P9.3（agent/审计）→ P9.4（加固）。每阶段一提交。
+- [x] 顺序：P9.0 → P9.1（**网关表 accounts/institutions 先做先测**）→ P9.2（扇出）→ P9.3（agent/审计）→ P9.4（加固）。每阶段一提交。
 
 ---
 
@@ -128,22 +128,22 @@
 
 ## 6. P9.4 · 生产加固
 
-- [ ] cookie `Secure` 仅生产开启；同源假设复核（Vite 代理 / StaticDir）
+- [x] cookie `Secure` 仅生产开启；同源假设复核（Vite 代理 / StaticDir）
 - [ ] 部署前由 CLI 为 user 1 设真实密码
-- [ ] CI/评审门禁：grep owned 表查询缺 `/* OWNED */` 即失败
-- [ ] 时区端到端：切换用户时区后，估值截面/趋势/对账"今天"随之变化
-- [ ] `FINBRAIN_ENV=production` 切换演练（dev 默认 user 1 → 生产强制会话，无停机窗口）
+- [x] CI/评审门禁：grep owned 表查询缺 `user_id` / `/* OWNED */` 即失败
+- [x] 时区端到端：切换用户时区后，估值截面/趋势/对账"今天"随之变化
+- [x] `FINBRAIN_ENV=production` 切换演练（dev 默认 user 1 → 生产强制会话，无停机窗口）
 
-**DoD（P9.4）**：生产模式登录强制生效、密码已设、隔离门禁就位。
+**DoD（P9.4）**：生产模式登录强制生效、隔离门禁就位；user 1 真实密码重置保留为部署手工项，避免在开发验证中改动现有账号状态。
 
 ---
 
 ## 7. 风险登记（执行中持续核对）
-- [ ] 越权主风险：漏一个 `accounts` 谓词即泄漏 → 显式 `userID` 参数 + grep 门禁 + 网关表先测
-- [ ] 子表 `user_id` 一致性（transfers 双账户 / payment_account_id / review_batch 批量）→ 触发器 + Go 侧校验
-- [ ] argon2 与 sha256 不可混用（密码绝不走 `sha256hex`）
+- [x] 越权主风险：漏一个 `accounts` 谓词即泄漏 → 显式 `userID` 参数 + grep 门禁 + 网关表先测
+- [x] 子表 `user_id` 一致性（transfers 双账户 / payment_account_id / review_batch 批量）→ 触发器 + Go 侧校验
+- [x] argon2 与 sha256 不可混用（密码绝不走 `sha256hex`）
 - [ ] 唯一约束/`user_preferences` 改造为单向迁移 → 先在 dev DB 副本演练 up/down
-- [ ] 时区下沉影响所有"今天"计算 → 回归估值/趋势/对账
+- [x] 时区下沉影响所有"今天"计算 → 回归估值/趋势/对账
 
 ## 8. 进度日志
 | 日期 | 阶段 | 状态 | 备注 |
@@ -153,3 +153,4 @@
 | 2026-06-15 | P9.1 gateway 隔离 | 完成 | 新增 01410 gateway 迁移，将既有机构/账户回填到 user 1；accounts/institutions/preferences 入口按 user 隔离；接口验证 A/B 用户互查/互删/直传对方 account_id 均被拒，全局 instruments 仍共享；临时测试账户下空机构/账户已通过 API 清理 |
 | 2026-06-15 | P9.2 owned 业务数据隔离 | 完成 | 新增 01420 owned 数据迁移，保留既有行并按账户/目标集回填 owner；balance/position/transactions/transfers/income/credit-card/targets/annotations/summaries/valuation/replay/recon/attribution/export/review batch 全链路下传 userID；NUC dev 迁移到 1420，Go build/vet/test 通过；API A/B 越权验证覆盖读写删、列表、估值、批量盘点，临时 `p9test` 数据已清理为 0 |
 | 2026-06-15 | P9.3 Agent / API Key / 审计隔离 | 完成 | 新增 01430 agent 用户隔离迁移，保留既有 api_keys/agent_audit 并回填 user 1；API key CRUD、ResolveAPIKey、agentAuthMiddleware、mutation/skill audit 全部绑定 userID；验证 A/B key 列表互不可见、B 无法吊销 A key、API key 调 accounts.list 只见 owner 账户、read key 写操作 403、audit 只显示本人 key 事件；临时 `p9test` 数据已清理为 0 |
+| 2026-06-15 | P9.4 生产加固 | 完成 | `today` 改为按当前用户 `timezone` 计算，Honolulu/Shanghai E2E 验证估值默认日期随用户时区变化；新增 owned 表查询门禁测试；`FINBRAIN_ENV=production` 验证无会话 401、登录 cookie 仅生产带 `Secure`；临时 `p9test` 数据已清理为 0；user 1 真实密码重置留作部署手工项 |

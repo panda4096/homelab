@@ -143,7 +143,7 @@ func (s *Server) agentToolContext(ctx context.Context) ([]byte, string) {
 	toolsJSON, _ := json.Marshal(tools)
 
 	acctCtx := ""
-	if accts, err := s.store.ListAccounts(ctx, userIDFromContext(ctx), s.today()); err == nil {
+	if accts, err := s.store.ListAccounts(ctx, userIDFromContext(ctx), s.today(ctx)); err == nil {
 		type accountLite struct {
 			ID          int64  `json:"id"`
 			Name        string `json:"name"`
@@ -176,7 +176,7 @@ func (s *Server) nextAgentAction(ctx context.Context, question string, history [
 		"- ui_note 是产品界面展示用的短句，例如“先查询当前持仓和浮动盈亏”，不要写内部推理链。\n" +
 		"- final 回答要说人话，给出关键数字和口径；数据不足就明确说明，不要编造。\n" +
 		"可用工具(JSON):" + string(toolsJSON) + acctCtx
-	user := "今天是 " + s.today() + "。\n最近会话(JSON):" + promptJSON(compactHistory(history), 6000) + "\n用户问题:" + question + "\n已完成 observation(JSON):" + promptJSON(observations, 24000) + "\n请输出下一步 action JSON。"
+	user := "今天是 " + s.today(ctx) + "。\n最近会话(JSON):" + promptJSON(compactHistory(history), 6000) + "\n用户问题:" + question + "\n已完成 observation(JSON):" + promptJSON(observations, 24000) + "\n请输出下一步 action JSON。"
 
 	plannerOpts := opts
 	plannerOpts.Thinking = false
@@ -230,7 +230,7 @@ func normalizeAgentAction(action agentAction) agentAction {
 }
 
 func (s *Server) finalAgentReply(ctx context.Context, question string, history []agentChatMessage, observations []agentObservation, opts llm.Options) (string, error) {
-	system, user := s.finalAgentPrompt(question, history, observations)
+	system, user := s.finalAgentPrompt(ctx, question, history, observations)
 	raw, err := s.llm.CompleteWithOptions(ctx, system, user, false, opts)
 	if err != nil {
 		return "", err
@@ -239,7 +239,7 @@ func (s *Server) finalAgentReply(ctx context.Context, question string, history [
 }
 
 func (s *Server) finalAgentReplyStream(ctx context.Context, question string, history []agentChatMessage, observations []agentObservation, opts llm.Options, emit func(string)) (string, error) {
-	system, user := s.finalAgentPrompt(question, history, observations)
+	system, user := s.finalAgentPrompt(ctx, question, history, observations)
 	raw, err := s.llm.StreamWithOptions(ctx, system, user, opts, func(delta llm.StreamDelta) error {
 		if delta.Content != "" && emit != nil {
 			emit(delta.Content)
@@ -252,7 +252,7 @@ func (s *Server) finalAgentReplyStream(ctx context.Context, question string, his
 	return strings.TrimSpace(stripCodeFence(raw)), nil
 }
 
-func (s *Server) finalAgentPrompt(question string, history []agentChatMessage, observations []agentObservation) (string, string) {
+func (s *Server) finalAgentPrompt(ctx context.Context, question string, history []agentChatMessage, observations []agentObservation) (string, string) {
 	system := "你是 finbrain Copilot 的最终回答器。你已经拿到了后端 skill 查询结果，只能基于 observation 回答用户。\n" +
 		"要求:中文、自然、简洁；优先回答用户真正问的问题；保留关键数字、币种和日期口径；不要提 JSON、字段名或内部实现；不要编造 observation 没有的数据。\n" +
 		"纠错:如果用户指出上一轮逻辑不对，要先承认并明确修正；不要说“我不清楚你指什么”这种逃避上下文的话。\n" +
@@ -260,7 +260,7 @@ func (s *Server) finalAgentPrompt(question string, history []agentChatMessage, o
 		"亏损问题:用户问“亏得最多/亏损最大”时，按最负的浮动盈亏金额回答，优先使用 top_losses；不要拿正收益率或 top_gains 当答案。\n" +
 		"排版:输出 Markdown，但不要输出 HTML。避免整段糊成一段；用 2-4 个短段落、项目符号或小表格组织信息。\n" +
 		"当问题涉及排名、对比、构成、盈亏、账户分布时，优先使用 Markdown 表格，通常不超过 6 行；必要时可用简短文本条形图辅助表达百分比。"
-	user := "今天是 " + s.today() + "。\n最近会话(JSON):" + promptJSON(compactHistory(history), 6000) + "\n用户问题:" + question + "\nobservation(JSON):" + promptJSON(observations, 30000) + "\n请给出最终 Markdown 回答。"
+	user := "今天是 " + s.today(ctx) + "。\n最近会话(JSON):" + promptJSON(compactHistory(history), 6000) + "\n用户问题:" + question + "\nobservation(JSON):" + promptJSON(observations, 30000) + "\n请给出最终 Markdown 回答。"
 	return system, user
 }
 

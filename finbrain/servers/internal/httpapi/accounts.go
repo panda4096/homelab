@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -15,14 +17,22 @@ import (
 
 var currencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
 
-func (s *Server) today() string { return domain.TodayString(s.cfg.Location) }
+func (s *Server) today(ctx context.Context) string {
+	loc := s.cfg.Location
+	if prefs, err := s.store.GetPreferences(ctx, userIDFromContext(ctx)); err == nil {
+		if userLoc, err := time.LoadLocation(prefs.Timezone); err == nil {
+			loc = userLoc
+		}
+	}
+	return domain.TodayString(loc)
+}
 
 func pathID(r *http.Request, key string) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, key), 10, 64)
 }
 
 func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListAccounts(r.Context(), userOf(r), s.today())
+	items, err := s.store.ListAccounts(r.Context(), userOf(r), s.today(r.Context()))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -36,7 +46,7 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	a, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today())
+	a, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today(r.Context()))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
@@ -89,7 +99,7 @@ func (s *Server) patchAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	cur, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today())
+	cur, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today(r.Context()))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
@@ -264,7 +274,7 @@ func (s *Server) listAccountPositions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	items, err := s.store.ListAccountPositions(r.Context(), userOf(r), id, s.today())
+	items, err := s.store.ListAccountPositions(r.Context(), userOf(r), id, s.today(r.Context()))
 	if err != nil {
 		writeInternal(w, r, err)
 		return

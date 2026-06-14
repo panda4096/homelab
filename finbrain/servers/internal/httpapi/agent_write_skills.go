@@ -192,7 +192,7 @@ func writeSkills() []Skill {
 			Description: "校验并预览一条公司动作(拆股/合股/配股,不写库)。",
 			InputSchema: corporateActionSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				c, msg := s.buildCorporateActionFromArgs(a)
+				c, msg := s.buildCorporateActionFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -204,7 +204,7 @@ func writeSkills() []Skill {
 			Description: "确认后写入一条公司动作;持仓数量/成本按回放派生。",
 			InputSchema: corporateActionSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				c, msg := s.buildCorporateActionFromArgs(a)
+				c, msg := s.buildCorporateActionFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -220,7 +220,7 @@ func writeSkills() []Skill {
 			Description: "校验并预览一条标的价格(不写库)。",
 			InputSchema: priceSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				p, msg := s.buildPriceFromArgs(a)
+				p, msg := s.buildPriceFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -232,7 +232,7 @@ func writeSkills() []Skill {
 			Description: "确认后写入/覆盖一条标的价格。",
 			InputSchema: priceSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				p, msg := s.buildPriceFromArgs(a)
+				p, msg := s.buildPriceFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -248,7 +248,7 @@ func writeSkills() []Skill {
 			Description: "校验并预览一条汇率(不写库)。",
 			InputSchema: fxRateSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				f, msg := s.buildFxRateFromArgs(a)
+				f, msg := s.buildFxRateFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -260,7 +260,7 @@ func writeSkills() []Skill {
 			Description: "确认后写入/覆盖一条汇率。",
 			InputSchema: fxRateSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				f, msg := s.buildFxRateFromArgs(a)
+				f, msg := s.buildFxRateFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -363,7 +363,7 @@ func (s *Server) buildBalanceFromArgs(ctx context.Context, a skillArgs) (store.B
 		return b, store.Account{}, "account_id is required"
 	}
 	if b.SnapshotDate == "" {
-		b.SnapshotDate = s.today()
+		b.SnapshotDate = s.today(ctx)
 	}
 	if !validMoneyDecimal(b.Balance) {
 		return b, store.Account{}, "balance 必须是最多两位小数的数字"
@@ -411,7 +411,7 @@ func (s *Server) buildTransactionFromArgs(ctx context.Context, a skillArgs) (sto
 		return t, store.Account{}, "currency 必须是 3 位 ISO 代码"
 	}
 	if t.TradeDate == "" {
-		t.TradeDate = s.today()
+		t.TradeDate = s.today(ctx)
 	}
 	if _, err := domain.ParseDate(t.TradeDate, s.cfg.Location); err != nil {
 		return t, store.Account{}, "trade_date 必须是 YYYY-MM-DD"
@@ -461,7 +461,7 @@ func (s *Server) buildCreditCardFromArgs(ctx context.Context, a skillArgs) (stor
 		return b, acct, "currency 必须是 3 位 ISO 代码"
 	}
 	if b.StatementDate == "" {
-		b.StatementDate = s.today()
+		b.StatementDate = s.today(ctx)
 	}
 	if err := domain.ValidateSnapshotDate(b.StatementDate, s.cfg.Location); err != nil {
 		return b, acct, err.Error()
@@ -496,7 +496,7 @@ func (s *Server) buildPositionSnapshotFromArgs(ctx context.Context, a skillArgs)
 		return p, store.Account{}, "account_id 与 symbol 必填"
 	}
 	if p.SnapshotDate == "" {
-		p.SnapshotDate = s.today()
+		p.SnapshotDate = s.today(ctx)
 	}
 	if !validDecimal(p.Quantity) || isNegativeDecimal(p.Quantity) {
 		return p, store.Account{}, "quantity 必须是 >= 0 的数字"
@@ -534,7 +534,7 @@ func (s *Server) buildTransferFromArgs(ctx context.Context, a skillArgs) (store.
 		TransferDate: argStr(a, "transfer_date"), Notes: optStr(a, "notes"),
 	}
 	if t.TransferDate == "" {
-		t.TransferDate = s.today()
+		t.TransferDate = s.today(ctx)
 	}
 	if t.FromAccountID == 0 || t.ToAccountID == 0 {
 		return t, "from_account_id 与 to_account_id 必填"
@@ -570,7 +570,7 @@ func (s *Server) buildIncomeEventFromArgs(ctx context.Context, a skillArgs) (sto
 		e.PaymentAccountID = &id
 	}
 	if e.EventDate == "" {
-		e.EventDate = s.today()
+		e.EventDate = s.today(ctx)
 	}
 	if e.Symbol != nil {
 		sym := strings.ToUpper(strings.TrimSpace(*e.Symbol))
@@ -616,14 +616,14 @@ func (s *Server) buildIncomeEventFromArgs(ctx context.Context, a skillArgs) (sto
 	return e, acct, ""
 }
 
-func (s *Server) buildCorporateActionFromArgs(a skillArgs) (store.CorporateAction, string) {
+func (s *Server) buildCorporateActionFromArgs(ctx context.Context, a skillArgs) (store.CorporateAction, string) {
 	c := store.CorporateAction{
 		Symbol: strings.ToUpper(argStr(a, "symbol")), Action: strings.ToLower(argStr(a, "action")),
 		EventDate: argStr(a, "event_date"), RatioNumerator: argStr(a, "ratio_numerator"),
 		RatioDenominator: argStr(a, "ratio_denominator"), Notes: optStr(a, "notes"),
 	}
 	if c.EventDate == "" {
-		c.EventDate = s.today()
+		c.EventDate = s.today(ctx)
 	}
 	if raw, ok := a["extra"]; ok && raw != nil {
 		blob, _ := json.Marshal(raw)
@@ -635,14 +635,14 @@ func (s *Server) buildCorporateActionFromArgs(a skillArgs) (store.CorporateActio
 	return c, ""
 }
 
-func (s *Server) buildPriceFromArgs(a skillArgs) (store.Price, string) {
+func (s *Server) buildPriceFromArgs(ctx context.Context, a skillArgs) (store.Price, string) {
 	p := store.Price{
 		Symbol: argStr(a, "symbol"), PriceDate: argStr(a, "price_date"),
 		Price: argStr(a, "price"), Currency: argStr(a, "currency"),
 		Source: argStr(a, "source"), Note: optStr(a, "note"),
 	}
 	if p.PriceDate == "" {
-		p.PriceDate = s.today()
+		p.PriceDate = s.today(ctx)
 	}
 	normalizePrice(&p)
 	if msg := validatePrice(p, s.cfg.Location); msg != "" {
@@ -651,14 +651,14 @@ func (s *Server) buildPriceFromArgs(a skillArgs) (store.Price, string) {
 	return p, ""
 }
 
-func (s *Server) buildFxRateFromArgs(a skillArgs) (store.FxRate, string) {
+func (s *Server) buildFxRateFromArgs(ctx context.Context, a skillArgs) (store.FxRate, string) {
 	f := store.FxRate{
 		BaseCurrency: argStr(a, "base_currency"), QuoteCurrency: argStr(a, "quote_currency"),
 		RateDate: argStr(a, "rate_date"), Rate: argStr(a, "rate"),
 		Source: argStr(a, "source"), Note: optStr(a, "note"),
 	}
 	if f.RateDate == "" {
-		f.RateDate = s.today()
+		f.RateDate = s.today(ctx)
 	}
 	normalizeFxRate(&f)
 	if msg := validateFxRate(f, s.cfg.Location); msg != "" {
@@ -702,7 +702,7 @@ func (s *Server) buildAnnotationFromArgs(a skillArgs) (store.Annotation, string)
 }
 
 func (s *Server) lookupAccount(ctx context.Context, id int64) (store.Account, string) {
-	acct, err := s.store.GetAccount(ctx, userIDFromContext(ctx), id, s.today())
+	acct, err := s.store.GetAccount(ctx, userIDFromContext(ctx), id, s.today(ctx))
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Account{}, "account not found"
 	}

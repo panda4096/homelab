@@ -18,7 +18,7 @@ func (s *Server) getTrend(w http.ResponseWriter, r *http.Request) {
 
 	to := strings.TrimSpace(r.URL.Query().Get("to"))
 	if to == "" {
-		to = s.today()
+		to = s.today(r.Context())
 	}
 	toT, err := domain.ParseDate(to, s.cfg.Location)
 	if err != nil {
