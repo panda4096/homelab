@@ -817,33 +817,65 @@ export function computeSankeyLayout(
   // negative and collapse the whole diagram to hairlines.
   const colGap = (count: number) => (count > 1 ? Math.min(gap, available / (2 * count)) : 0)
 
-  // One scale across all columns (flow conservation) = the smallest column scale.
-  const scales = [...columns.values()]
+  // Per-node incoming/outgoing link VALUES — a node's band must hold its larger side's
+  // stacked ribbon widths, and each ribbon is floored, so band height is non-linear in scale.
+  const inLinks = new Map<string, number[]>()
+  const outLinks = new Map<string, number[]>()
+  for (const link of safeLinks) {
+    if (!outLinks.has(link.source)) outLinks.set(link.source, [])
+    if (!inLinks.has(link.target)) inLinks.set(link.target, [])
+    outLinks.get(link.source)!.push(link.value)
+    inLinks.get(link.target)!.push(link.value)
+  }
+  const sideStack = (vals: number[] | undefined, s: number) =>
+    (vals ?? []).reduce((sum, v) => sum + Math.max(SANKEY_MIN_LINK, v * s), 0)
+  const nodeHeightAt = (id: string, s: number) =>
+    Math.max(SANKEY_MIN_NODE, sideStack(inLinks.get(id), s), sideStack(outLinks.get(id), s))
+  const columnUsed = (col: SankeyWorkNode[], s: number) =>
+    col.reduce((sum, n) => sum + nodeHeightAt(n.id, s), 0) + Math.max(0, col.length - 1) * colGap(col.length)
+
+  // One scale across all columns (flow conservation): start from the continuous model
+  // (raw values), then shrink until every column fits AFTER flooring — the MIN_NODE/MIN_LINK
+  // floors add height the raw scale never budgeted for. This handles all realistic inputs.
+  const rawScales = [...columns.values()]
     .filter((col) => col.length > 0)
     .map((col) => {
       const total = col.reduce((sum, n) => sum + n.value, 0)
       const usable = Math.max(1, available - colGap(col.length) * Math.max(0, col.length - 1))
       return total > 0 ? Math.max(0.0001, usable / total) : 1
     })
-  const scale = scales.length ? Math.max(0.0001, Math.min(...scales)) : 1
+  let scale = rawScales.length ? Math.max(0.0001, Math.min(...rawScales)) : 1
+  for (let iter = 0; iter < 16; iter++) {
+    let worst = 1
+    for (const col of columns.values()) {
+      if (!col.length) continue
+      const used = columnUsed(col, scale)
+      if (used > available + 0.5) worst = Math.max(worst, used / available)
+    }
+    if (worst <= 1.0001) break
+    scale /= worst
+  }
 
-  // Floor each ribbon, then size each node band to hold its larger stacked side, so
-  // ribbons never overlap (cursor == rendered width) nor spill past the node band.
-  const linkWidth = (value: number) => Math.max(SANKEY_MIN_LINK, value * scale)
-  const inStack = new Map<string, number>()
-  const outStack = new Map<string, number>()
-  for (const link of safeLinks) {
-    const w = linkWidth(link.value)
-    inStack.set(link.target, (inStack.get(link.target) ?? 0) + w)
-    outStack.set(link.source, (outStack.get(link.source) ?? 0) + w)
+  // The floors put a scale-independent lower bound on a column's height, so shrinking
+  // `scale` alone cannot fit a column with very many nodes (e.g. 40+ institutions).
+  // Apply one global compression so the densest column fits the band exactly; every
+  // ribbon/node scales by the same `fit` so conservation holds. fit === 1 (no-op) for
+  // all inputs the loop above already fit.
+  let fit = 1
+  for (const col of columns.values()) {
+    if (!col.length) continue
+    const sumH = col.reduce((sum, n) => sum + nodeHeightAt(n.id, scale), 0)
+    const gaps = Math.max(0, col.length - 1) * colGap(col.length)
+    if (sumH > 0) fit = Math.min(fit, (available - gaps) / sumH)
   }
-  for (const node of layoutNodes) {
-    node.height = Math.max(SANKEY_MIN_NODE, inStack.get(node.id) ?? 0, outStack.get(node.id) ?? 0)
-  }
+  fit = Math.max(0.0001, Math.min(1, fit))
+
+  const linkWidth = (value: number) => Math.max(SANKEY_MIN_LINK, value * scale) * fit
 
   for (const [column, col] of columns) {
     col.sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
     const g = colGap(col.length)
+    for (const n of col) n.height = nodeHeightAt(n.id, scale) * fit
     const used = col.reduce((sum, n) => sum + n.height, 0) + Math.max(0, col.length - 1) * g
     let y = top + Math.max(0, (available - used) / 2)
     const x = columnX(column)
@@ -853,8 +885,10 @@ export function computeSankeyLayout(
       node.x1 = x + nodeW
       node.y0 = y
       node.y1 = y + node.height
-      node.sourceCursor = y
-      node.targetCursor = y
+      // Center each side's ribbon stack within the band so a thin feed attaches at the
+      // node's vertical center rather than top-aligning (no off-center gap, no overlap).
+      node.sourceCursor = y + Math.max(0, (node.height - sideStack(outLinks.get(node.id), scale) * fit) / 2)
+      node.targetCursor = y + Math.max(0, (node.height - sideStack(inLinks.get(node.id), scale) * fit) / 2)
       y += node.height + g
     })
   }

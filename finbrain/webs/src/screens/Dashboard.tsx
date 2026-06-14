@@ -341,10 +341,10 @@ export function Dashboard() {
       </div>
 
       <div className="fb-grid kpi-4">
-        <AllocationCard title="按用途" dim="kind" buckets={v.allocations.kind ?? []} total={v.total_assets} currency={v.display_currency} />
-        <AllocationCard title="按账户币种" dim="currency" buckets={v.allocations.currency ?? []} total={v.total_assets} currency={v.display_currency} />
-        <AllocationCard title="按真实计价币种" dim="quote_currency" buckets={v.allocations.quote_currency ?? []} total={v.total_assets} currency={v.display_currency} />
-        <AllocationCard title="按机构" dim="institution" buckets={v.allocations.institution ?? []} total={v.total_assets} currency={v.display_currency} />
+        <AllocationCard title="按用途" dim="kind" buckets={v.allocations.kind ?? []} currency={v.display_currency} />
+        <AllocationCard title="按账户币种" dim="currency" buckets={v.allocations.currency ?? []} currency={v.display_currency} />
+        <AllocationCard title="按真实计价币种" dim="quote_currency" buckets={v.allocations.quote_currency ?? []} currency={v.display_currency} />
+        <AllocationCard title="按机构" dim="institution" buckets={v.allocations.institution ?? []} currency={v.display_currency} />
       </div>
 
       <div className="fb-grid db-12">
@@ -381,22 +381,26 @@ function AllocationCard({
   title,
   dim,
   buckets,
-  total,
   currency,
 }: {
   title: string
   dim: string
   buckets: ValuationBucket[]
-  total: string
   currency: string
 }) {
   const items = toDonutItems(dim, buckets)
+  // quote_currency mixes signed asset/liability exposure → center on gross (= the abs ring).
+  // Asset dims (kind/currency/institution) must show the true SIGNED total under '总资产',
+  // so a rare negative bucket (overdraft) can't make the headline overstate.
+  const donutTotal = items.reduce((sum, it) => sum + it.value, 0)
+  const signedTotal = buckets.reduce((sum, b) => sum + (num(b.value) ?? 0), 0)
+  const centerVal = dim === 'quote_currency' ? donutTotal : signedTotal
   return (
     <Card eyebrow="资产配置" title={title}>
       {items.length ? (
         <Donut
           items={items}
-          centerLabel={shortMoney(total, currency)}
+          centerLabel={shortMoney(centerVal, currency)}
           centerSub={dim === 'quote_currency' ? '暴露' : '总资产'}
           size={116}
           thickness={12}

@@ -72,7 +72,9 @@ export function AssetFlowPanel({
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--text-tertiary)' }}>
             <span>按当前估值截面和展示币种 {displayCurrency} 计算。</span>
             {flow.compactedCount > 0 ? <span>末端已合并 {flow.compactedCount} 个小额资产到「其他资产」。</span> : null}
-            {flow.omittedCount > 0 ? <span>已忽略 {flow.omittedCount} 项无估值或负值资产。</span> : null}
+            {flow.omittedCount > 0 ? (
+              <span>已忽略 {flow.omittedCount} 项无估值或负值资产，图示合计 {shortMoney(flow.includedTotal, displayCurrency)}。</span>
+            ) : null}
           </div>
         </>
       ) : (
@@ -226,6 +228,8 @@ export type AssetFlowData = {
   links: SankeyLinkInput[]
   compactedCount: number
   omittedCount: number
+  /** sum of the values actually drawn — differs from total_assets when items are omitted */
+  includedTotal: number
 }
 
 export function buildAssetFlow(valuation: Valuation): AssetFlowData {
@@ -331,6 +335,7 @@ export function buildAssetFlow(valuation: Valuation): AssetFlowData {
     links: [...links.values()],
     compactedCount,
     omittedCount,
+    includedTotal: items.reduce((sum, it) => sum + it.value, 0),
   }
 }
 
@@ -429,7 +434,9 @@ async function renderAssetFlowShareImage({
 
   for (const node of layout.nodes) {
     ctx.fillStyle = shareColorFromToken(node.color, accent)
-    shareRoundedRect(ctx, node.x0, node.y0, node.x1 - node.x0, Math.max(3, node.y1 - node.y0), 4)
+    // Trust the laid-out band height (the SANKEY_MIN_NODE floor is already budgeted by
+    // computeSankeyLayout's fit factor); re-flooring here would defeat fit and overflow.
+    shareRoundedRect(ctx, node.x0, node.y0, node.x1 - node.x0, node.y1 - node.y0, 4)
     ctx.fill()
 
     const labelOnLeft = node.column === maxColumn

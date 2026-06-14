@@ -48,9 +48,11 @@ export function Pivot() {
     const v = val.data
     if (!v) return [] as PivotRow[]
     if (dim === 'symbol') {
-      const total = num(v.position_value) ?? 0
-      return v.position_groups
-        .filter((g) => g.market_value_display)
+      const groups = v.position_groups.filter((g) => g.market_value_display)
+      // Denominator = Σ of the rows actually shown, so per-row %, the 合计 row and the
+      // donut center all reconcile (v.position_value rounds once and can differ by cents).
+      const total = groups.reduce((sum, g) => sum + (num(g.market_value_display) ?? 0), 0)
+      return groups
         .map((g) => {
           const value = num(g.market_value_display) ?? 0
           return { key: g.symbol, name: g.display_name ? `${g.symbol} ${g.display_name}` : g.symbol, value, percent: total ? ((value / total) * 100).toFixed(2) : '0.00' }
@@ -65,6 +67,9 @@ export function Pivot() {
   const total = rows.reduce((a, r) => a + r.value, 0)
   const chartRows = useMemo(() => compactChartRows(rows, total, dim === 'symbol' ? 7 : VIZ.length), [rows, total, dim])
   const donutItems: DonutItem[] = chartRows.map((r, i) => ({ key: r.key, name: r.name, value: Math.abs(r.value), color: VIZ[i % VIZ.length] }))
+  // The donut center must equal what the ring actually draws (sum of plotted, abs basis).
+  // For quote_currency this is gross exposure; the signed net stays in the table 合计 row.
+  const donutTotal = donutItems.reduce((sum, it) => sum + it.value, 0)
   const dimLabel = DIMENSIONS.find((d) => d.value === dim)?.label ?? dim
   const basisLabel = dim === 'symbol' ? '按持仓市值' : dim === 'quote_currency' ? '按真实计价币种(暴露口径)' : '按净资产口径'
 
@@ -104,10 +109,12 @@ export function Pivot() {
             <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 12px' }}>
               {donutItems.length ? (
                 <div style={{ width: 'min(100%, 760px)' }}>
-                  <Donut items={donutItems} size={220} thickness={24} centerLabel={shortMoney(total, displayCurrency)} centerSub="合计" legendPlacement="side" />
+                  <Donut items={donutItems} size={220} thickness={24} centerLabel={shortMoney(donutTotal, displayCurrency)} centerSub={dim === 'quote_currency' ? '暴露' : '合计'} legendPlacement="side" />
                 </div>
               ) : (
-                <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>暂无数据</div>
+                <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  {val.isLoading ? '正在加载…' : val.isError ? '估值加载失败' : '暂无数据'}
+                </div>
               )}
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -138,13 +145,13 @@ export function Pivot() {
           <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>多维聚合按当前估值截面展开;「资产流向」视图提供机构 → 账户用途 → 标的的多级透视。</div>
         </>
       )}
-      {shareOpen ? (
+      {shareOpen && view === 'pivot' ? (
         <ShareImageModal
           dim={dim}
           dimLabel={dimLabel}
           basisLabel={basisLabel}
           chartRows={chartRows}
-          total={total}
+          total={donutTotal}
           currency={displayCurrency}
           onClose={() => setShareOpen(false)}
         />
@@ -173,15 +180,18 @@ function fallbackLabel(key: string, name: string) {
 function compactChartRows(rows: PivotRow[], total: number, limit: number) {
   if (rows.length <= limit) return rows
   const head = rows.slice(0, limit)
-  const restValue = rows.slice(limit).reduce((sum, r) => sum + r.value, 0)
-  if (restValue <= 0) return head
+  const tail = rows.slice(limit)
+  // The donut plots on an abs basis, so aggregate the tail by magnitude — never silently
+  // drop it (a net-negative tail still contains real exposure shown in the table).
+  const restAbs = tail.reduce((sum, r) => sum + Math.abs(r.value), 0)
+  if (restAbs === 0) return head
   return [
     ...head,
     {
       key: '__other__',
-      name: '其他',
-      value: restValue,
-      percent: total ? ((restValue / total) * 100).toFixed(2) : '0.00',
+      name: `其他（${tail.length}）`,
+      value: restAbs,
+      percent: total ? ((restAbs / Math.abs(total)) * 100).toFixed(2) : '0.00',
     },
   ]
 }
@@ -215,7 +225,7 @@ function ShareImageModal({
   useEffect(() => {
     let cancelled = false
     setGenerating(true)
-    renderPivotShareImage({ dimLabel, basisLabel, chartRows, total, currency })
+    renderPivotShareImage({ dim, dimLabel, basisLabel, chartRows, total, currency })
       .then((blob) => {
         if (cancelled) return
         setPreviewUrl(URL.createObjectURL(blob))
@@ -227,7 +237,7 @@ function ShareImageModal({
     return () => {
       cancelled = true
     }
-  }, [basisLabel, chartRows, currency, dimLabel, toast, total])
+  }, [basisLabel, chartRows, currency, dim, dimLabel, toast, total])
 
   useEffect(() => {
     return () => {
@@ -235,7 +245,7 @@ function ShareImageModal({
     }
   }, [previewUrl])
 
-  const makeBlob = () => renderPivotShareImage({ dimLabel, basisLabel, chartRows, total, currency })
+  const makeBlob = () => renderPivotShareImage({ dim, dimLabel, basisLabel, chartRows, total, currency })
 
   async function copyImage() {
     const clipboard = navigator.clipboard as Clipboard & { write?: (items: unknown[]) => Promise<void> }
@@ -316,12 +326,14 @@ function ShareImageModal({
 }
 
 async function renderPivotShareImage({
+  dim,
   dimLabel,
   basisLabel,
   chartRows,
   total,
   currency,
 }: {
+  dim: string
   dimLabel: string
   basisLabel: string
   chartRows: PivotRow[]
@@ -391,8 +403,9 @@ async function renderPivotShareImage({
   setFont(ctx, 18, 700)
   ctx.fillStyle = accent
   ctx.fillText('finbrain', pad, 42)
+  const titleX = pad + ctx.measureText('finbrain').width + 12
   ctx.fillStyle = strong
-  ctx.fillText(`多维聚合 · ${dimLabel}`, 122, 42)
+  ctx.fillText(`多维聚合 · ${dimLabel}`, titleX, 42)
   setFont(ctx, 12, 400)
   ctx.fillStyle = tertiary
   ctx.fillText(basisLabel, pad, 70)
@@ -411,7 +424,7 @@ async function renderPivotShareImage({
   ctx.fillText(shortMoney(total, currency), chartCx, chartCy - 4)
   setFont(ctx, 9, 500)
   ctx.fillStyle = tertiary
-  ctx.fillText('合计', chartCx, chartCy + 12)
+  ctx.fillText(dim === 'quote_currency' ? '暴露' : '合计', chartCx, chartCy + 12)
   ctx.textAlign = 'left'
 
   const nameX = legendX + swatch + swatchGap
