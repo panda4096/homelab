@@ -1977,22 +1977,24 @@ position_delta         = replay_quantity − snapshot_quantity
 - 所有写操作最终都经过 UI 预览，无静默写入
 - LLM 输出非合法 JSON 时，前端回退为"原始文本 + 手工录入"
 
-### 8.2 自然语言查询
+### 8.2 自然语言查询（经 skill 层，不生成 SQL）
+
+> **架构修订(P8)**：**LLM / Agent 不再生成 SQL,也不直接连库或选择表。** 自然语言只映射到后端注册的 **skill(工具)**,由后端持有 DB 连接并执行。详见 §8.5 Agent Skill 契约。原"NL→单条 SQL 沙箱"方案已废弃删除。
 
 **输入**：业主自由文本提问。
 
-**LLM 任务**：
+**流程**：
 
-1. 翻译为单条 SQL
-2. SQL 仅允许 `SELECT`；任何 `INSERT / UPDATE / DELETE / DROP / ALTER / TRUNCATE / GRANT / REVOKE / COPY` 都拒绝执行并提示
-3. SQL 仅允许查询 finbrain 的业务表（白名单）；不允许 `pg_*`、`information_schema`、`pg_catalog`
-4. 输出：SQL + 中文解释 + 推荐的可视化形式（table / number / line_chart / bar_chart / pie_chart）
+1. 后端把已注册的 read / draft skill 目录(`name` + `description` + `input_schema`)作为可用工具提供给 LLM
+2. LLM 选择**恰好 1 个**最合适的 skill 并按其 `input_schema` 填参数(function-calling),只返回 `{skill, params}`;**严禁输出 SQL、表名、join、where**
+3. 后端校验 skill 名在目录内、参数合法、调用方权限,执行对应 domain 方法,套用业务口径 / decimal / 日期 / 币种 / 行数上限,并写审计
+4. 返回结构化结果,前端按结果形态渲染(数字 / 表格 / 图)
 
 **前置规则**：
 
-- LLM 输出的 SQL 经过白名单 + 解析校验后再执行
-- 执行结果带行数上限（5000 行），超限截断 + 提示
-- 执行超时上限（10 秒），超时取消
+- Agent runtime 不持有 DB 连接;后端 DB 账号只由后端服务使用
+- 读操作只能调用固定 read skill(后续可加**受控分析 DSL**:白名单 dataset / metrics / dimensions / filters,仍不暴露 SQL);写操作走 draft → 确认 → apply(见 §8.1、§8.5)
+- 列表类 skill 强制行数上限(默认 ≤5000,超限截断并提示);所有调用记入审计(§8.6)
 
 ### 8.3 阶段性总结
 
@@ -2012,11 +2014,28 @@ position_delta         = replay_quantity − snapshot_quantity
 
 ### 8.4 通用约束
 
-- 所有 LLM 调用使用 Anthropic Claude API
-- API 凭据存储在 `infra/.secrets/finbrain.env`，应用通过环境变量读取
-- 业主可在设置中关闭所有 LLM 功能（应用退化为纯手工模式）
-- 任何 LLM 输出在写入数据库前都必须经过：JSON Schema 校验 + 业主 UI 确认
-- LLM 调用日志（输入、输出、时间、token 消耗）保留 30 天用于审计与调试
+- 默认 LLM 提供方为 **DeepSeek**(env `DEEPSEEK_API_KEY`),可选 Anthropic 兜底;凭据从环境变量读取,不入仓库或日志
+- 业主可在设置中关闭所有 LLM 功能（应用退化为纯手工模式;未配置 key 时优雅降级 503)
+- 任何 LLM 输出在写入数据库前都必须经过：domain 校验 + 业主 UI 确认(见 §8.5 apply 流程)
+- LLM / Agent 的每次 skill 调用都写审计(§8.6)
+
+### 8.5 Agent Skill 契约（P8)
+
+**核心原则**:Agent runtime 不持有 DB 连接;后端 DB 账号只由后端使用;Agent **只能表达意图与参数**,不能表达 SQL、表名、join 或任意 where;读写都只能调用后端**注册过的 skill**。
+
+**Skill 目录**:每个 skill 含 `name` / `type`(read|draft|write) / `description` / `input_schema`(JSON Schema) / `permission` / `requires_confirmation` / `max_rows` / `audit_enabled`。`GET /api/agent/skills` 返回目录(给 UI「技能」页与外部 agent 发现工具)。
+
+**读**:`POST /api/agent/run {skill, params}` 执行 read / draft skill,后端调既有 domain 方法;draft 只校验并返回预览,不写库。
+
+**写(draft → 确认 → apply)**:draft skill 校验并返回"将要写入的实体 + 风险提示";业主确认后 `POST /api/agent/apply {skill, params, confirm:true}` 才落库,复用既有业务校验与事务。写 skill `requires_confirmation=true`,无 confirm 拒绝;只读 key 不能调写 skill。
+
+**NL 编排**:`POST /api/agent/plan {text}` 把自然语言映射为一次 read/draft skill 调用(function-calling),不自动执行写;写由前端确认后走 apply。
+
+**外部接入 / API Key**:外部 agent 用 `Authorization: Bearer fbk_…` 调用;key 经 `POST /api/api-keys` 创建(密钥仅显示一次,库内只存 sha256),`scopes ∈ {read, read_write}`,可吊销。
+
+### 8.6 审计
+
+统一审计表 `agent_audit` 记录**人工 UI 写操作**与 **Agent skill 调用**:`request_id` / `actor`(owner|apikey:name) / `source`(ui|agent|apikey) / `skill_name` / `skill_type` / `input_json` / `output_row_count` / `affected_entities` / `natural_language_source` / `confirmed_by_user` / `status` / `error_code` / `http_method+path` / `created_at`。前端「审计日志」页按来源筛选展示。
 
 ---
 
