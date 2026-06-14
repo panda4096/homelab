@@ -20,7 +20,7 @@ type Config struct {
 	// LLM (P6). DeepSeek is the default provider (PLAN §2.4); Anthropic is a fallback.
 	DeepSeekAPIKey  string // DEEPSEEK_API_KEY
 	AnthropicAPIKey string // ANTHROPIC_API_KEY (fallback)
-	LLMModel        string // FINBRAIN_LLM_MODEL; optional override
+	LLMModel        string // FINBRAIN_LLM_MODEL; optional override (default deepseek-v4-flash)
 }
 
 // Load reads configuration from the environment and validates it.

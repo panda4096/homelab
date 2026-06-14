@@ -51,7 +51,7 @@ export function Settings() {
     setMarketConvention,
     setTimeAggregationDefault,
   } = usePrefStore()
-  const llm = useQuery({ queryKey: ['llm-status'], queryFn: getLLMStatus })
+  const llm = useQuery({ queryKey: ['llm-status'], queryFn: () => getLLMStatus() })
 
   return (
     <div style={{ padding: 22, maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>

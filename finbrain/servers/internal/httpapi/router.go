@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -13,9 +14,12 @@ import (
 
 // Server holds handler dependencies.
 type Server struct {
-	cfg   *config.Config
-	store *store.Store
-	llm   *llm.Client
+	cfg              *config.Config
+	store            *store.Store
+	llm              *llm.Client
+	llmProbeMu       sync.Mutex
+	llmProbe         llmProbeCache
+	llmProbeInFlight chan struct{}
 }
 
 // NewRouter builds the HTTP handler: /healthz, /api/*, and optional static frontend.
@@ -147,6 +151,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 			r.Use(s.agentAuthMiddleware)
 			r.Get("/skills", s.listAgentSkills)
 			r.Post("/plan", s.planAgent)
+			r.Post("/stream", s.streamAgent)
 			r.Post("/run", s.runAgentSkill)
 			r.Post("/apply", s.applyAgentSkill)
 		})

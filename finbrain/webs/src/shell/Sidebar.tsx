@@ -1,8 +1,14 @@
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Icon, Segmented } from '../ds'
 import { NAV } from '../nav'
 import { CopilotPanel } from './CopilotPanel'
 import wordmark from '../assets/logo/finbrain-wordmark.svg'
+
+const COPILOT_WIDTH_KEY = 'finbrain.copilotSidebarWidth'
+const COPILOT_DEFAULT_WIDTH = 360
+const COPILOT_MIN_WIDTH = 332
+const COPILOT_MAX_WIDTH = 720
 
 // Ported from design/project/app/Shell.jsx (Sidebar). The Copilot mode hosts the
 // persistent NL conversation panel (P6). Open state is controlled by App so ⌘K
@@ -12,18 +18,65 @@ export function Sidebar({ copilotOpen, onCopilotChange }: { copilotOpen: boolean
   const navigate = useNavigate()
   const copilot = copilotOpen
   const active = location.pathname.replace(/^\//, '') || 'dashboard'
+  const asideRef = useRef<HTMLElement | null>(null)
+  const resizingRef = useRef(false)
+  const [copilotWidth, setCopilotWidth] = useState(readCopilotWidth)
+
+  useEffect(() => {
+    if (!copilot) return
+
+    const endResize = () => {
+      if (!resizingRef.current) return
+      resizingRef.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    const moveResize = (e: MouseEvent) => {
+      if (!resizingRef.current) return
+      const left = asideRef.current?.getBoundingClientRect().left ?? 0
+      updateCopilotWidth(e.clientX - left)
+    }
+
+    window.addEventListener('mousemove', moveResize)
+    window.addEventListener('mouseup', endResize)
+    window.addEventListener('blur', endResize)
+    return () => {
+      window.removeEventListener('mousemove', moveResize)
+      window.removeEventListener('mouseup', endResize)
+      window.removeEventListener('blur', endResize)
+      endResize()
+    }
+  }, [copilot])
+
+  function updateCopilotWidth(next: number) {
+    setCopilotWidth(() => {
+      const clamped = clampCopilotWidth(next)
+      window.localStorage.setItem(COPILOT_WIDTH_KEY, String(clamped))
+      return clamped
+    })
+  }
+
+  function startResize(e: ReactMouseEvent<HTMLDivElement>) {
+    if (!copilot) return
+    e.preventDefault()
+    resizingRef.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
 
   return (
     <aside
+      ref={asideRef}
       style={{
-        width: copilot ? 348 : 'var(--sidebar-width)',
-        minWidth: copilot ? 348 : 'var(--sidebar-width)',
+        width: copilot ? copilotWidth : 'var(--sidebar-width)',
+        minWidth: copilot ? COPILOT_MIN_WIDTH : 'var(--sidebar-width)',
         background: 'var(--surface-panel)',
         borderRight: '1px solid var(--divider)',
         display: 'flex',
         flexDirection: 'column',
         flex: 'none',
         height: '100%',
+        position: 'relative',
       }}
     >
       <div
@@ -156,6 +209,51 @@ export function Sidebar({ copilotOpen, onCopilotChange }: { copilotOpen: boolean
           </div>
         </>
       )}
+      {copilot ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整 Copilot 侧栏宽度"
+          tabIndex={0}
+          onMouseDown={startResize}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault()
+              updateCopilotWidth(copilotWidth - (e.shiftKey ? 40 : 16))
+            }
+            if (e.key === 'ArrowRight') {
+              e.preventDefault()
+              updateCopilotWidth(copilotWidth + (e.shiftKey ? 40 : 16))
+            }
+          }}
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: -4,
+            width: 8,
+            height: '100%',
+            cursor: 'col-resize',
+            zIndex: 20,
+            outline: 'none',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(201,168,106,0.12)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+          onFocus={(e) => { e.currentTarget.style.background = 'rgba(201,168,106,0.16)' }}
+          onBlur={(e) => { e.currentTarget.style.background = 'transparent' }}
+        />
+      ) : null}
     </aside>
   )
+}
+
+function readCopilotWidth() {
+  if (typeof window === 'undefined') return COPILOT_DEFAULT_WIDTH
+  const saved = Number(window.localStorage.getItem(COPILOT_WIDTH_KEY))
+  if (!Number.isFinite(saved)) return COPILOT_DEFAULT_WIDTH
+  return clampCopilotWidth(saved)
+}
+
+function clampCopilotWidth(width: number) {
+  const viewportMax = typeof window === 'undefined' ? COPILOT_MAX_WIDTH : Math.max(COPILOT_MIN_WIDTH, window.innerWidth - 480)
+  return Math.round(Math.min(Math.max(width, COPILOT_MIN_WIDTH), Math.min(COPILOT_MAX_WIDTH, viewportMax)))
 }

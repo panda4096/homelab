@@ -24,7 +24,12 @@ interface ToastApi {
   info: (message: string) => void
 }
 
-const ToastCtx = createContext<ToastApi | null>(null)
+type ToastGlobal = typeof globalThis & {
+  __finbrainToastCtx?: ReturnType<typeof createContext<ToastApi | null>>
+}
+
+const toastGlobal = globalThis as ToastGlobal
+const ToastCtx = toastGlobal.__finbrainToastCtx ?? (toastGlobal.__finbrainToastCtx = createContext<ToastApi | null>(null))
 
 export function useToast(): ToastApi {
   const ctx = useContext(ToastCtx)

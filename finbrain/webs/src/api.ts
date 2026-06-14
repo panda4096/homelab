@@ -1070,6 +1070,8 @@ export interface LLMStatus {
   configured: boolean
   provider: string
   model: string
+  available?: boolean
+  error?: string
 }
 
 export interface Summary {
@@ -1083,8 +1085,8 @@ export interface Summary {
   created_at: string
 }
 
-export function getLLMStatus(): Promise<LLMStatus> {
-  return request<LLMStatus>('/api/llm/status')
+export function getLLMStatus(probe = false): Promise<LLMStatus> {
+  return request<LLMStatus>(`/api/llm/status${probe ? '?probe=1' : ''}`)
 }
 
 export function listSummaries(): Promise<Summary[]> {
@@ -1188,10 +1190,31 @@ export interface AgentRunResult {
   result: unknown
   row_count: number
   affected_entities?: string[]
+  reply?: string
+}
+
+export interface AgentStep {
+  key: string
+  label: string
+  status: 'done' | 'pending' | 'error' | string
+  detail?: string
+  skill?: string
+  row_count?: number
+}
+
+export interface AgentUsage {
+  calls?: number
+  prompt_tokens?: number
+  prompt_cache_hit_tokens?: number
+  prompt_cache_miss_tokens?: number
+  completion_tokens?: number
+  reasoning_tokens?: number
+  total_tokens?: number
+  cost_usd?: number
 }
 
 export interface AgentPlanResult {
-  // chat path: no skill chosen — just a conversational reply (type='chat')
+  // chat path: no skill chosen; skill path may also include a human-readable reply.
   plan?: { skill: string; params: Record<string, unknown> }
   type: SkillType | 'chat'
   requires_confirmation?: boolean
@@ -1199,6 +1222,24 @@ export interface AgentPlanResult {
   row_count?: number
   affected_entities?: string[]
   reply?: string
+  steps?: AgentStep[]
+  usage?: AgentUsage
+}
+
+export interface AgentPlanOptions {
+  model?: 'deepseek-v4-flash' | 'deepseek-v4-pro'
+  thinking?: boolean
+  history?: AgentChatMessage[]
+}
+
+export interface AgentChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+export interface AgentStreamHandlers {
+  onPhase?: (step: AgentStep) => void
+  onAnswerDelta?: (text: string) => void
 }
 
 export interface APIKey {
@@ -1234,8 +1275,86 @@ export function listSkills(): Promise<AgentSkill[]> {
   return request<{ skills: AgentSkill[] }>('/api/agent/skills').then((d) => d.skills)
 }
 
-export function planAgent(text: string): Promise<AgentPlanResult> {
-  return request<AgentPlanResult>('/api/agent/plan', { method: 'POST', body: JSON.stringify({ text }) })
+export function planAgent(text: string, options?: AgentPlanOptions): Promise<AgentPlanResult> {
+  return request<AgentPlanResult>('/api/agent/plan', { method: 'POST', body: JSON.stringify({ text, ...options }) })
+}
+
+export async function streamAgent(text: string, options: AgentPlanOptions | undefined, handlers: AgentStreamHandlers = {}): Promise<AgentPlanResult> {
+  const res = await fetch('/api/agent/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ text, ...options }),
+  })
+  if (!res.ok) {
+    let code: ApiErrorCode = 'error'
+    let message = `POST /api/agent/stream failed (${res.status})`
+    let details: unknown
+    try {
+      const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } }
+      if (body?.error?.message) message = body.error.message
+      if (body?.error?.code) code = body.error.code
+      details = body?.error?.details
+    } catch {
+      /* keep generic message */
+    }
+    throw new ApiError(res.status, code, message, details)
+  }
+  if (!res.body) throw new ApiError(0, 'network', '浏览器不支持流式响应')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalResult: AgentPlanResult | undefined
+
+  const dispatch = (chunk: string) => {
+    const evt = parseSSEEvent(chunk)
+    if (!evt) return
+    if (evt.event === 'phase') {
+      handlers.onPhase?.(JSON.parse(evt.data) as AgentStep)
+      return
+    }
+    if (evt.event === 'answer_delta') {
+      const delta = JSON.parse(evt.data) as { text?: string }
+      if (delta.text) handlers.onAnswerDelta?.(delta.text)
+      return
+    }
+    if (evt.event === 'final') {
+      finalResult = JSON.parse(evt.data) as AgentPlanResult
+      return
+    }
+    if (evt.event === 'error') {
+      const err = JSON.parse(evt.data) as { code?: string; message?: string; details?: unknown }
+      throw new ApiError(503, err.code ?? 'error', err.message ?? '请求失败', err.details)
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
+    let split = buffer.indexOf('\n\n')
+    while (split >= 0) {
+      const raw = buffer.slice(0, split)
+      buffer = buffer.slice(split + 2)
+      dispatch(raw)
+      split = buffer.indexOf('\n\n')
+    }
+    if (done) break
+  }
+  if (buffer.trim()) dispatch(buffer)
+  if (!finalResult) throw new ApiError(0, 'stream_incomplete', 'Copilot 流式响应未完成')
+  return finalResult
+}
+
+function parseSSEEvent(raw: string): { event: string; data: string } | null {
+  let event = 'message'
+  const data: string[] = []
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line || line.startsWith(':')) continue
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+  }
+  if (!data.length) return null
+  return { event, data: data.join('\n') }
 }
 
 export function runSkill(skill: string, params: Record<string, unknown>, nlSource?: string): Promise<AgentRunResult> {

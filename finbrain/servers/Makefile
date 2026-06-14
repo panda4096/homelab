@@ -17,8 +17,11 @@ export DATABASE_URL
 LLM_SECRETS      ?= ../../infra/.secrets/finbrain.env
 DEEPSEEK_API_KEY := $(shell set -a; . $(LLM_SECRETS) 2>/dev/null; set +a; printf '%s' "$$DEEPSEEK_API_KEY")
 ANTHROPIC_API_KEY := $(shell set -a; . $(LLM_SECRETS) 2>/dev/null; set +a; printf '%s' "$$ANTHROPIC_API_KEY")
+FINBRAIN_LLM_MODEL ?= $(shell set -a; . $(LLM_SECRETS) 2>/dev/null; set +a; printf '%s' "$$FINBRAIN_LLM_MODEL")
+FINBRAIN_LLM_MODEL := $(if $(FINBRAIN_LLM_MODEL),$(FINBRAIN_LLM_MODEL),deepseek-v4-flash)
 export DEEPSEEK_API_KEY
 export ANTHROPIC_API_KEY
+export FINBRAIN_LLM_MODEL
 
 .PHONY: tidy build run migrate migrate-down migrate-status seed seed-test test fmt vet
 

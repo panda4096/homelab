@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/domain"
+	llmpkg "github.com/panda4096/homelab/finbrain/servers/internal/llm"
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
@@ -316,7 +318,7 @@ type agentRunBody struct {
 	NLSource string         `json:"nl_source"`
 }
 
-func (s *Server) runAgentSkill(w http.ResponseWriter, r *http.Request) { s.execSkill(w, r, false) }
+func (s *Server) runAgentSkill(w http.ResponseWriter, r *http.Request)   { s.execSkill(w, r, false) }
 func (s *Server) applyAgentSkill(w http.ResponseWriter, r *http.Request) { s.execSkill(w, r, true) }
 
 func (s *Server) execSkill(w http.ResponseWriter, r *http.Request, apply bool) {
@@ -361,6 +363,9 @@ func (s *Server) execSkill(w http.ResponseWriter, r *http.Request, apply bool) {
 		return
 	}
 	out := map[string]any{"skill": sk.Name, "type": sk.Type, "result": result, "row_count": rowCount}
+	if reply := narrateSkillResult(sk, body.Params, result, rowCount); reply != "" {
+		out["reply"] = reply
+	}
 	if len(affected) > 0 {
 		out["affected_entities"] = affected
 	}
@@ -374,13 +379,16 @@ func (s *Server) runAndAudit(r *http.Request, sk Skill, params skillArgs, confir
 	return result, rowCount, affected, err
 }
 
-// planAgent maps a natural-language request to ONE registered read/draft skill +
-// params via the LLM (function-calling style — the model never writes SQL or
-// picks tables), then executes it. Write/apply is never auto-run: a draft result
-// carries requires_confirmation, and the UI confirms via /agent/apply.
+// planAgent runs a bounded skill-based agent loop. The model can only choose
+// registered read/draft skills; the backend executes them and feeds observations
+// back to the model for the final answer. Write/apply is never auto-run: a draft
+// result carries requires_confirmation, and the UI confirms via /agent/apply.
 func (s *Server) planAgent(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Text string `json:"text"`
+		Text     string             `json:"text"`
+		Model    string             `json:"model"`
+		Thinking bool               `json:"thinking"`
+		History  []agentChatMessage `json:"history"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -391,94 +399,402 @@ func (s *Server) planAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.llm.Configured() {
-		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "未配置 LLM,自然语言助手不可用")
+		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "未配置 LLM，Copilot 不可用")
 		return
 	}
-	type tool struct {
-		Name        string          `json:"name"`
-		Type        string          `json:"type"`
-		Description string          `json:"description"`
-		InputSchema json.RawMessage `json:"input_schema"`
-	}
-	var tools []tool
-	for _, sk := range s.catalog() {
-		if sk.Type == "read" || sk.Type == "draft" {
-			tools = append(tools, tool{sk.Name, sk.Type, sk.Description, sk.InputSchema})
-		}
-	}
-	toolsJSON, _ := json.Marshal(tools)
-	// account context so the planner can resolve account_id by fuzzy name match
-	// (the model still only fills params — it never sees SQL or tables).
-	acctCtx := ""
-	if accts, err := s.store.ListAccounts(r.Context(), s.today()); err == nil {
-		type al struct {
-			ID          int64  `json:"id"`
-			Name        string `json:"name"`
-			Institution string `json:"institution"`
-			Kind        string `json:"kind"`
-			Currency    string `json:"currency"`
-		}
-		lite := make([]al, 0, len(accts))
-		for _, a := range accts {
-			lite = append(lite, al{a.ID, a.Name, a.Institution, a.Kind, a.Currency})
-		}
-		b, _ := json.Marshal(lite)
-		acctCtx = "\n需要 account_id 的工具:从下方账户列表按名称/机构模糊匹配取最可能的 id(现金类 cash/time_deposit/wealth_product 才能记余额,持仓类 brokerage/fund/crypto_wallet 才能记交易,credit_card 才能记账单)。账户列表(JSON):" + string(b)
-	}
-	system := "你是 finbrain 的资产管理助手。可调用下列已注册工具(skill)取数/记账,**严禁输出 SQL、表名、join 或任意查询**。\n" +
-		"二选一,严格只返回一个 JSON 对象:\n" +
-		"① 当用户想查数据或记一笔时:{\"skill\":\"工具名\",\"params\":{...按其 input_schema}};录入类用 draft 工具(写库由业主另行确认)。\n" +
-		"② 当用户只是打招呼 / 感谢 / 闲聊 / 意图不清 / 超出工具范围时:{\"reply\":\"一句自然中文回应\"};可顺带提示他能问什么(如净资产、持仓、对账、记账),**不要为闲聊硬选工具**。\n" +
-		"可用工具(JSON):" + string(toolsJSON) + acctCtx
-	raw, err := s.llm.Complete(r.Context(), system, "今天是 "+s.today()+"。用户说:"+body.Text, true)
+	llmOpts, err := normalizeAgentLLMOptions(body.Model, body.Thinking)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "LLM 调用失败")
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
 		return
 	}
-	var plan struct {
-		Skill  string         `json:"skill"`
-		Params map[string]any `json:"params"`
-		Reply  string         `json:"reply"`
-	}
-	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &plan); err != nil {
-		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "规划结果不是有效 JSON", map[string]string{"raw": raw})
+	result, err := s.runAgentLoop(r, body.Text, sanitizeAgentHistory(body.History), llmOpts, nil, nil)
+	if err != nil {
+		s.writeAgentError(w, r, err)
 		return
 	}
-	// chat / no-tool path: greeting, chitchat, unclear, out-of-scope — no data access.
-	if strings.TrimSpace(plan.Skill) == "" {
-		reply := strings.TrimSpace(plan.Reply)
-		if reply == "" {
-			reply = "我可以帮你查资产或记一笔 —— 试试「本月净资产」「持有 GOOG 的账户和数量」「人民币活期 今天 12.3 万」。"
+	writeJSON(w, http.StatusOK, result.response())
+}
+
+func (s *Server) streamAgent(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text     string             `json:"text"`
+		Model    string             `json:"model"`
+		Thinking bool               `json:"thinking"`
+		History  []agentChatMessage `json:"history"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	body.Text = strings.TrimSpace(body.Text)
+	if body.Text == "" {
+		writeError(w, http.StatusBadRequest, "validation_failed", "text is required")
+		return
+	}
+	if !s.llm.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "未配置 LLM，Copilot 不可用")
+		return
+	}
+	llmOpts, err := normalizeAgentLLMOptions(body.Model, body.Thinking)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal", "当前 HTTP 连接不支持 SSE")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	result, err := s.runAgentLoop(
+		r,
+		body.Text,
+		sanitizeAgentHistory(body.History),
+		llmOpts,
+		func(step agentStep) {
+			writeSSE(w, flusher, "phase", step)
+		},
+		func(text string) {
+			if text != "" {
+				writeSSE(w, flusher, "answer_delta", map[string]string{"text": text})
+			}
+		},
+	)
+	if err != nil {
+		writeSSE(w, flusher, "error", map[string]any{"message": agentErrorMessage(err), "code": agentErrorCode(err)})
+		return
+	}
+	writeSSE(w, flusher, "final", result.response())
+	writeSSE(w, flusher, "done", map[string]bool{"ok": true})
+}
+
+func (s *Server) runAgentLoop(r *http.Request, question string, history []agentChatMessage, llmOpts llmpkg.Options, emit func(agentStep), emitAnswer func(string)) (agentLoopResult, error) {
+	toolsJSON, acctCtx := s.agentToolContext(r.Context())
+	steps := []agentStep{{Key: "understand", Label: "理解问题", Status: "done", Detail: shortText(question, 42)}}
+	emitAgentStep(emit, steps[0])
+	observations := []agentObservation{}
+	var last *agentSkillOutcome
+	usage := agentUsage{}
+	prevOnUsage := llmOpts.OnUsage
+	llmOpts.OnUsage = func(part llmpkg.Usage) {
+		usage.Add(part)
+		if prevOnUsage != nil {
+			prevOnUsage(part)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"type": "chat", "reply": reply})
+	}
+	finish := func(result agentLoopResult) agentLoopResult {
+		result.Usage = usage
+		return result
+	}
+
+	for turn := 0; turn <= maxAgentToolCalls; turn++ {
+		planKey := "plan_" + strconv.Itoa(turn+1)
+		planIdx := len(steps)
+		step := agentStep{Key: planKey, Label: "规划下一步", Status: "pending", Detail: "正在判断需要查询哪些数据"}
+		steps = append(steps, step)
+		emitAgentStep(emit, step)
+
+		if turn == 0 && shouldRefreshHoldingsForCorrection(question, history) {
+			action := agentAction{
+				Action: "run_skill",
+				Skill:  "holdings.listCurrent",
+				Params: map[string]any{},
+				UINote: "重新查询当前持仓和浮动盈亏，核实数据",
+			}
+			steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: action.UINote, Skill: action.Skill}
+			emitAgentStep(emit, steps[planIdx])
+
+			toolKey := "tool_" + strconv.Itoa(turn+1)
+			step = agentStep{Key: toolKey, Label: "查询数据", Status: "pending", Detail: "正在执行" + skillDisplayName(action.Skill), Skill: action.Skill}
+			steps = append(steps, step)
+			emitAgentStep(emit, step)
+			outcome, err := s.executeAgentSkillPlan(r, question, action.Skill, action.Params)
+			if err != nil {
+				return agentLoopResult{}, err
+			}
+			lastOutcome := outcome
+			last = &lastOutcome
+			observations = append(observations, outcome.observation())
+			steps[len(steps)-1] = agentStep{
+				Key:      toolKey,
+				Label:    agentToolStepLabel(outcome.Skill.Type),
+				Status:   "done",
+				Detail:   fmt.Sprintf("已完成%s，返回 %d 条结果", skillDisplayName(outcome.Skill.Name), outcome.RowCount),
+				Skill:    outcome.Skill.Name,
+				RowCount: outcome.RowCount,
+			}
+			emitAgentStep(emit, steps[len(steps)-1])
+			continue
+		}
+
+		action, err := s.nextAgentAction(r.Context(), question, history, toolsJSON, acctCtx, observations, llmOpts)
+		if err != nil {
+			if isLLMServiceError(err) {
+				s.setLLMProbeCache(false, llmUserMessage(err))
+			}
+			return agentLoopResult{}, err
+		}
+		s.setLLMProbeCache(true, "")
+
+		switch action.Action {
+		case "final":
+			steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: "已判断当前信息足够回答"}
+			emitAgentStep(emit, steps[planIdx])
+			reply := strings.TrimSpace(action.Reply)
+			if len(observations) > 0 {
+				step := agentStep{Key: "answer", Label: "总结回答", Status: "pending", Detail: "正在生成回答"}
+				steps = append(steps, step)
+				emitAgentStep(emit, step)
+
+				if emitAnswer != nil {
+					reply, err = s.finalAgentReplyStream(r.Context(), question, history, observations, llmOpts, emitAnswer)
+					if err != nil {
+						if isLLMServiceError(err) {
+							s.setLLMProbeCache(false, llmUserMessage(err))
+						}
+						return agentLoopResult{}, err
+					}
+				} else if reply == "" {
+					reply, err = s.finalAgentReply(r.Context(), question, history, observations, llmOpts)
+					if err != nil {
+						if isLLMServiceError(err) {
+							s.setLLMProbeCache(false, llmUserMessage(err))
+						}
+						return agentLoopResult{}, err
+					}
+				}
+				s.setLLMProbeCache(true, "")
+				if reply == "" && last != nil {
+					reply = narrateSkillResult(last.Skill, skillArgs(last.Params), last.Result, last.RowCount)
+					if emitAnswer != nil {
+						emitAnswer(reply)
+					}
+				}
+				steps[len(steps)-1] = agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已基于查询结果生成回答"}
+				emitAgentStep(emit, steps[len(steps)-1])
+			} else if emitAnswer != nil && reply != "" {
+				step := agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已生成回答"}
+				steps = append(steps, step)
+				emitAgentStep(emit, step)
+				emitAnswer(reply)
+			} else {
+				step := agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已生成回答"}
+				steps = append(steps, step)
+				emitAgentStep(emit, step)
+			}
+			if reply == "" {
+				if last != nil {
+					reply = narrateSkillResult(last.Skill, skillArgs(last.Params), last.Result, last.RowCount)
+				} else {
+					reply = "我可以帮你查资产、持仓、对账，也可以先整理一条待确认的记账草稿。"
+				}
+			}
+			if last == nil {
+				return finish(agentLoopResult{Reply: reply, Steps: steps}), nil
+			}
+			return finish(agentLoopResult{Outcome: last, Reply: reply, Steps: steps}), nil
+
+		case "run_skill":
+			if action.Skill == "" {
+				return agentLoopResult{}, errSkillInput{"agent 未选择 skill"}
+			}
+			note := action.UINote
+			if note == "" {
+				note = "准备查询" + skillDisplayName(action.Skill)
+			}
+			steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: note, Skill: action.Skill}
+			emitAgentStep(emit, steps[planIdx])
+
+			toolKey := "tool_" + strconv.Itoa(turn+1)
+			toolLabel := "查询数据"
+			if sk, ok := s.findSkill(action.Skill); ok {
+				toolLabel = agentToolStepLabel(sk.Type)
+			}
+			step = agentStep{Key: toolKey, Label: toolLabel, Status: "pending", Detail: "正在执行" + skillDisplayName(action.Skill), Skill: action.Skill}
+			steps = append(steps, step)
+			emitAgentStep(emit, step)
+			outcome, err := s.executeAgentSkillPlan(r, question, action.Skill, action.Params)
+			if err != nil {
+				return agentLoopResult{}, err
+			}
+			lastOutcome := outcome
+			last = &lastOutcome
+			observations = append(observations, outcome.observation())
+			steps[len(steps)-1] = agentStep{
+				Key:      toolKey,
+				Label:    agentToolStepLabel(outcome.Skill.Type),
+				Status:   "done",
+				Detail:   fmt.Sprintf("已完成%s，返回 %d 条结果", skillDisplayName(outcome.Skill.Name), outcome.RowCount),
+				Skill:    outcome.Skill.Name,
+				RowCount: outcome.RowCount,
+			}
+			emitAgentStep(emit, steps[len(steps)-1])
+			if outcome.Skill.Type == "draft" {
+				step = agentStep{Key: "confirm", Label: "等待确认", Status: "pending", Detail: "写入前需要你确认草稿"}
+				steps = append(steps, step)
+				emitAgentStep(emit, step)
+				return finish(agentLoopResult{Outcome: &outcome, Reply: narrateSkillResult(outcome.Skill, skillArgs(outcome.Params), outcome.Result, outcome.RowCount), Steps: steps}), nil
+			}
+			if turn == maxAgentToolCalls-1 {
+				step = agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已达到工具调用上限，使用当前查询结果总结"}
+				steps = append(steps, step)
+				emitAgentStep(emit, step)
+				return finish(agentLoopResult{Outcome: &outcome, Reply: narrateSkillResult(outcome.Skill, skillArgs(outcome.Params), outcome.Result, outcome.RowCount), Steps: steps}), nil
+			}
+
+		default:
+			return agentLoopResult{}, errSkillInput{"Copilot 没能识别下一步动作，请换个问法或稍后重试"}
+		}
+	}
+	return agentLoopResult{}, errSkillInput{"agent 未生成回答"}
+}
+
+func emitAgentStep(emit func(agentStep), step agentStep) {
+	if emit != nil {
+		emit(step)
+	}
+}
+
+func (r agentLoopResult) response() map[string]any {
+	var out map[string]any
+	if r.Outcome == nil {
+		out = map[string]any{"type": "chat", "reply": r.Reply, "steps": r.Steps}
+	} else {
+		out = agentResponse(*r.Outcome, r.Reply, r.Steps)
+	}
+	if !r.Usage.Empty() {
+		out["usage"] = r.Usage
+	}
+	return out
+}
+
+func (s *Server) writeAgentError(w http.ResponseWriter, r *http.Request, err error) {
+	var bad errSkillInput
+	if errors.As(err, &bad) {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", bad.Error())
 		return
 	}
-	sk, ok := s.findSkill(strings.TrimSpace(plan.Skill))
-	if !ok || (sk.Type != "read" && sk.Type != "draft") {
-		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "规划选择了无效或不可直接执行的 skill", map[string]any{"skill": plan.Skill})
+	if isLLMServiceError(err) {
+		reason := llmUserMessage(err)
+		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", reason+"，Copilot 已停用")
 		return
 	}
-	if plan.Params == nil {
-		plan.Params = map[string]any{}
+	writeStorageError(w, r, err)
+}
+
+func writeSSE(w http.ResponseWriter, flusher http.Flusher, event string, data any) {
+	b, _ := json.Marshal(data)
+	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
+	flusher.Flush()
+}
+
+func agentErrorCode(err error) string {
+	var bad errSkillInput
+	if errors.As(err, &bad) {
+		return "business_rule_violated"
 	}
-	result, rowCount, affected, rerr := s.runAndAudit(r, sk, plan.Params, false, body.Text)
-	if rerr != nil {
+	if isLLMServiceError(err) {
+		return "llm_unavailable"
+	}
+	return "internal"
+}
+
+func agentErrorMessage(err error) string {
+	var bad errSkillInput
+	if errors.As(err, &bad) {
+		return bad.Error()
+	}
+	if isLLMServiceError(err) {
+		return llmUserMessage(err) + "，Copilot 已停用"
+	}
+	return "请求失败"
+}
+
+func (s *Server) writeAgentPlanResult(w http.ResponseWriter, r *http.Request, nlSource, skillName string, params map[string]any) {
+	outcome, err := s.executeAgentSkillPlan(r, nlSource, skillName, params)
+	if err != nil {
 		var bad errSkillInput
-		if errors.As(rerr, &bad) {
-			writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", bad.Error(), map[string]any{"skill": sk.Name, "params": plan.Params})
+		if errors.As(err, &bad) {
+			writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", bad.Error(), map[string]any{"skill": skillName, "params": params})
 			return
 		}
-		writeStorageError(w, r, rerr)
+		writeStorageError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"plan":                  map[string]any{"skill": sk.Name, "params": plan.Params},
-		"type":                  sk.Type,
-		"requires_confirmation": sk.Type == "draft",
-		"result":                result,
-		"row_count":             rowCount,
-		"affected_entities":     affected,
-	})
+	writeJSON(w, http.StatusOK, agentResponse(outcome, narrateSkillResult(outcome.Skill, skillArgs(outcome.Params), outcome.Result, outcome.RowCount), nil))
+}
+
+func (s *Server) executeAgentSkillPlan(r *http.Request, nlSource, skillName string, params map[string]any) (agentSkillOutcome, error) {
+	sk, ok := s.findSkill(strings.TrimSpace(skillName))
+	if !ok || (sk.Type != "read" && sk.Type != "draft") {
+		return agentSkillOutcome{}, errSkillInput{"规划选择了无效或不可直接执行的 skill"}
+	}
+	if params == nil {
+		params = map[string]any{}
+	}
+	result, rowCount, affected, err := s.runAndAudit(r, sk, skillArgs(params), false, nlSource)
+	if err != nil {
+		return agentSkillOutcome{}, err
+	}
+	return agentSkillOutcome{Skill: sk, Params: params, Result: result, RowCount: rowCount, Affected: affected}, nil
+}
+
+func agentResponse(outcome agentSkillOutcome, reply string, steps []agentStep) map[string]any {
+	out := map[string]any{
+		"plan":                  map[string]any{"skill": outcome.Skill.Name, "params": outcome.Params},
+		"type":                  outcome.Skill.Type,
+		"requires_confirmation": outcome.Skill.Type == "draft",
+		"result":                outcome.Result,
+		"row_count":             outcome.RowCount,
+		"affected_entities":     outcome.Affected,
+		"reply":                 reply,
+	}
+	if len(steps) > 0 {
+		out["steps"] = steps
+	}
+	return out
+}
+
+func agentToolStepLabel(skillType string) string {
+	if skillType == "draft" {
+		return "生成草稿"
+	}
+	return "查询数据"
+}
+
+func skillDisplayName(name string) string {
+	if label, ok := skillDisplayNames[name]; ok {
+		return label
+	}
+	return "数据"
+}
+
+var skillDisplayNames = map[string]string{
+	"portfolio.getSnapshot":             "资产快照",
+	"holdings.listCurrent":              "当前持仓",
+	"holdings.getAccountPositions":      "账户持仓",
+	"accounts.list":                     "账户列表",
+	"accounts.getDetail":                "账户详情",
+	"institutions.list":                 "机构列表",
+	"marketData.getInstrumentHistory":   "历史价格",
+	"fx.getRateHistory":                 "历史汇率",
+	"recon.getAccountDiff":              "现金对账",
+	"compare.getPeriodAttribution":      "期间归因",
+	"targets.getDrift":                  "目标配置漂移",
+	"entry.draftBalanceSnapshot":        "余额快照草稿",
+	"entry.draftTransaction":            "持仓交易草稿",
+	"entry.draftCreditCardBill":         "信用卡账单草稿",
+	"entry.draftPositionSnapshot":       "持仓快照草稿",
+	"entry.draftTransfer":               "账户转账草稿",
+	"entry.draftIncomeEvent":            "收益事件草稿",
+	"entry.draftCorporateAction":        "公司动作草稿",
+	"marketData.draftPrice":             "价格记录草稿",
+	"marketData.draftFxRate":            "汇率记录草稿",
+	"planning.draftAllocationTargetSet": "配置目标草稿",
+	"timeline.draftAnnotation":          "时间线标注草稿",
 }
 
 func (s *Server) recordSkillAudit(r *http.Request, sk Skill, body agentRunBody, rowCount int, affected []string, runErr error) {
