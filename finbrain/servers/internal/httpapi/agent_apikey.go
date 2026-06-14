@@ -183,6 +183,3 @@ func (s *Server) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, events)
 }
-
-// writeSkills is filled in chunk 2 (draft/apply write skills).
-func writeSkills() []Skill { return nil }

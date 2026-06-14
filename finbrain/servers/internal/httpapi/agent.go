@@ -343,6 +343,10 @@ func (s *Server) execSkill(w http.ResponseWriter, r *http.Request, apply bool) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "该写操作需 confirm=true")
 		return
 	}
+	if sk.Type == "write" && callerScopes(r) != "read_write" {
+		writeError(w, http.StatusForbidden, "unauthorized", "该 API Key 无写权限(scopes=read)")
+		return
+	}
 	if body.Params == nil {
 		body.Params = map[string]any{}
 	}
