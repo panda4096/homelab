@@ -65,7 +65,7 @@ func (s *Server) resolveDisplay(ctx context.Context, a skillArgs) (string, strin
 	disp := strings.ToUpper(argStr(a, "display_currency"))
 	fxMode := argStr(a, "fx_mode")
 	if disp == "" || fxMode == "" {
-		if prefs, err := s.store.GetPreferences(ctx); err == nil {
+		if prefs, err := s.store.GetPreferences(ctx, userIDFromContext(ctx)); err == nil {
 			if disp == "" {
 				disp = prefs.DisplayCurrency
 			}

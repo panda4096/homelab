@@ -226,7 +226,7 @@ func (s *Server) deleteFxRate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getValuation(w http.ResponseWriter, r *http.Request) {
-	prefs, err := s.store.GetPreferences(r.Context())
+	prefs, err := s.store.GetPreferences(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return

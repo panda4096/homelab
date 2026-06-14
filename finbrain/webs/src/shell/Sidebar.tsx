@@ -4,6 +4,7 @@ import { Icon, Segmented } from '../ds'
 import { NAV } from '../nav'
 import { CopilotPanel } from './CopilotPanel'
 import wordmark from '../assets/logo/finbrain-wordmark.svg'
+import type { AuthUser } from '../api'
 
 const COPILOT_WIDTH_KEY = 'finbrain.copilotSidebarWidth'
 const COPILOT_DEFAULT_WIDTH = 360
@@ -13,7 +14,17 @@ const COPILOT_MAX_WIDTH = 720
 // Ported from design/project/app/Shell.jsx (Sidebar). The Copilot mode hosts the
 // persistent NL conversation panel (P6). Open state is controlled by App so ⌘K
 // and the Topbar trigger toggle the same pane.
-export function Sidebar({ copilotOpen, onCopilotChange }: { copilotOpen: boolean; onCopilotChange: (v: boolean) => void }) {
+export function Sidebar({
+  copilotOpen,
+  onCopilotChange,
+  user,
+  onLogout,
+}: {
+  copilotOpen: boolean
+  onCopilotChange: (v: boolean) => void
+  user?: AuthUser | null
+  onLogout?: () => void
+}) {
   const location = useLocation()
   const navigate = useNavigate()
   const copilot = copilotOpen
@@ -194,8 +205,8 @@ export function Sidebar({ copilotOpen, onCopilotChange }: { copilotOpen: boolean
             >
               业
             </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>业主</div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>{user?.display_name ?? '用户'}</div>
               <div
                 style={{
                   fontSize: 10.5,
@@ -203,9 +214,28 @@ export function Sidebar({ copilotOpen, onCopilotChange }: { copilotOpen: boolean
                   fontFamily: 'var(--font-mono)',
                 }}
               >
-                self-hosted · k3s
+                user:{user?.id ?? 1}
               </div>
             </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              title="登出"
+              aria-label="登出"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--divider)',
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                display: 'grid',
+                placeItems: 'center',
+              }}
+            >
+              <Icon name="log-out" size={15} />
+            </button>
           </div>
         </>
       )}

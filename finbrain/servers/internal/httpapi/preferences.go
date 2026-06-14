@@ -1,9 +1,12 @@
 package httpapi
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 func (s *Server) getPreferences(w http.ResponseWriter, r *http.Request) {
-	p, err := s.store.GetPreferences(r.Context())
+	p, err := s.store.GetPreferences(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -14,7 +17,7 @@ func (s *Server) getPreferences(w http.ResponseWriter, r *http.Request) {
 // putPreferences merges provided fields onto the current row (PATCH-like), so the
 // frontend can send just the changed key (e.g. display_currency).
 func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
-	cur, err := s.store.GetPreferences(r.Context())
+	cur, err := s.store.GetPreferences(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -24,6 +27,7 @@ func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
 		FxMode                 *string `json:"fx_mode"`
 		TimeAggregationDefault *string `json:"time_aggregation_default"`
 		MarketConvention       *string `json:"market_convention"`
+		Timezone               *string `json:"timezone"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -40,6 +44,9 @@ func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
 	if body.MarketConvention != nil {
 		cur.MarketConvention = *body.MarketConvention
 	}
+	if body.Timezone != nil {
+		cur.Timezone = *body.Timezone
+	}
 	if !oneOf(cur.FxMode, "current", "historical") {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "fx_mode must be current|historical")
 		return
@@ -52,7 +59,14 @@ func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "market_convention must be western|cn")
 		return
 	}
-	out, err := s.store.UpdatePreferences(r.Context(), cur)
+	if cur.Timezone == "" {
+		cur.Timezone = "Asia/Shanghai"
+	}
+	if _, err := time.LoadLocation(cur.Timezone); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "timezone must be a valid IANA timezone")
+		return
+	}
+	out, err := s.store.UpdatePreferences(r.Context(), userOf(r), cur)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return

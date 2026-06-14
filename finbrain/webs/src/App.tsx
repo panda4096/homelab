@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Sidebar } from './shell/Sidebar'
 import { Topbar } from './shell/Topbar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
@@ -26,9 +26,11 @@ import { Compare } from './screens/Compare'
 import { Summaries } from './screens/Summaries'
 import { Skills } from './screens/Skills'
 import { AuditLog } from './screens/AuditLog'
+import { Login } from './screens/Login'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
-import { getAccount } from './api'
+import { ApiError, getAccount, getMe, logout } from './api'
+import { useAuthStore } from './authStore'
 
 // Screens that are bespoke in P0/P1; everything else falls back to Placeholder.
 const PLACEHOLDER_IDS: string[] = []
@@ -36,12 +38,43 @@ const PLACEHOLDER_IDS: string[] = []
 export function App() {
   const [copilot, setCopilot] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
   const hydrate = usePrefStore((s) => s.hydrate)
+  const auth = useAuthStore()
 
-  // Hydrate preferences from the backend once on mount.
+  // Resolve application session once on mount.
   useEffect(() => {
-    void hydrate()
-  }, [hydrate])
+    let cancelled = false
+    getMe()
+      .then((me) => {
+        if (!cancelled) auth.setAuthenticated(me.user)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 401) {
+          auth.setAnonymous()
+          return
+        }
+        auth.setAnonymous()
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const h = () => {
+      auth.setAnonymous()
+      navigate('/login', { replace: true })
+    }
+    window.addEventListener('finbrain:unauthorized', h)
+    return () => window.removeEventListener('finbrain:unauthorized', h)
+  }, [auth, navigate])
+
+  // Hydrate preferences only after the user is known.
+  useEffect(() => {
+    if (auth.status === 'authenticated') void hydrate()
+  }, [auth.status, hydrate])
 
   // ⌘K / Ctrl-K toggles the NL modal; Esc closes it. (Ported from the HTML.)
   useEffect(() => {
@@ -70,6 +103,26 @@ export function App() {
   })
   const symbol = segments[2] === 'positions' && segments[3] ? decodeURIComponent(segments[3]) : ''
 
+  async function handleLogout() {
+    try {
+      await logout()
+    } finally {
+      auth.setAnonymous()
+      navigate('/login', { replace: true })
+    }
+  }
+
+  if (auth.status === 'loading') {
+    return <div className="auth-page"><div className="auth-panel">正在载入...</div></div>
+  }
+  if (auth.status === 'anonymous') {
+    if (location.pathname !== '/login') return <Navigate to="/login" replace />
+    return <Login onAuthenticated={auth.setAuthenticated} />
+  }
+  if (auth.user?.must_change_password) {
+    return <Login user={auth.user} onAuthenticated={auth.setAuthenticated} />
+  }
+
   let title = TITLES[route] ?? TITLES.dashboard
   if (route === 'accounts' && accountTab === 'institutions' && accountId == null) {
     title = '机构'
@@ -81,7 +134,7 @@ export function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      <Sidebar copilotOpen={copilot} onCopilotChange={setCopilot} />
+      <Sidebar copilotOpen={copilot} onCopilotChange={setCopilot} user={auth.user} onLogout={handleLogout} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Topbar title={title} onNL={() => setCopilot(true)} />
         <div className="fb-scroll" style={{ flex: 1 }}>
@@ -89,6 +142,7 @@ export function App() {
             <ErrorBoundary key={route}>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/login" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/institutions" element={<Navigate to="/accounts?tab=institutions" replace />} />
               <Route path="/accounts" element={<Accounts />} />

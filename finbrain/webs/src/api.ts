@@ -11,15 +11,30 @@ export interface Preferences {
   fx_mode: FxMode
   time_aggregation_default: TimeAggregation
   market_convention: MarketConvention
+  timezone: string
   updated_at: string
 }
 
 export type PreferencesPatch = Partial<
   Pick<
     Preferences,
-    'display_currency' | 'fx_mode' | 'time_aggregation_default' | 'market_convention'
+    'display_currency' | 'fx_mode' | 'time_aggregation_default' | 'market_convention' | 'timezone'
   >
 >
+
+export interface AuthUser {
+  id: number
+  display_name: string
+  is_active: boolean
+  must_change_password: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AuthMe {
+  user: AuthUser
+  timezone: string
+}
 
 export interface Instrument {
   symbol: string
@@ -419,9 +434,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...init,
+    headers,
   })
   if (!res.ok) {
     // Prefer the backend's { error: { code, message } } envelope so the surfaced
@@ -437,10 +455,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* non-JSON body — keep the generic message */
     }
+    if (res.status === 401 && !path.startsWith('/api/auth')) {
+      window.dispatchEvent(new CustomEvent('finbrain:unauthorized'))
+    }
     throw new ApiError(res.status, code, message, details)
   }
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
+}
+
+export function register(username: string, password: string): Promise<{ user: AuthUser }> {
+  return request<{ user: AuthUser }>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function login(username: string, password: string): Promise<{ user: AuthUser }> {
+  return request<{ user: AuthUser }>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function logout(): Promise<void> {
+  return request<void>('/api/auth/logout', { method: 'POST' })
+}
+
+export function getMe(): Promise<AuthMe> {
+  return request<AuthMe>('/api/auth/me')
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
 }
 
 export function getPreferences(): Promise<Preferences> {
@@ -1282,6 +1332,7 @@ export function planAgent(text: string, options?: AgentPlanOptions): Promise<Age
 export async function streamAgent(text: string, options: AgentPlanOptions | undefined, handlers: AgentStreamHandlers = {}): Promise<AgentPlanResult> {
   const res = await fetch('/api/agent/stream', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify({ text, ...options }),
   })

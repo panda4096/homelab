@@ -94,7 +94,7 @@ func (s *Server) getAllocationTargetDrift(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	prefs, err := s.store.GetPreferences(r.Context())
+	prefs, err := s.store.GetPreferences(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return

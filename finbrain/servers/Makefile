@@ -26,7 +26,7 @@ export FINBRAIN_LLM_MODEL
 .PHONY: tidy build run migrate migrate-down migrate-status seed seed-test test fmt vet
 
 tidy: ; go mod tidy
-build: ; go build -o bin/finbrain ./cmd/finbrain
+build: ; go build -o bin/finbrain ./cmd/finbrain && go build -o bin/finbrain-admin ./cmd/finbrain-admin
 run: ; go run ./cmd/finbrain serve
 migrate: ; go run ./cmd/finbrain migrate up
 migrate-down: ; go run ./cmd/finbrain migrate down

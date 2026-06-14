@@ -10,7 +10,7 @@ import (
 var trendGranularities = map[string]bool{"day": true, "month": true, "quarter": true, "year": true}
 
 func (s *Server) getTrend(w http.ResponseWriter, r *http.Request) {
-	prefs, err := s.store.GetPreferences(r.Context())
+	prefs, err := s.store.GetPreferences(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return

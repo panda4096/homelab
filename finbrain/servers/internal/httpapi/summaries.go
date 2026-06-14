@@ -84,7 +84,7 @@ func (s *Server) generateSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prefs, err := s.store.GetPreferences(r.Context())
+	prefs, err := s.store.GetPreferences(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return

@@ -21,7 +21,7 @@ func (s *Server) getAttribution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "to must be YYYY-MM-DD")
 		return
 	}
-	prefs, err := s.store.GetPreferences(r.Context())
+	prefs, err := s.store.GetPreferences(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return

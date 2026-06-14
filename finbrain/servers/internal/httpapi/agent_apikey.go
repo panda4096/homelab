@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
@@ -15,17 +16,22 @@ import (
 type ctxKey string
 
 const (
-	ctxRequestID ctxKey = "fb.reqid"
-	ctxActor     ctxKey = "fb.actor"
-	ctxSource    ctxKey = "fb.source"
-	ctxScopes    ctxKey = "fb.scopes"
+	ctxRequestID  ctxKey = "fb.reqid"
+	ctxActor      ctxKey = "fb.actor"
+	ctxSource     ctxKey = "fb.source"
+	ctxScopes     ctxKey = "fb.scopes"
+	ctxUserID     ctxKey = "fb.uid"
+	ctxDevDefault ctxKey = "fb.dev_default"
 )
 
 func actorOf(r *http.Request) string {
 	if v, ok := r.Context().Value(ctxActor).(string); ok && v != "" {
 		return v
 	}
-	return "owner"
+	if id := userOf(r); id > 0 {
+		return "user:" + strconv.FormatInt(id, 10)
+	}
+	return "user:0"
 }
 func sourceOf(r *http.Request) string {
 	if v, ok := r.Context().Value(ctxSource).(string); ok && v != "" {

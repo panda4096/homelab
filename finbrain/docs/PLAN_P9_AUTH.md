@@ -6,11 +6,11 @@
 
 ## 0. 横切约定 & 闸门
 
-- [ ] argon2id 经 `golang.org/x/crypto/argon2`，**绝不**用 `sha256hex`（那是 API key/会话 token 用的）；密码哈希参数（time/memory/threads）写进常量并记于 §9。
+- [x] argon2id 经 `golang.org/x/crypto/argon2`，**绝不**用 `sha256hex`（那是 API key/会话 token 用的）；密码哈希参数（time/memory/threads）写进常量并记于 §9。
 - [ ] store 方法**显式接收 `userID int64`**，SQL 追加 `AND user_id=$N`（漏传=编译错）；每条 owned 查询打 `/* OWNED */` 注释。
 - [ ] 全局行情表**不加** `user_id`、**不加**谓词：`instruments` / `prices` / `fx_rates` / `corporate_actions` / `account_templates`。
-- [ ] dev（`cfg.IsDev()`）无会话默认 `userID=1`，现有免登录开发流不中断；生产受保护路由无会话 → 401。
-- [ ] 每阶段自验：`GOTOOLCHAIN=local go build ./... && go vet ./internal/... && go test ./internal/...` + `npx tsc -b` + 浏览器 preview → 提交 → 简报。
+- [x] dev（`cfg.IsDev()`）无会话默认 `userID=1`，现有免登录开发流不中断；生产受保护路由无会话 → 401。
+- [x] 每阶段自验：`GOTOOLCHAIN=local go build ./... && go vet ./internal/... && go test ./internal/...` + `npx tsc -b` + 浏览器 preview → 提交 → 简报。
 - [ ] 顺序：P9.0 → P9.1（**网关表 accounts/institutions 先做先测**）→ P9.2（扇出）→ P9.3（agent/审计）→ P9.4（加固）。每阶段一提交。
 
 ---
@@ -18,13 +18,13 @@
 ## 1. 数据模型（迁移 `db/migrations/01400_p9_auth.sql`）
 
 **新表**
-- [ ] `users(id GENERATED ALWAYS AS IDENTITY PK, display_name varchar(128), is_active boolean NOT NULL DEFAULT true, created_at, updated_at)`
-- [ ] `user_identities(id PK, user_id FK→users, provider varchar(16) NOT NULL, identifier varchar(255) NOT NULL, secret text NOT NULL, must_change_password boolean NOT NULL DEFAULT false, created_at, UNIQUE(provider, identifier))`
-- [ ] `sessions(id PK, user_id FK→users, token_hash text UNIQUE NOT NULL, expires_at timestamptz NOT NULL, created_at, last_used_at, revoked_at)`
+- [x] `users(id GENERATED ALWAYS AS IDENTITY PK, display_name varchar(128), is_active boolean NOT NULL DEFAULT true, created_at, updated_at)`
+- [x] `user_identities(id PK, user_id FK→users, provider varchar(16) NOT NULL, identifier varchar(255) NOT NULL, secret text NOT NULL, must_change_password boolean NOT NULL DEFAULT false, created_at, UNIQUE(provider, identifier))`
+- [x] `sessions(id PK, user_id FK→users, token_hash text UNIQUE NOT NULL, expires_at timestamptz NOT NULL, created_at, last_used_at, revoked_at)`
 
 **种子（保证现有数据零丢失）**
-- [ ] 插入默认 `users` 行 → `id=1`（display_name='owner'）
-- [ ] 插入 `user_identities(user_id=1, provider='password', identifier='owner', secret=<占位/部署时由 CLI 重置>, must_change_password=true)`
+- [x] 插入默认 `users` 行 → `id=1`（display_name='owner'）
+- [x] 插入 `user_identities(user_id=1, provider='password', identifier='owner', secret=<占位/部署时由 CLI 重置>, must_change_password=true)`
 
 **owned 表加 `user_id`（逐表勾，模式：`ADD COLUMN user_id bigint` → `UPDATE … SET user_id=1` → `ALTER … SET NOT NULL` → 加 FK）**
 - [ ] 根表：`accounts`
@@ -48,8 +48,8 @@
 - [ ] `allocation_target_sets`：drop `name` UNIQUE → `UNIQUE(user_id, name)`
 
 **user_preferences 单行 → 每用户**
-- [ ] drop `id INT PRIMARY KEY CHECK(id=1)`；`ADD user_id bigint`；现有行 `SET user_id=1`；`ADD UNIQUE(user_id)`
-- [ ] `ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'`
+- [x] drop `id INT PRIMARY KEY CHECK(id=1)`；`ADD user_id bigint`；现有行 `SET user_id=1`；`ADD UNIQUE(user_id)`
+- [x] `ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'`
 
 **完整性触发器 & 索引**
 - [ ] `enforce_owner()` 触发器：在 `balance_snapshots/position_snapshots/transactions/transfers/income_events/credit_card_bills` 校验 `NEW.user_id = (SELECT user_id FROM accounts WHERE id=NEW.account_id)`；`transfers` 同时校验 `to_account_id`，`income_events/credit_card_bills` 校验 `payment_account_id`（或在 Go 侧 lookup 校验，二选一并记明）
@@ -64,23 +64,23 @@
 ## 2. P9.0 · 认证基座 + 登录（先不做隔离）
 
 **后端**
-- [ ] `internal/crypto`（或 auth 内）：`HashPassword(pw) (string,error)` / `VerifyPassword(pw, encoded) bool`（argon2id，常量时间）
-- [ ] `internal/store/users.go`：`CreateUser` · `GetPasswordIdentity(username)` · `CreateSession` · `ResolveSession(hash)→(userID, error)`（顺带刷新 last_used_at、校验未过期未吊销）· `RevokeSession` · `RevokeUserSessions(userID)` · `SetPassword(userID, hash, mustChange bool)` · `GetUser(id)`
-- [ ] `internal/httpapi/session_middleware.go`：`sessionMiddleware`（cookie `fb_session` 或 `Bearer fbs_` → `ctxUserID`；dev 缺省 1；生产缺省 401）+ `userOf(r) int64` + 新 ctxKey `ctxUserID="fb.uid"`
-- [ ] `internal/httpapi/auth.go`：`POST /api/auth/register`（开放）· `POST /api/auth/login`（设 cookie）· `POST /api/auth/logout`（吊销+清 cookie）· `GET /api/auth/me`（返回 user + timezone）· `POST /api/auth/change-password`（校验旧→写新→吊销其余会话）
-- [ ] `router.go`：把 auth 路由挂在 `authMiddleware` 之外；在 `/api` 链上把 `sessionMiddleware` 插在 `authMiddleware` 与 `mutationAuditMiddleware` 之间
-- [ ] `actorOf()` 回退由 `owner` 改为 `user:<id>`（有会话时）
-- [ ] `cmd/finbrain-admin`：`set-password <username> <临时密码>`（argon2 写库 + `RevokeUserSessions` + 置 `must_change_password=true`）
+- [x] `internal/crypto`（或 auth 内）：`HashPassword(pw) (string,error)` / `VerifyPassword(pw, encoded) bool`（argon2id，常量时间）
+- [x] `internal/store/users.go`：`CreateUser` · `GetPasswordIdentity(username)` · `CreateSession` · `ResolveSession(hash)→(userID, error)`（顺带刷新 last_used_at、校验未过期未吊销）· `RevokeSession` · `RevokeUserSessions(userID)` · `SetPassword(userID, hash, mustChange bool)` · `GetUser(id)`
+- [x] `internal/httpapi/session_middleware.go`：`sessionMiddleware`（cookie `fb_session` 或 `Bearer fbs_` → `ctxUserID`；dev 缺省 1；生产缺省 401）+ `userOf(r) int64` + 新 ctxKey `ctxUserID="fb.uid"`
+- [x] `internal/httpapi/auth.go`：`POST /api/auth/register`（开放）· `POST /api/auth/login`（设 cookie）· `POST /api/auth/logout`（吊销+清 cookie）· `GET /api/auth/me`（返回 user + timezone）· `POST /api/auth/change-password`（校验旧→写新→吊销其余会话）
+- [x] `router.go`：把 auth 路由挂在 `authMiddleware` 之外；在 `/api` 链上把 `sessionMiddleware` 插在 `authMiddleware` 与 `mutationAuditMiddleware` 之间
+- [x] `actorOf()` 回退由 `owner` 改为 `user:<id>`（有会话时）
+- [x] `cmd/finbrain-admin`：`set-password <username> <临时密码>`（argon2 写库 + `RevokeUserSessions` + 置 `must_change_password=true`）
 
 **前端**
-- [ ] `api.ts`：`request<T>` 加 `credentials:'include'`；全局 `401 → 跳 /login`
-- [ ] `api.ts`：`register/login/logout/getMe/changePassword`
-- [ ] auth zustand store（user / status）；`App.tsx` 启动先 `getMe()`（401 渲染登录页，否则 hydrate 偏好）
-- [ ] `screens/Login.tsx`（登录 + 注册切换）；`ProtectedRoute`；`/login` 路由
-- [ ] Topbar/Sidebar 加用户菜单 + 登出；`must_change_password` 时引导改密
+- [x] `api.ts`：`request<T>` 加 `credentials:'include'`；全局 `401 → 跳 /login`
+- [x] `api.ts`：`register/login/logout/getMe/changePassword`
+- [x] auth zustand store（user / status）；`App.tsx` 启动先 `getMe()`（401 渲染登录页，否则 hydrate 偏好）
+- [x] `screens/Login.tsx`（登录 + 注册切换）；`ProtectedRoute`；`/login` 路由
+- [x] Topbar/Sidebar 加用户菜单 + 登出；`must_change_password` 时引导改密
 
 **DoD（P9.0）**
-- [ ] 可注册→登录→`/me`→登出；重复用户名/错误密码被拒；CLI 重置后旧会话失效、可用新密码登录；改密后其余会话失效。**此时数据仍全归 user 1，隔离未启用。**
+- [x] 可注册→登录→`/me`→登出；重复用户名/错误密码被拒；CLI 重置后旧会话失效、可用新密码登录；改密后其余会话失效。**此时数据仍全归 user 1，隔离未启用。**
 
 ---
 
@@ -149,3 +149,4 @@
 | 日期 | 阶段 | 状态 | 备注 |
 |---|---|---|---|
 | 2026-06-15 | 设计 + 本清单 | 完成 | PRD §9 重写；本文件创建（未动实现代码） |
+| 2026-06-15 | P9.0 认证基座 | 完成 | 新增 argon2id 密码、users/user_identities/sessions、session middleware、auth API、admin set-password、登录页；NUC dev 01400 up 通过，curl 验证注册/登录/改密/重置/登出，浏览器验证 dev user 1 免登录 |

@@ -12,7 +12,38 @@ type Preferences struct {
 	FxMode                 string    `json:"fx_mode"`
 	TimeAggregationDefault string    `json:"time_aggregation_default"`
 	MarketConvention       string    `json:"market_convention"`
+	Timezone               string    `json:"timezone"`
 	UpdatedAt              time.Time `json:"updated_at"`
+}
+
+// User is an application account owner. Login identities live separately so
+// password login can coexist with future OAuth-style providers.
+type User struct {
+	ID                 int64     `json:"id"`
+	DisplayName        string    `json:"display_name"`
+	IsActive           bool      `json:"is_active"`
+	MustChangePassword bool      `json:"must_change_password"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type PasswordIdentity struct {
+	ID                 int64
+	UserID             int64
+	Identifier         string
+	Secret             string
+	MustChangePassword bool
+	User               User
+}
+
+type Session struct {
+	ID         int64      `json:"id"`
+	UserID     int64      `json:"user_id"`
+	TokenHash  string     `json:"-"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt time.Time  `json:"last_used_at"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
 // Instrument is standalone instrument metadata (PRD §5.2.2).
