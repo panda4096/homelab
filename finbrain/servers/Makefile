@@ -12,6 +12,14 @@ DB_PASSWORD := $(shell set -a; . $(SECRETS) 2>/dev/null; set +a; printf '%s' "$$
 DATABASE_URL ?= postgres://finbrain:$(DB_PASSWORD)@$(NUC_HOST):$(NUC_PORT)/finbrain?sslmode=disable
 export DATABASE_URL
 
+# LLM (Copilot / agent NL planner). Keys live in the gitignored-trust-model
+# finbrain.env; sourced here so `make run` injects them. DeepSeek is default.
+LLM_SECRETS      ?= ../../infra/.secrets/finbrain.env
+DEEPSEEK_API_KEY := $(shell set -a; . $(LLM_SECRETS) 2>/dev/null; set +a; printf '%s' "$$DEEPSEEK_API_KEY")
+ANTHROPIC_API_KEY := $(shell set -a; . $(LLM_SECRETS) 2>/dev/null; set +a; printf '%s' "$$ANTHROPIC_API_KEY")
+export DEEPSEEK_API_KEY
+export ANTHROPIC_API_KEY
+
 .PHONY: tidy build run migrate migrate-down migrate-status seed seed-test test fmt vet
 
 tidy: ; go mod tidy

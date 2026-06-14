@@ -407,9 +407,27 @@ func (s *Server) planAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	toolsJSON, _ := json.Marshal(tools)
+	// account context so the planner can resolve account_id by fuzzy name match
+	// (the model still only fills params — it never sees SQL or tables).
+	acctCtx := ""
+	if accts, err := s.store.ListAccounts(r.Context(), s.today()); err == nil {
+		type al struct {
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			Institution string `json:"institution"`
+			Kind        string `json:"kind"`
+			Currency    string `json:"currency"`
+		}
+		lite := make([]al, 0, len(accts))
+		for _, a := range accts {
+			lite = append(lite, al{a.ID, a.Name, a.Institution, a.Kind, a.Currency})
+		}
+		b, _ := json.Marshal(lite)
+		acctCtx = "\n需要 account_id 的工具:从下方账户列表按名称/机构模糊匹配取最可能的 id(现金类 cash/time_deposit/wealth_product 才能记余额,持仓类 brokerage/fund/crypto_wallet 才能记交易,credit_card 才能记账单)。账户列表(JSON):" + string(b)
+	}
 	system := "你是 finbrain 的 agent。**只能调用下列已注册工具(skill)**,严禁输出 SQL、表名、join 或任意查询。" +
 		"根据用户问题选 1 个最合适的工具并按其 input_schema 填参数;录入类用 draft 工具(写库由业主另行确认)。" +
-		"严格只返回一个 JSON 对象:{\"skill\":\"工具名\",\"params\":{...}}。可用工具(JSON):" + string(toolsJSON)
+		"严格只返回一个 JSON 对象:{\"skill\":\"工具名\",\"params\":{...}}。可用工具(JSON):" + string(toolsJSON) + acctCtx
 	raw, err := s.llm.Complete(r.Context(), system, "今天是 "+s.today()+"。问题:"+body.Text, true)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "LLM 调用失败")
