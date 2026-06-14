@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Icon, Segmented } from '../ds'
+import { Button, Icon, Segmented } from '../ds'
 import { NAV } from '../nav'
 import wordmark from '../assets/logo/finbrain-wordmark.svg'
 
-// Ported from design/project/app/Shell.jsx (Sidebar). The design's "Copilot"
-// pane (FBCopilot) is out of P0 scope, so the Copilot mode shows a tasteful
-// placeholder rail instead.
-export function Sidebar() {
+// Ported from design/project/app/Shell.jsx (Sidebar). The Copilot pane opens the
+// NL assistant (P6: query + entry, default DeepSeek) via onOpenCopilot.
+export function Sidebar({ onOpenCopilot }: { onOpenCopilot: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [mode, setMode] = useState<'nav' | 'copilot'>('nav')
@@ -50,22 +49,39 @@ export function Sidebar() {
       </div>
 
       {copilot ? (
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: '24px 22px',
-            textAlign: 'center',
-          }}
-        >
-          <Icon name="sparkles" size={26} color="var(--accent)" />
-          <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>Copilot</div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-            自然语言录入与问答将在后续版本接入。按 ⌘K 体验解析预览。
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, padding: '22px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="sparkles" size={20} color="var(--accent)" />
+            <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-strong)' }}>Copilot</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+            自然语言
+            <strong style={{ color: 'var(--text-secondary)' }}>查询</strong>
+            与
+            <strong style={{ color: 'var(--text-secondary)' }}>录入</strong>
+            已可用(默认 DeepSeek)。问数据、记一笔,业主确认后写入。
+          </div>
+          <Button variant="primary" size="sm" iconLeft={<Icon name="sparkles" size={14} />} onClick={onOpenCopilot}>
+            打开助手 · ⌘K
+          </Button>
+          <div
+            style={{
+              fontSize: 11.5,
+              color: 'var(--text-tertiary)',
+              lineHeight: 1.9,
+              background: 'var(--surface-inset)',
+              border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 12px',
+            }}
+          >
+            例:<br />
+            「持有 GOOG 的账户和数量」<br />
+            「招行 6231 今天 12.3 万」<br />
+            「这三个月信用卡支出最大的两个类目」
+          </div>
+          <div style={{ marginTop: 'auto', fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
+            未配置 LLM Key 时优雅降级;状态见「设置 · 数据与智能」。
           </div>
         </div>
       ) : (

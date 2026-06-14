@@ -80,7 +80,7 @@ export function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      <Sidebar />
+      <Sidebar onOpenCopilot={() => setCopilot(true)} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Topbar title={title} onNL={() => setCopilot(true)} />
         <div className="fb-scroll" style={{ flex: 1 }}>
