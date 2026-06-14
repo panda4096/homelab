@@ -154,3 +154,13 @@ NL 录入抽取正确并经确认落库；NL 查询沙箱不可越权写/读非�
 - ✅ AccountDetail 活动区块:现金对账(§6.19)+ 最近交易 + 快捷录入(替换过时占位)。
 - ✅ onboarding 快速上手三步提示。
 **P4–P7 + 全部 refinement 完成。** 后端新端点:/attribution、/annotations。
+
+### 交付（merged to main）
+- ✅ `feat/finbrain-p4-p7`(29 commits)已 **--no-ff 合并入 main**(merge `3fd76a4`);**未 push 远端**(留待业主审阅后自行 push)。
+- ✅ main 全绿:`GOTOOLCHAIN=local go build/vet/test` + `tsc -b` + `vite build`。
+- ✅ DB 迁移至 v1200(00100–01200,含 P4 transactions / P5 targets / P6 summaries);P7 无新表。
+- ✅ 后端重建并重启(`/tmp/finbrain-p4 serve` :8000),P4–P7 端点 200:/transactions /trend /llm/status /summaries /annotations /export 等。
+- ✅ 浏览器自验:/dashboard /trend /transactions /recon + Copilot 常驻会话栏,渲染正常、控制台无报错。
+- LLM 联调需运行时配 `DEEPSEEK_API_KEY`(未配时优雅降级)。
+
+**结论:P4–P7 + 全部 refinement 完成并合并入 main、全栈自验通过。** 上线前唯一外部依赖:配置 DEEPSEEK_API_KEY(可选,仅 Copilot 需要)。
