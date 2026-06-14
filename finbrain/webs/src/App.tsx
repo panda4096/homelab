@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Sidebar } from './shell/Sidebar'
 import { Topbar } from './shell/Topbar'
-import { NLModal } from './shell/NLModal'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { Placeholder } from './screens/Placeholder'
 import { Settings } from './screens/Settings'
@@ -80,7 +79,7 @@ export function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      <Sidebar onOpenCopilot={() => setCopilot(true)} />
+      <Sidebar copilotOpen={copilot} onCopilotChange={setCopilot} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Topbar title={title} onNL={() => setCopilot(true)} />
         <div className="fb-scroll" style={{ flex: 1 }}>
@@ -116,7 +115,6 @@ export function App() {
           </div>
         </div>
       </div>
-      {copilot ? <NLModal onClose={() => setCopilot(false)} /> : null}
       <QuickEntry />
       <BuildAccount />
     </div>

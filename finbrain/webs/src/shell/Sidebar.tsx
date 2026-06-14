@@ -1,29 +1,29 @@
-import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Button, Icon, Segmented } from '../ds'
+import { Icon, Segmented } from '../ds'
 import { NAV } from '../nav'
+import { CopilotPanel } from './CopilotPanel'
 import wordmark from '../assets/logo/finbrain-wordmark.svg'
 
-// Ported from design/project/app/Shell.jsx (Sidebar). The Copilot pane opens the
-// NL assistant (P6: query + entry, default DeepSeek) via onOpenCopilot.
-export function Sidebar({ onOpenCopilot }: { onOpenCopilot: () => void }) {
+// Ported from design/project/app/Shell.jsx (Sidebar). The Copilot mode hosts the
+// persistent NL conversation panel (P6). Open state is controlled by App so ⌘K
+// and the Topbar trigger toggle the same pane.
+export function Sidebar({ copilotOpen, onCopilotChange }: { copilotOpen: boolean; onCopilotChange: (v: boolean) => void }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'nav' | 'copilot'>('nav')
-  const copilot = mode === 'copilot'
+  const copilot = copilotOpen
   const active = location.pathname.replace(/^\//, '') || 'dashboard'
 
   return (
     <aside
       style={{
         width: copilot ? 348 : 'var(--sidebar-width)',
+        minWidth: copilot ? 348 : 'var(--sidebar-width)',
         background: 'var(--surface-panel)',
         borderRight: '1px solid var(--divider)',
         display: 'flex',
         flexDirection: 'column',
         flex: 'none',
         height: '100%',
-        transition: 'width .24s var(--ease-out)',
       }}
     >
       <div
@@ -39,8 +39,8 @@ export function Sidebar({ onOpenCopilot }: { onOpenCopilot: () => void }) {
       <div style={{ padding: '10px 10px 6px' }}>
         <Segmented
           size="sm"
-          value={mode}
-          onChange={(m) => setMode(m as 'nav' | 'copilot')}
+          value={copilot ? 'copilot' : 'nav'}
+          onChange={(m) => onCopilotChange(m === 'copilot')}
           options={[
             { value: 'nav', label: '导航' },
             { value: 'copilot', label: 'Copilot' },
@@ -49,41 +49,7 @@ export function Sidebar({ onOpenCopilot }: { onOpenCopilot: () => void }) {
       </div>
 
       {copilot ? (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, padding: '22px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="sparkles" size={20} color="var(--accent)" />
-            <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-strong)' }}>Copilot</span>
-          </div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
-            自然语言
-            <strong style={{ color: 'var(--text-secondary)' }}>查询</strong>
-            与
-            <strong style={{ color: 'var(--text-secondary)' }}>录入</strong>
-            已可用(默认 DeepSeek)。问数据、记一笔,业主确认后写入。
-          </div>
-          <Button variant="primary" size="sm" iconLeft={<Icon name="sparkles" size={14} />} onClick={onOpenCopilot}>
-            打开助手 · ⌘K
-          </Button>
-          <div
-            style={{
-              fontSize: 11.5,
-              color: 'var(--text-tertiary)',
-              lineHeight: 1.9,
-              background: 'var(--surface-inset)',
-              border: '1px solid var(--border-default)',
-              borderRadius: 'var(--radius-md)',
-              padding: '10px 12px',
-            }}
-          >
-            例:<br />
-            「持有 GOOG 的账户和数量」<br />
-            「招行 6231 今天 12.3 万」<br />
-            「这三个月信用卡支出最大的两个类目」
-          </div>
-          <div style={{ marginTop: 'auto', fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-            未配置 LLM Key 时优雅降级;状态见「设置 · 数据与智能」。
-          </div>
-        </div>
+        <CopilotPanel onClose={() => onCopilotChange(false)} />
       ) : (
         <>
           <nav style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 18px' }}>
