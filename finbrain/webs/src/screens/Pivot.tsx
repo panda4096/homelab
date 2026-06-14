@@ -65,7 +65,13 @@ export function Pivot() {
   }, [val.data, dim])
 
   const total = rows.reduce((a, r) => a + r.value, 0)
-  const chartRows = useMemo(() => compactChartRows(rows, total, dim === 'symbol' ? 7 : VIZ.length), [rows, total, dim])
+  // The donut/share plots exposure (Math.abs), so rank the chart by magnitude — otherwise
+  // a large liability (very negative) sorts to the tail and gets folded into 其他 despite
+  // being a major exposure. The table keeps its signed sort (rows) for the net view.
+  const chartRows = useMemo(() => {
+    const byExposure = [...rows].sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    return compactChartRows(byExposure, total, dim === 'symbol' ? 7 : VIZ.length)
+  }, [rows, total, dim])
   const donutItems: DonutItem[] = chartRows.map((r, i) => ({ key: r.key, name: r.name, value: Math.abs(r.value), color: VIZ[i % VIZ.length] }))
   // The donut center must equal what the ring actually draws (sum of plotted, abs basis).
   // For quote_currency this is gross exposure; the signed net stays in the table 合计 row.
