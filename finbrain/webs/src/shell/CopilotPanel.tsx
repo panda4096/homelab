@@ -1,61 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Icon, Segmented } from '../ds'
-import {
-  createIncomeEvent,
-  createTransaction,
-  createTransfer,
-  getLLMStatus,
-  llmParse,
-  llmQuery,
-  upsertBalanceSnapshot,
-  upsertCreditCardBill,
-  upsertPositionSnapshot,
-  type QueryResult,
-} from '../api'
+import { Badge, Button, Icon } from '../ds'
+import { applySkill, getLLMStatus, planAgent } from '../api'
 import { useToast } from './Toast'
 
-type Mode = 'query' | 'entry'
-type Draft = {
-  intent?: string
-  account_id?: number
-  account_candidates?: number[]
-  fields?: Record<string, unknown>
-  confidence?: number
-  note?: string
-}
+// Copilot is a skill-runner chat: natural language → the backend maps it to ONE
+// registered skill + params (function-calling; never SQL), runs read/draft skills,
+// and confirms writes via /agent/apply. Every call is audited server-side.
 
 type Msg = {
   id: number
   role: 'user' | 'assistant'
   text: string
-  sql?: string
-  result?: QueryResult
-  draft?: Draft
+  skill?: string
+  params?: Record<string, unknown>
+  result?: unknown
+  requiresConfirm?: boolean
   state?: 'idle' | 'written' | 'ignored'
 }
 
-const INTENT_LABEL: Record<string, string> = {
-  balance_snapshot: '余额快照', position_snapshot: '持仓快照', credit_card_bill: '信用卡账单',
-  income_event: '收益事件', transaction: '持仓交易', transfer: '账户转账',
-  price: '价格', fx_rate: '汇率', corporate_action: '公司动作', unknown: '未识别',
-}
-const SUPPORTED_WRITE = new Set(['balance_snapshot', 'position_snapshot', 'credit_card_bill', 'income_event', 'transaction', 'transfer'])
-const CHIPS: Record<Mode, string[]> = {
-  query: ['今年外汇敞口多少？', '持有 GOOG 的账户和数量', '这三个月信用卡支出最大的两个类目'],
-  entry: ['招行 6231 今天 12.3 万', '富途美股 GOOG 买入 10 股 单价 184'],
-}
+const CHIPS = ['本月净资产快照', '持有 GOOG 的账户和数量', '今年外汇敞口', '人民币活期 今天 12.3 万']
 
 export function CopilotPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
   const idRef = useRef(1)
   const nextId = () => idRef.current++
-  const [mode, setMode] = useState<Mode>('query')
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [msgs, setMsgs] = useState<Msg[]>([
-    { id: 0, role: 'assistant', text: '我是 finbrain Copilot。可以帮你查询资产、录入快照 / 交易,用自然语言告诉我就行。下方可切换「查询 / 录入」。' },
+    { id: 0, role: 'assistant', text: '我是 finbrain Copilot。用自然语言问数据或记一笔,我会调用后端注册的 skill 来完成 —— 不直接碰数据库,写操作都要你确认。' },
   ])
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -75,21 +49,19 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
     try {
       const status = await getLLMStatus()
       if (!status.configured) {
-        push({ role: 'assistant', text: '尚未配置 LLM —— 在后端设置 DEEPSEEK_API_KEY 后即可对话。当前你仍可用各录入页手动操作。' })
+        push({ role: 'assistant', text: '尚未配置 LLM(后端设置 DEEPSEEK_API_KEY 后即可对话)。你仍可在各页面手动操作,或在「技能」页直接调用 skill。' })
         return
       }
-      if (mode === 'query') {
-        const r = await llmQuery(t)
-        push({ role: 'assistant', text: '查询结果:', sql: r.sql, result: r.result })
-      } else {
-        const r = await llmParse(t)
-        const draft = (r.draft ?? {}) as Draft
-        if (draft.intent && draft.intent !== 'unknown') {
-          push({ role: 'assistant', text: '已解析,确认后写入账本:', draft, state: 'idle' })
-        } else {
-          push({ role: 'assistant', text: '没能识别这条录入,换个说法或到对应录入页手动提交。', draft })
-        }
-      }
+      const plan = await planAgent(t)
+      push({
+        role: 'assistant',
+        text: plan.requires_confirmation ? '已理解为一次录入,确认后写入账本:' : '已通过 skill 取数:',
+        skill: plan.plan.skill,
+        params: plan.plan.params,
+        result: plan.result,
+        requiresConfirm: plan.requires_confirmation,
+        state: plan.requires_confirmation ? 'idle' : undefined,
+      })
     } catch (e) {
       push({ role: 'assistant', text: e instanceof Error ? e.message : '请求失败' })
     } finally {
@@ -97,24 +69,21 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
-  async function confirmWrite(id: number, draft: Draft) {
-    if (busy) return
+  async function confirm(m: Msg) {
+    if (busy || !m.skill || !m.params) return
+    const applyName = m.skill.replace('draft', 'apply')
     setBusy(true)
     try {
-      await writeDraft(draft)
+      const r = await applySkill(applyName, m.params)
       void qc.invalidateQueries()
       toast.success('已写入账本')
-      setMsgs((prev) => prev.map((m) => (m.id === id ? { ...m, state: 'written' } : m)))
-      push({ role: 'assistant', text: '已写入账本 ✓ 还要记点别的吗?' })
+      setMsgs((prev) => prev.map((x) => (x.id === m.id ? { ...x, state: 'written' } : x)))
+      push({ role: 'assistant', text: '已写入账本 ✓ ' + (r.affected_entities?.join(', ') ?? '') })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '写入失败,请到对应录入页确认提交')
+      toast.error(e instanceof Error ? e.message : '写入失败')
     } finally {
       setBusy(false)
     }
-  }
-
-  function ignore(id: number) {
-    setMsgs((prev) => prev.map((m) => (m.id === id ? { ...m, state: 'ignored' } : m)))
   }
 
   return (
@@ -124,7 +93,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
           <Icon name="sparkles" size={12} color="var(--accent-text)" />
         </span>
         <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-strong)' }}>Copilot</span>
-        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '0 4px' }}>beta</span>
+        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', border: '1px solid var(--border-default)', borderRadius: 4, padding: '0 4px' }}>skills</span>
         <button onClick={onClose} aria-label="返回导航" title="返回导航 (⌘K)" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', padding: 2 }}>
           <Icon name="panel-left-close" size={16} />
         </button>
@@ -137,13 +106,31 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
               {m.text}
             </div>
           ) : (
-            <div key={m.id} style={{ alignSelf: 'flex-start', maxWidth: '98%', width: m.result || m.draft ? '98%' : 'auto' }}>
+            <div key={m.id} style={{ alignSelf: 'flex-start', maxWidth: '98%', width: m.result !== undefined ? '98%' : 'auto' }}>
               <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{m.text}</div>
-              {m.sql ? (
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-tertiary)', background: 'var(--surface-inset)', borderRadius: 'var(--radius-sm)', padding: 8, marginTop: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.sql}</div>
+              {m.skill ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 0', flexWrap: 'wrap' }}>
+                  <span className="fb-badge fb-badge--neutral" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5 }}>
+                    <Icon name="wrench" size={11} /> {m.skill}
+                  </span>
+                  {m.params && Object.keys(m.params).length ? (
+                    <span style={{ fontSize: 10.5, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{JSON.stringify(m.params)}</span>
+                  ) : null}
+                </div>
               ) : null}
-              {m.result ? <ResultTable result={m.result} /> : null}
-              {m.draft ? <DraftCard msg={m} onConfirm={() => confirmWrite(m.id, m.draft as Draft)} onIgnore={() => ignore(m.id)} busy={busy} /> : null}
+              {m.result !== undefined ? <ResultView result={m.result} /> : null}
+              {m.requiresConfirm ? (
+                m.state === 'written' ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--gain)', display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}><Icon name="check" size={12} /> 已写入</div>
+                ) : m.state === 'ignored' ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', marginTop: 6 }}>已忽略</div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <Button variant="primary" size="xs" disabled={busy} iconLeft={<Icon name="check" size={12} />} onClick={() => confirm(m)}>确认写入</Button>
+                    <Button variant="ghost" size="xs" onClick={() => setMsgs((prev) => prev.map((x) => (x.id === m.id ? { ...x, state: 'ignored' } : x)))}>忽略</Button>
+                  </div>
+                )
+              ) : null}
             </div>
           ),
         )}
@@ -151,12 +138,8 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div style={{ padding: '10px 12px 12px', borderTop: '1px solid var(--divider)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
-          <Segmented size="sm" value={mode} onChange={(v) => setMode(v as Mode)} options={[{ value: 'query', label: '查询' }, { value: 'entry', label: '录入' }]} />
-          <span style={{ fontSize: 10.5, color: 'var(--text-tertiary)' }}>{mode === 'query' ? '只读问数据' : '解析后确认写入'}</span>
-        </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 9 }}>
-          {CHIPS[mode].map((c, i) => (
+          {CHIPS.map((c, i) => (
             <button key={i} onClick={() => send(c)} className="fb-tag fb-tag--clickable" style={{ fontSize: 10.5, cursor: 'pointer' }}>{c}</button>
           ))}
         </div>
@@ -166,7 +149,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
             rows={1}
-            placeholder={mode === 'query' ? '问点什么…（Enter 发送）' : '记点什么…（Enter 发送）'}
+            placeholder="问数据 / 记一笔…（Enter 发送）"
             style={{ flex: 1, resize: 'none', background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-strong)', fontFamily: 'var(--font-sans)', fontSize: 12.5, lineHeight: 1.5, maxHeight: 90, padding: '3px 0' }}
           />
           <button onClick={() => void send()} aria-label="发送" disabled={busy} style={{ flex: 'none', width: 28, height: 28, borderRadius: 7, border: 'none', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, background: 'var(--gradient-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -178,82 +161,64 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ResultTable({ result }: { result: QueryResult }) {
-  return (
-    <div style={{ overflowX: 'auto', marginTop: 7, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-        <thead>
-          <tr>{result.columns.map((c) => <th key={c} style={{ textAlign: 'left', padding: '5px 8px', color: 'var(--text-tertiary)', fontWeight: 400, borderBottom: '1px solid var(--divider)' }}>{c}</th>)}</tr>
-        </thead>
-        <tbody>
-          {result.rows.map((row, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid var(--divider)' }}>
-              {row.map((cell, j) => <td key={j} style={{ padding: '5px 8px', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{cell == null ? '—' : String(cell)}</td>)}
-            </tr>
-          ))}
-          {!result.rows.length ? <tr><td style={{ padding: '6px 8px', color: 'var(--text-tertiary)' }}>无结果</td></tr> : null}
-        </tbody>
-      </table>
-      {result.truncated ? <div style={{ fontSize: 10.5, color: 'var(--warning)', padding: '4px 8px' }}>结果已截断</div> : null}
-    </div>
-  )
+function isScalar(v: unknown): v is string | number | boolean {
+  return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
 }
 
-function DraftCard({ msg, onConfirm, onIgnore, busy }: { msg: Msg; onConfirm: () => void; onIgnore: () => void; busy: boolean }) {
-  const draft = msg.draft as Draft
-  const canWrite = !!(draft.intent && SUPPORTED_WRITE.has(draft.intent))
-  const fields = { ...(draft.account_id ? { account_id: draft.account_id } : {}), ...(draft.fields ?? {}) }
-  return (
-    <div style={{ background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 12, display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Badge tone="gold">{INTENT_LABEL[draft.intent ?? 'unknown'] ?? draft.intent}</Badge>
-        {draft.confidence != null ? <span style={{ fontSize: 10.5, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{draft.confidence}</span> : null}
+function ResultView({ result }: { result: unknown }) {
+  // draft preview: { entity, account, fields }
+  if (result && typeof result === 'object' && !Array.isArray(result) && 'entity' in (result as object) && 'fields' in (result as object)) {
+    const r = result as { entity?: string; account?: Record<string, unknown>; fields?: Record<string, unknown> }
+    return (
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Badge tone="gold">{String(r.entity)}</Badge>
+          {r.account ? <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>{String((r.account as any).institution ?? '')} · {String((r.account as any).name ?? '')}</span> : null}
+        </div>
+        <KV obj={r.fields ?? {}} />
       </div>
-      {Object.entries(fields).map(([k, v]) => (
-        <div key={k} style={{ display: 'grid', gridTemplateColumns: '76px 1fr', fontSize: 12 }}>
+    )
+  }
+  if (Array.isArray(result)) {
+    if (!result.length) return <div style={hint}>无结果</div>
+    if (isScalar(result[0])) return <div style={card}>{result.slice(0, 30).map((v, i) => <div key={i} style={{ fontSize: 12 }}>{String(v)}</div>)}</div>
+    const rows = result as Record<string, unknown>[]
+    const cols = Object.keys(rows[0]).filter((k) => isScalar(rows[0][k])).slice(0, 6)
+    return (
+      <div style={{ ...card, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+          <thead><tr>{cols.map((c) => <th key={c} style={{ textAlign: 'left', padding: '4px 6px', color: 'var(--text-tertiary)', fontWeight: 400, borderBottom: '1px solid var(--divider)' }}>{c}</th>)}</tr></thead>
+          <tbody>
+            {rows.slice(0, 12).map((row, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid var(--divider)' }}>
+                {cols.map((c) => <td key={c} style={{ padding: '4px 6px', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{row[c] == null ? '—' : String(row[c])}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length > 12 ? <div style={{ fontSize: 10.5, color: 'var(--text-tertiary)', padding: '4px 6px' }}>共 {rows.length} 项,显示前 12</div> : null}
+      </div>
+    )
+  }
+  if (result && typeof result === 'object') return <div style={card}><KV obj={result as Record<string, unknown>} /></div>
+  return <div style={hint}>{String(result)}</div>
+}
+
+function KV({ obj }: { obj: Record<string, unknown> }) {
+  const entries = Object.entries(obj)
+  return (
+    <>
+      {entries.map(([k, v]) => (
+        <div key={k} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', fontSize: 12, padding: '1px 0' }}>
           <span style={{ color: 'var(--text-tertiary)' }}>{k}</span>
-          <span style={{ color: 'var(--text-primary)', wordBreak: 'break-word' }}>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+          <span style={{ color: 'var(--text-primary)', wordBreak: 'break-word' }}>
+            {isScalar(v) ? String(v) : Array.isArray(v) ? `[${v.length} 项]` : v == null ? '—' : '{…}'}
+          </span>
         </div>
       ))}
-      {!canWrite ? <div style={{ fontSize: 11, color: 'var(--warning)' }}>该意图暂不支持一键写入,请到对应录入页确认提交。</div> : null}
-      {msg.state === 'written' ? (
-        <div style={{ fontSize: 11.5, color: 'var(--gain)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="check" size={12} /> 已写入</div>
-      ) : msg.state === 'ignored' ? (
-        <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>已忽略</div>
-      ) : canWrite ? (
-        <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
-          <Button variant="primary" size="xs" disabled={busy} iconLeft={<Icon name="check" size={12} />} onClick={onConfirm}>确认写入</Button>
-          <Button variant="ghost" size="xs" onClick={onIgnore}>忽略</Button>
-        </div>
-      ) : null}
-    </div>
+    </>
   )
 }
 
-async function writeDraft(d: Draft): Promise<void> {
-  const f = (d.fields ?? {}) as Record<string, any>
-  const acct = d.account_id ?? f.account_id
-  const str = (v: unknown) => (v == null ? undefined : String(v))
-  switch (d.intent) {
-    case 'balance_snapshot':
-      await upsertBalanceSnapshot({ account_id: Number(acct), snapshot_date: f.snapshot_date, balance: String(f.balance), note: f.note })
-      return
-    case 'position_snapshot':
-      await upsertPositionSnapshot({ account_id: Number(acct), symbol: String(f.symbol), quantity: String(f.quantity), avg_cost: str(f.avg_cost), cost_currency: str(f.cost_currency), snapshot_date: f.snapshot_date })
-      return
-    case 'credit_card_bill':
-      await upsertCreditCardBill({ account_id: Number(acct), statement_date: f.statement_date, amount_total: String(f.amount_total), currency: str(f.currency), paid_at: f.paid_at ?? null })
-      return
-    case 'income_event':
-      await createIncomeEvent({ event_kind: f.event_kind, event_date: f.event_date, account_id: Number(acct), symbol: str(f.symbol) ?? null, amount: String(f.amount), currency: String(f.currency) })
-      return
-    case 'transaction':
-      await createTransaction({ account_id: Number(acct), symbol: String(f.symbol), action: f.action, trade_date: f.trade_date, quantity: String(f.quantity), price: String(f.price), currency: String(f.currency), fee: str(f.fee) ?? null, is_settled: !!f.is_settled })
-      return
-    case 'transfer':
-      await createTransfer({ from_account_id: Number(f.from_account_id), to_account_id: Number(f.to_account_id), from_amount: String(f.from_amount), to_amount: String(f.to_amount ?? f.from_amount), transfer_date: f.transfer_date })
-      return
-    default:
-      throw new Error('unsupported intent')
-  }
-}
+const card: React.CSSProperties = { background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10, marginTop: 6 }
+const hint: React.CSSProperties = { fontSize: 11.5, color: 'var(--text-tertiary)', marginTop: 4 }
