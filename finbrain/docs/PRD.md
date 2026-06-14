@@ -2039,11 +2039,54 @@ position_delta         = replay_quantity − snapshot_quantity
 
 ## 9. 安全与认证
 
-- 应用通过 Traefik 暴露，前置 Authelia OIDC 单点登录
-- finbrain 自身不实现登录页，依赖反向代理传入的认证头
-- 仅业主单用户访问；不存在多用户、权限角色概念
-- 数据库连接凭据、LLM API key 存储在 Kubernetes Secret，不入仓库
-- 应用日志不记录任何金额或账户余额数值；只记录操作类型与账户 ID
+> 形态变更（P9）：finbrain 由"单业主 + Authelia 反代单点登录"改为**应用自带账号系统 + 面向个人用户的多用户**。每个用户拥有自己的数据、彼此不可见；**不做**家庭共享与角色权限（RBAC）。Authelia/反代头模式保留为可选外层网关（纵深防御），但身份以应用会话为准。
+
+### 9.1 用户与登录方式
+
+- 身份与登录方式拆开存储，便于以后接第三方登录：
+  - `users`：纯身份（`id, display_name, is_active, created_at, updated_at`）。
+  - `user_identities`：可插拔登录方式（`id, user_id, provider, identifier, secret, must_change_password, created_at`，`UNIQUE(provider, identifier)`）。当前仅 `provider='password'`（`identifier=用户名`，`secret=`密码哈希）；后续微信 / 邮箱 / Google 仅新增 `provider` 行，**不改表**。
+- 开放注册：`POST /api/auth/register {username, password}`（未认证可达）。用户名唯一性由 `user_identities(provider, identifier)` 约束。
+- 密码：**argon2id 单向哈希**（含随机盐与参数），不可逆、无需密钥；登录时重新哈希做常量时间比对。库内不存明文、不存可逆密文。
+
+### 9.2 会话
+
+- 登录生成不透明 token `fbs_<hex>`，库内只存其 sha256（复用 P8 的 `sha256hex`）；明文随 `Set-Cookie fb_session=<plain>; HttpOnly; SameSite=Lax; Path=/; Secure(仅生产)` 下发。
+- `sessions(id, user_id, token_hash UNIQUE, expires_at, created_at, last_used_at, revoked_at)`。
+- 新增 `sessionMiddleware`：读 cookie（或非浏览器客户端 `Authorization: Bearer fbs_…`）→ `ResolveSession(hash) → userID` → 注入 `ctxUserID`（与现有 `ctxActor/ctxSource/ctxScopes` 同一套 context-key）。**dev 无会话时默认 `userID=1`**，保持现有免登录开发流；生产下受保护路由无有效会话返回 401。
+- 端点：`POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/me`、`POST /api/auth/change-password`。
+- 同源部署（dev 走 Vite 代理 `/api`，生产由 Go 服务 `StaticDir`）+ `SameSite=Lax`，初期无需独立 CSRF token；若将来前端拆独立域，再加 CORS + 双提交 CSRF。
+
+### 9.3 密码重置与修改
+
+- **不做**自助找回（邮件 / 短信验证码）。
+- 后台重置：管理命令 `finbrain-admin set-password <username> <临时密码>`（内部 argon2 哈希写 `user_identities.secret`，并吊销该用户全部 `sessions` 强制重登）；可选置 `must_change_password=true`。
+- 自助改密：登录后 `POST /api/auth/change-password {current_password, new_password}`（校验旧密码 → 写新哈希 → 吊销其余会话）。
+- `must_change_password=true` 时，前端在登录后引导用户先改密。
+
+### 9.4 数据隔离（每用户）
+
+- 共享 schema + 每张"归属用户"的表加 `user_id BIGINT NOT NULL REFERENCES users(id)`；store 方法**显式接收 `userID int64` 参数**并在 SQL 追加 `AND user_id=$N`（漏传即编译错误，是防越权的主力），辅以 `/* OWNED */` SQL 注释供 grep 审计。
+- **不用** Postgres RLS / schema-per-tenant：二者与本项目"单一 `*pgxpool.Pool` + ~100 处裸 `s.pool.Query`"的池化连接冲突（残留连接级设置会跨用户泄漏），且对个人应用收益不抵成本。
+- 全局共享（**无** `user_id`，人人共用）：`instruments` / `prices` / `fx_rates` / `corporate_actions`（行情）/ `account_templates`。
+- 账户子表（`balance_snapshots / position_snapshots / transactions / transfers / income_events / credit_card_bills`）反范式带 `user_id`，由触发器 `enforce_owner` 保证 `子行.user_id = 父账户.user_id`；`transfers`（双账户）、`income_events`/`credit_card_bills`（`payment_account_id`）、`review_batch` 批量写入前须校验所有引用账户同属当前用户。
+- 唯一约束改为按用户：`institutions(user_id,name)`、`accounts(user_id,institution_id,name)`、`allocation_target_sets(user_id,name)`；`user_preferences` 由 `id=1` 单行改为 `UNIQUE(user_id)`。
+
+### 9.5 时区
+
+- `user_preferences.timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'`（东八区）。
+- 后端"今天 / onDate"等日界计算由进程级 `config.Timezone` 改为**按当前用户时区**，影响估值截面、趋势、对账日界。设置页提供时区选择。
+
+### 9.6 Agent / API Key / 审计（承接 §8.5–8.6 / P8）
+
+- `api_keys`、`agent_audit` 增加 `user_id`：API key 按用户隔离（`ListAPIKeys/CreateAPIKey` 仅当前用户）；`agent_audit` 按用户过滤（保留可选的全局管理视图）。
+- `agentAuthMiddleware` 用 key 的 `user_id` 注入 `ctxUserID`，**agent 技能代码零改动**即按人隔离（技能本就按 `account_id` 取数，store 方法加 `user_id` 谓词即可）。
+- UI 变更的 `actor` 由硬编码 `owner` 改为 `user:<id>`。
+
+### 9.7 运维与日志（沿用原则）
+
+- 数据库连接凭据、LLM API key、密码哈希参数等敏感配置存 `infra/.secrets` / Kubernetes Secret，不入仓库。
+- 应用日志不记录任何金额或账户余额数值；只记录操作类型与账户 / 用户 ID。
 
 ---
 
@@ -2052,7 +2095,7 @@ position_delta         = replay_quantity − snapshot_quantity
 - 运行环境：Kubernetes（NUC 单节点 k3s）
 - 数据库：复用 `infra/data/postgresql` 共享 PostgreSQL 实例，建独立库 `finbrain`
 - 入口：Traefik HTTPRoute，路径前缀 `/finbrain/`
-- 认证：Authelia OIDC
+- 认证：finbrain 自带账号登录（§9）；Authelia / 反代认证头（`cfg.AuthHeader`）保留为可选外层网关，非身份来源
 - 备份：每日 cron 在集群内执行 `pg_dump finbrain` 写入 PVC，保留最近 30 份
 - 镜像拉取：通过 NUC 已配置的 DaoCloud 镜像加速
 - 资源占用预算：单 Pod，request 50m CPU / 128MiB 内存，limit 500m / 512MiB
@@ -2095,7 +2138,11 @@ position_delta         = replay_quantity − snapshot_quantity
 | 阶段性总结 | 能生成 month/quarter/year 总结并存档；总结基于后端聚合指标，不直接读库 |
 | 数据导出 | 全量导出能完整还原所有快照、账单、价格、汇率 |
 | 备份恢复 | 能从最近一份 pg_dump 完整还原数据库 |
-| 单点登录 | 未通过 Authelia 的请求被拒绝；通过的请求识别业主身份 |
+| 账号注册 / 登录 | 能用用户名 + 密码注册并登录；重复用户名被拒；错误密码被拒；密码以 argon2id 哈希存储（库内无明文 / 无可逆密文） |
+| 数据隔离（每用户） | 任一用户登录后只能读写自己的数据；直接传他人 `account_id` 等被拒；全局行情表对所有用户共享 |
+| 密码管理 | `finbrain-admin set-password` 可重置某用户密码并使其旧会话失效；用户登录后可自助改密；改密后其余会话失效 |
+| 会话 | 登出后会话失效；过期 / 无效会话被拒并跳转登录；dev 默认用户 1 免登录流程不受影响 |
+| 时区 | 用户可设置时区（默认东八区）；估值截面 / 趋势 / 对账的"今天"按用户时区计算 |
 
 ---
 
@@ -2106,7 +2153,7 @@ position_delta         = replay_quantity − snapshot_quantity
 | 消费流水逐笔记账 | 仅指**日常消费**（餐饮、购物等）；信用卡按"还款日登记上周期合计消费"，不细到每笔。**持仓型账户的买卖交易**不属于本条，是支持的（见 §4.6） |
 | 自动账单 / 银行 API 接入 | 跨机构成本与可靠性差；业主接受手工录入 |
 | 持仓交易的批量月结 | 月结单一次出账多笔费用时，业主人工修订对应交易记录即可，不为此做批量录入视图（见 §4.6） |
-| 多用户 / 权限 / 家庭共享 | 产品形态为单用户；多用户引入显著复杂度 |
+| 家庭共享 / 角色权限（RBAC） | 面向个人用户，每个用户独立隔离即可（见 §9）；账户共享、多角色权限引入显著复杂度，暂不做 |
 | 预算 / 储蓄目标 / 提醒推送 | 与"事后回顾"的产品定位不符；注意"目标配置"（§4.15）是配置态的资产分布期望，不是流水侧的预算或储蓄目标 |
 | 移动端原生应用 | 浏览器移动端能满足；维护原生 app 成本不匹配 |
 | 实时行情自动抓取 | 不可靠且非必需；价格表支持手动维护或后续接入 |
