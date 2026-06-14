@@ -461,7 +461,10 @@ async function renderAssetFlowShareImage({
   // top-right — disclose it here so the shared image isn't read as the full portfolio.
   let footer: string
   if (hideAmounts) {
-    footer = '金额已隐藏，仅展示资产结构与流向权重。'
+    // Even with amounts hidden, disclose omitted assets so the structure isn't read as complete.
+    footer = flow.omittedCount > 0
+      ? `金额已隐藏；已忽略 ${flow.omittedCount} 项无估值或负值资产。`
+      : '金额已隐藏，仅展示资产结构与流向权重。'
   } else if (flow.omittedCount > 0) {
     footer = `已忽略 ${flow.omittedCount} 项无估值或负值资产，图示合计 ${shortMoney(flow.includedTotal, displayCurrency)}`
   } else {
@@ -469,9 +472,14 @@ async function renderAssetFlowShareImage({
   }
   ctx.fillText(footer, 44, height - 48)
   if (flow.compactedCount > 0) {
-    ctx.textAlign = 'right'
-    ctx.fillText(`已合并 ${flow.compactedCount} 个小额资产`, width - 44, height - 48)
-    ctx.textAlign = 'left'
+    // The secondary note shares this line with the (possibly long) left footer; only draw it
+    // right-aligned when it measurably fits, otherwise drop it to avoid overlapping text.
+    const note = `已合并 ${flow.compactedCount} 个小额资产`
+    if (44 + ctx.measureText(footer).width + 24 + ctx.measureText(note).width <= width - 44) {
+      ctx.textAlign = 'right'
+      ctx.fillText(note, width - 44, height - 48)
+      ctx.textAlign = 'left'
+    }
   }
   shareSetFont(ctx, 10.5, 500)
   ctx.fillStyle = tertiary
