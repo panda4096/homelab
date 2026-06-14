@@ -33,8 +33,8 @@
 - [x] 根表：`allocation_target_items`
 - [x] 根表：`summaries`
 - [x] 根表：`annotations`
-- [ ] 根表：`api_keys`
-- [ ] 根表：`agent_audit`（历史行回填=1；或保留 NULL 作"pre-tenancy"——按 §9 取回填=1）
+- [x] 根表：`api_keys`
+- [x] 根表：`agent_audit`（历史行回填=1；或保留 NULL 作"pre-tenancy"——按 §9 取回填=1）
 - [x] 子表（反范式）：`balance_snapshots`
 - [x] 子表：`position_snapshots`
 - [x] 子表：`transactions`
@@ -117,10 +117,10 @@
 
 ## 5. P9.3 · Agent / API Key / 审计按用户化
 
-- [ ] `ResolveAPIKey` 返回 `user_id`；`agentAuthMiddleware` 注入 `ctxUserID`
-- [ ] `ListAPIKeys/CreateAPIKey/RevokeAPIKey` 按 `userOf` 过滤/打戳
-- [ ] `InsertAuditEvent` + `mutationAuditMiddleware` 记录 `user_id`；`ListAuditEvents` 按用户过滤（保留可选全局视图）
-- [ ] 验证：agent 用某用户的 key 只能读写该用户数据；审计仅显示本人行为
+- [x] `ResolveAPIKey` 返回 `user_id`；`agentAuthMiddleware` 注入 `ctxUserID`
+- [x] `ListAPIKeys/CreateAPIKey/RevokeAPIKey` 按 `userOf` 过滤/打戳
+- [x] `InsertAuditEvent` + `mutationAuditMiddleware` 记录 `user_id`；`ListAuditEvents` 按用户过滤（保留可选全局视图）
+- [x] 验证：agent 用某用户的 key 只能读写该用户数据；审计仅显示本人行为
 
 **DoD（P9.3）**：agent 技能/审计/API key 全部按用户隔离，技能业务代码无需改动。
 
@@ -152,3 +152,4 @@
 | 2026-06-15 | P9.0 认证基座 | 完成 | 新增 argon2id 密码、users/user_identities/sessions、session middleware、auth API、admin set-password、登录页；NUC dev 01400 up 通过，curl 验证注册/登录/改密/重置/登出，浏览器验证 dev user 1 免登录 |
 | 2026-06-15 | P9.1 gateway 隔离 | 完成 | 新增 01410 gateway 迁移，将既有机构/账户回填到 user 1；accounts/institutions/preferences 入口按 user 隔离；接口验证 A/B 用户互查/互删/直传对方 account_id 均被拒，全局 instruments 仍共享；临时测试账户下空机构/账户已通过 API 清理 |
 | 2026-06-15 | P9.2 owned 业务数据隔离 | 完成 | 新增 01420 owned 数据迁移，保留既有行并按账户/目标集回填 owner；balance/position/transactions/transfers/income/credit-card/targets/annotations/summaries/valuation/replay/recon/attribution/export/review batch 全链路下传 userID；NUC dev 迁移到 1420，Go build/vet/test 通过；API A/B 越权验证覆盖读写删、列表、估值、批量盘点，临时 `p9test` 数据已清理为 0 |
+| 2026-06-15 | P9.3 Agent / API Key / 审计隔离 | 完成 | 新增 01430 agent 用户隔离迁移，保留既有 api_keys/agent_audit 并回填 user 1；API key CRUD、ResolveAPIKey、agentAuthMiddleware、mutation/skill audit 全部绑定 userID；验证 A/B key 列表互不可见、B 无法吊销 A key、API key 调 accounts.list 只见 owner 账户、read key 写操作 403、audit 只显示本人 key 事件；临时 `p9test` 数据已清理为 0 |

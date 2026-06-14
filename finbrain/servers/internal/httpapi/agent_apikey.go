@@ -58,16 +58,16 @@ func newAPIKeySecret() (plain, hash, prefix string) {
 // (UI Copilot) needs no key in dev (the existing authMiddleware governs access).
 func (s *Server) agentAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		actor, source, scopes := "owner", "agent", "read_write"
-		auth := strings.TrimSpace(r.Header.Get("Authorization"))
-		if strings.HasPrefix(auth, "Bearer ") {
-			secret := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		actor, source, scopes := actorOf(r), "agent", "read_write"
+		if secret := agentAPIKeyFromRequest(r); secret != "" {
 			k, err := s.store.ResolveAPIKey(r.Context(), sha256hex(secret))
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, "unauthorized", "无效或已吊销的 API Key")
 				return
 			}
 			actor, source, scopes = "apikey:"+k.Name, "apikey", k.Scopes
+			ctx := context.WithValue(r.Context(), ctxUserID, k.UserID)
+			r = r.WithContext(ctx)
 		}
 		ctx := context.WithValue(r.Context(), ctxActor, actor)
 		ctx = context.WithValue(ctx, ctxSource, source)
@@ -112,7 +112,7 @@ func (s *Server) mutationAuditMiddleware(next http.Handler) http.Handler {
 			if rec.status >= 400 {
 				status = "error"
 			}
-			_ = s.store.InsertAuditEvent(r.Context(), store.AuditEvent{
+			_ = s.store.InsertAuditEvent(r.Context(), userOf(r), store.AuditEvent{
 				RequestID: requestID(r), Actor: actorOf(r), Source: "ui",
 				Status: status, HTTPMethod: &method, HTTPPath: &path,
 			})
@@ -123,7 +123,7 @@ func (s *Server) mutationAuditMiddleware(next http.Handler) http.Handler {
 // ---- API key CRUD ----
 
 func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := s.store.ListAPIKeys(r.Context())
+	keys, err := s.store.ListAPIKeys(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -153,7 +153,7 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		scopes = "read"
 	}
 	plain, hash, prefix := newAPIKeySecret()
-	key, err := s.store.CreateAPIKey(r.Context(), body.Name, hash, prefix, scopes)
+	key, err := s.store.CreateAPIKey(r.Context(), userOf(r), body.Name, hash, prefix, scopes)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return
@@ -168,7 +168,7 @@ func (s *Server) deleteAPIKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.RevokeAPIKey(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.RevokeAPIKey(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "API Key 不存在或已吊销")
 		return
 	} else if err != nil {
@@ -182,7 +182,7 @@ func (s *Server) deleteAPIKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	source := strings.TrimSpace(r.URL.Query().Get("source"))
-	events, err := s.store.ListAuditEvents(r.Context(), source, queryLimit(r))
+	events, err := s.store.ListAuditEvents(r.Context(), userOf(r), source, queryLimit(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return

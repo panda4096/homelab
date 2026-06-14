@@ -16,6 +16,10 @@ func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		plain := sessionTokenFromRequest(r)
 		if plain == "" {
+			if agentAPIKeyFromRequest(r) != "" && strings.HasPrefix(r.URL.Path, "/api/agent") {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if s.cfg.IsDev() {
 				ctx := context.WithValue(r.Context(), ctxUserID, int64(1))
 				ctx = context.WithValue(ctx, ctxDevDefault, true)
@@ -48,6 +52,18 @@ func sessionTokenFromRequest(r *http.Request) string {
 		if strings.HasPrefix(token, "fbs_") {
 			return token
 		}
+	}
+	return ""
+}
+
+func agentAPIKeyFromRequest(r *http.Request) string {
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return ""
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+	if strings.HasPrefix(token, "fbk_") {
+		return token
 	}
 	return ""
 }

@@ -823,7 +823,7 @@ func (s *Server) recordSkillAudit(r *http.Request, sk Skill, body agentRunBody, 
 		nl = &body.NLSource
 	}
 	skillName, skillType := sk.Name, sk.Type
-	_ = s.store.InsertAuditEvent(r.Context(), store.AuditEvent{
+	_ = s.store.InsertAuditEvent(r.Context(), userOf(r), store.AuditEvent{
 		RequestID: requestID(r), Actor: actorOf(r), Source: sourceOf(r),
 		SkillName: &skillName, SkillType: &skillType, InputJSON: input,
 		OutputRowCount: &rc, AffectedEntities: affJSON, NLSource: nl,
