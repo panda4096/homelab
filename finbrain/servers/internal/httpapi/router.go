@@ -120,10 +120,9 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Patch("/allocation-targets/{id}", s.patchAllocationTarget)
 		r.Delete("/allocation-targets/{id}", s.deleteAllocationTarget)
 
-		// P6: LLM (NL entry / query) + stage summaries
+		// P6: LLM status + stage summaries. NL→SQL/draft removed — all NL now goes
+		// through the P8 skill layer (/agent/plan → registered skills, no SQL).
 		r.Get("/llm/status", s.getLLMStatus)
-		r.Post("/llm/parse", s.llmParse)
-		r.Post("/llm/query", s.llmQuery)
 		r.Get("/summaries", s.listSummaries)
 		r.Post("/summaries/generate", s.generateSummary)
 		r.Get("/summaries/{id}", s.getSummary)
