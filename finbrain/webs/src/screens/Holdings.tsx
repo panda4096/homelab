@@ -24,6 +24,7 @@ interface HoldingRow {
   subtitle: string
   market: string
   quoteCurrency: string
+  costCurrency: string
   quantity: string | null
   avgCost: string | null
   price: string | null
@@ -57,9 +58,9 @@ export function Holdings() {
     let next =
       group === 'symbol'
         ? (data.position_groups?.length ? data.position_groups : data.positions).map((p) =>
-            positionToRow(p, num(data.position_value) ?? 0),
+            positionToRow(p, num(data.position_value) ?? 0, costMode),
           )
-        : buildRows(data.positions, group, num(data.position_value) ?? 0)
+        : buildRows(data.positions, group, num(data.position_value) ?? 0, costMode)
     next = next.filter((h) => {
       if (filter === 'all') return true
       if (filter === 'profit') return (h.plPct ?? 0) > 0
@@ -73,7 +74,7 @@ export function Holdings() {
       return compareHolding(a, b, sort.key) * sort.dir
     })
     return next
-  }, [data, filter, group, sort])
+  }, [costMode, data, filter, group, sort])
 
   const marketCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -114,7 +115,12 @@ export function Holdings() {
     <Page>
       <div className="fb-grid fb-grid--g14 kpi-5">
         <StatCard label="持仓总市值" value={data.position_value} currency={data.display_currency} compact />
-        <StatCard label="持仓总成本" value={data.position_cost} currency={data.display_currency} compact />
+        <StatCard
+          label={costMode === 'net' ? '净持有成本' : '持仓总成本'}
+          value={costMode === 'net' ? data.position_net_cost : data.position_cost}
+          currency={data.display_currency}
+          compact
+        />
         <StatCard
           label="总浮动盈亏"
           raw={
@@ -124,7 +130,14 @@ export function Holdings() {
           }
           deltaPercent={data.unrealized_pl_pct}
         />
-        <StatCard label="总已实现盈亏" raw={<span style={{ fontSize: 'var(--text-3xl)', color: 'var(--text-tertiary)' }}>待 P4</span>} />
+        <StatCard
+          label="本年已实现盈亏"
+          raw={
+            <span style={{ color: (num(data.realized_pl_ytd) ?? 0) >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+              <CurrencyValue value={data.realized_pl_ytd} currency={data.display_currency} signed size="var(--text-3xl)" compact />
+            </span>
+          }
+        />
         <StatCard
           label="持仓占净资产"
           raw={<span className="fb-num" style={{ fontSize: 'var(--text-3xl)', color: 'var(--text-strong)' }}>{data.position_share ?? '0.00'}%</span>}
@@ -177,7 +190,6 @@ export function Holdings() {
               { value: 'net', label: '净持有成本' },
             ]}
           />
-          {costMode === 'net' ? <Badge tone="warning">待 P4 交易流水</Badge> : null}
         </div>
       </div>
 
@@ -237,7 +249,7 @@ export function Holdings() {
                       </span>
                     </Td>
                     <Td right mono>{h.quantity == null ? '—' : quantity(h.quantity)}</Td>
-                    <Td right mono dim>{h.avgCost == null ? '—' : native(h.avgCost, h.quoteCurrency, 4)}</Td>
+                    <Td right mono dim>{h.avgCost == null ? '—' : native(h.avgCost, h.costCurrency, 4)}</Td>
                     <Td right mono color={h.price ? 'var(--text-strong)' : 'var(--text-tertiary)'}>
                       {h.price && h.priceCurrency ? native(h.price, h.priceCurrency, 4) : '—'}
                     </Td>
@@ -261,7 +273,7 @@ export function Holdings() {
         </div>
       </Card>
       <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Icon name="info" size={13} /> 浮动盈亏率按原币成本口径计算；无价格持仓置底展示且不计入汇总。
+        <Icon name="info" size={13} /> 成本和浮动盈亏随成本口径切换；无价格持仓置底展示且不计入汇总。
       </div>
     </Page>
   )
@@ -346,8 +358,8 @@ function Td({
   )
 }
 
-function buildRows(positions: ValuationPosition[], group: string, totalPositionValue: number): HoldingRow[] {
-  const base = positions.map((p) => positionToRow(p, totalPositionValue))
+function buildRows(positions: ValuationPosition[], group: string, totalPositionValue: number, costMode: 'weighted' | 'net'): HoldingRow[] {
+  const base = positions.map((p) => positionToRow(p, totalPositionValue, costMode))
   if (group === 'account') return base
   const keyOf = (r: HoldingRow) => {
     if (group === 'symbol') return r.symbol
@@ -391,10 +403,14 @@ function buildRows(positions: ValuationPosition[], group: string, totalPositionV
   })
 }
 
-function positionToRow(p: ValuationPosition, totalPositionValue: number): HoldingRow {
+function positionToRow(p: ValuationPosition, totalPositionValue: number, costMode: 'weighted' | 'net'): HoldingRow {
   const marketValue = num(p.market_value_display)
-  const costValue = num(p.cost_value_display)
-  const plValue = num(p.unrealized_pl_display)
+  const weightedCostValue = num(p.cost_value_display)
+  const netCostValue = num(p.net_cost_value_display)
+  const costValue = costMode === 'net' ? (netCostValue ?? weightedCostValue) : weightedCostValue
+  const avgCost = costMode === 'net' ? (p.net_cost ?? p.avg_cost) : p.avg_cost
+  const plValue = marketValue != null && costValue != null ? marketValue - costValue : num(p.unrealized_pl_display)
+  const plPct = costValue && costValue !== 0 && plValue != null ? (plValue / costValue) * 100 : num(p.unrealized_pl_pct)
   return {
     key: `${p.account_id}:${p.symbol}`,
     symbol: p.symbol,
@@ -402,14 +418,15 @@ function positionToRow(p: ValuationPosition, totalPositionValue: number): Holdin
     subtitle: `${p.display_name ?? p.symbol} · ${p.institution} · ${p.account_name}`,
     market: p.market ?? 'UNKNOWN',
     quoteCurrency: p.quote_currency ?? p.price_currency ?? p.cost_currency,
+    costCurrency: p.cost_currency,
     quantity: p.quantity,
-    avgCost: p.avg_cost,
+    avgCost,
     price: p.price,
     priceCurrency: p.price_currency,
     marketValue,
     costValue,
     plValue,
-    plPct: num(p.unrealized_pl_pct),
+    plPct,
     weight: p.weight != null ? num(p.weight) : marketValue != null && totalPositionValue ? (marketValue / totalPositionValue) * 100 : null,
     assetWeight: num(p.asset_weight),
     holdingDays: p.holding_days,

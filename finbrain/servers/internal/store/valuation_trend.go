@@ -25,83 +25,21 @@ type TrendSeries struct {
 	Points          []TrendPoint `json:"points"`
 }
 
-// netWorthAt computes the §6.1–6.4 cross-section totals at onDate (snapshot
-// interpolation per §6.14; no trade replay — the daily curve is snapshot-based).
+// netWorthAt computes the §6.1–6.4 cross-section totals at onDate using the
+// same valuation engine as the current dashboard so transaction replay, pricing,
+// liabilities, and FX handling stay consistent across current and trend views.
 func (s *Store) netWorthAt(ctx context.Context, onDate, displayCurrency, fxMode string) (TrendPoint, error) {
-	fx := &fxResolver{store: s, ctx: ctx, mode: fxMode, onDate: onDate, cache: map[string]fxResult{}}
-	cash := decZero
-	positions := decZero
-	liabilities := decZero
-
-	cashRows, err := s.currentCashRows(ctx, onDate)
+	val, err := s.GetValuation(ctx, onDate, displayCurrency, fxMode, onDate)
 	if err != nil {
 		return TrendPoint{}, err
 	}
-	for _, c := range cashRows {
-		bal, err := decimalFromString(c.Balance)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		res, err := fx.resolve(c.AccountCurrency, displayCurrency)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		cash = cash.Add(bal.Mul(res.Rate))
-	}
-
-	posRows, err := s.currentPositionRows(ctx, onDate)
-	if err != nil {
-		return TrendPoint{}, err
-	}
-	for _, p := range posRows {
-		qty, err := decimalFromString(p.Quantity)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		if !qty.GreaterThan(decZero) || p.Price == nil || p.PriceCurrency == nil {
-			continue // missing price → excluded from totals (§6.2)
-		}
-		costCurrency := firstNonEmpty(ptrValue(p.CostCurrency), ptrValue(p.QuoteCurrency), p.AccountCurrency)
-		price, err := decimalFromString(*p.Price)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		priceToCost, err := fx.resolve(*p.PriceCurrency, costCurrency)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		displayFx, err := fx.resolve(costCurrency, displayCurrency)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		mv := qty.Mul(price.Mul(priceToCost.Rate)).Mul(displayFx.Rate)
-		positions = positions.Add(mv)
-	}
-
-	liabRows, err := s.currentLiabilityRows(ctx, onDate)
-	if err != nil {
-		return TrendPoint{}, err
-	}
-	for _, l := range liabRows {
-		amt, err := decimalFromString(l.AmountTotal)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		res, err := fx.resolve(l.Currency, displayCurrency)
-		if err != nil {
-			return TrendPoint{}, err
-		}
-		liabilities = liabilities.Add(amt.Mul(res.Rate))
-	}
-
-	assets := cash.Add(positions)
 	return TrendPoint{
 		Date:             onDate,
-		NetWorth:         formatMoneyDecimal(assets.Sub(liabilities)),
-		TotalAssets:      formatMoneyDecimal(assets),
-		TotalLiabilities: formatMoneyDecimal(liabilities),
-		CashValue:        formatMoneyDecimal(cash),
-		PositionValue:    formatMoneyDecimal(positions),
+		NetWorth:         val.NetWorth,
+		TotalAssets:      val.TotalAssets,
+		TotalLiabilities: val.TotalLiabilities,
+		CashValue:        val.CashValue,
+		PositionValue:    val.PositionValue,
 	}, nil
 }
 

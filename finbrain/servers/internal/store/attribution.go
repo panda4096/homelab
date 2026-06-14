@@ -21,29 +21,38 @@ type AttributionResult struct {
 }
 
 type posUnit struct {
-	qty      decimal.Decimal
-	unit     decimal.Decimal // per-unit price in display currency
-	hasPrice bool
+	qty           decimal.Decimal
+	price         decimal.Decimal // per-unit native price
+	priceCurrency string
+	hasPrice      bool
 }
 
-func (s *Store) positionUnits(ctx context.Context, onDate, display string, fx *fxResolver) (map[string]posUnit, error) {
+type cashUnit struct {
+	amount   decimal.Decimal
+	currency string
+}
+
+func (s *Store) positionUnits(ctx context.Context, onDate string) (map[string]posUnit, error) {
 	rows, err := s.currentPositionRows(ctx, onDate)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]posUnit{}
 	for _, p := range rows {
-		qty := mustDec(p.Quantity)
+		if _, _, err := s.applyReplayToPositionRow(ctx, &p, onDate); err != nil {
+			return nil, err
+		}
+		qty, err := decimalFromString(p.Quantity)
+		if err != nil {
+			return nil, err
+		}
 		if !qty.GreaterThan(decZero) {
 			continue
 		}
 		pu := posUnit{qty: qty}
 		if p.Price != nil && p.PriceCurrency != nil {
-			res, err := fx.resolve(*p.PriceCurrency, display)
-			if err != nil {
-				return nil, err
-			}
-			pu.unit = mustDec(*p.Price).Mul(res.Rate)
+			pu.price = mustDec(*p.Price)
+			pu.priceCurrency = *p.PriceCurrency
 			pu.hasPrice = true
 		}
 		out[fmt.Sprintf("%d|%s", p.AccountID, p.Symbol)] = pu
@@ -51,20 +60,35 @@ func (s *Store) positionUnits(ctx context.Context, onDate, display string, fx *f
 	return out, nil
 }
 
-func (s *Store) cashDisplay(ctx context.Context, onDate, display string, fx *fxResolver) (map[int64]decimal.Decimal, error) {
+func (s *Store) cashUnits(ctx context.Context, onDate string) (map[int64]cashUnit, error) {
 	rows, err := s.currentCashRows(ctx, onDate)
 	if err != nil {
 		return nil, err
 	}
-	out := map[int64]decimal.Decimal{}
+	out := map[int64]cashUnit{}
 	for _, c := range rows {
-		res, err := fx.resolve(c.AccountCurrency, display)
-		if err != nil {
-			return nil, err
-		}
-		out[c.AccountID] = mustDec(c.Balance).Mul(res.Rate)
+		out[c.AccountID] = cashUnit{amount: mustDec(c.Balance), currency: c.AccountCurrency}
 	}
 	return out, nil
+}
+
+func unitDisplay(p posUnit, fx *fxResolver, display string) (decimal.Decimal, error) {
+	if !p.hasPrice {
+		return decZero, nil
+	}
+	res, err := fx.resolve(p.priceCurrency, display)
+	if err != nil {
+		return decZero, err
+	}
+	return p.price.Mul(res.Rate), nil
+}
+
+func cashDisplayValue(c cashUnit, fx *fxResolver, display string) (decimal.Decimal, error) {
+	res, err := fx.resolve(c.currency, display)
+	if err != nil {
+		return decZero, err
+	}
+	return c.amount.Mul(res.Rate), nil
 }
 
 func (s *Store) incomeInWindow(ctx context.Context, from, to, display string, fx *fxResolver) (decimal.Decimal, error) {
@@ -88,9 +112,9 @@ func (s *Store) incomeInWindow(ctx context.Context, from, to, display string, fx
 	return total, rows.Err()
 }
 
-// PeriodAttribution decomposes net-worth change in (from, to] (§6.12):
-// price (qty_from × Δunit), quantity (Δqty × unit_to + cash Δ), income (events
-// in window), and fx (residual).
+// PeriodAttribution decomposes net-worth change in (from, to] (§6.12).
+// Historical mode separates beginning-position/cash FX movement before adding
+// the residual to fx_effect so the four buckets still sum to net_change.
 func (s *Store) PeriodAttribution(ctx context.Context, from, to, display, fxMode string) (AttributionResult, error) {
 	fxFrom := &fxResolver{store: s, ctx: ctx, mode: fxMode, onDate: from, cache: map[string]fxResult{}}
 	fxTo := &fxResolver{store: s, ctx: ctx, mode: fxMode, onDate: to, cache: map[string]fxResult{}}
@@ -105,17 +129,18 @@ func (s *Store) PeriodAttribution(ctx context.Context, from, to, display, fxMode
 	}
 	netChange := mustDec(nwTo.NetWorth).Sub(mustDec(nwFrom.NetWorth))
 
-	fromPos, err := s.positionUnits(ctx, from, display, fxFrom)
+	fromPos, err := s.positionUnits(ctx, from)
 	if err != nil {
 		return AttributionResult{}, err
 	}
-	toPos, err := s.positionUnits(ctx, to, display, fxTo)
+	toPos, err := s.positionUnits(ctx, to)
 	if err != nil {
 		return AttributionResult{}, err
 	}
 
 	price := decZero
 	qtyEff := decZero
+	explicitFx := decZero
 	keys := map[string]bool{}
 	for k := range fromPos {
 		keys[k] = true
@@ -126,22 +151,43 @@ func (s *Store) PeriodAttribution(ctx context.Context, from, to, display, fxMode
 	for k := range keys {
 		f := fromPos[k]
 		t := toPos[k]
-		fUnit, tUnit := f.unit, t.unit
 		if !t.hasPrice {
-			tUnit = fUnit // no end price → treat price as flat
+			t.price = f.price // no end price → treat price as flat
+			t.priceCurrency = f.priceCurrency
+			t.hasPrice = f.hasPrice
 		}
 		if !f.hasPrice {
-			fUnit = tUnit
+			f.price = t.price
+			f.priceCurrency = t.priceCurrency
+			f.hasPrice = t.hasPrice
 		}
-		price = price.Add(f.qty.Mul(tUnit.Sub(fUnit)))
-		qtyEff = qtyEff.Add(t.qty.Sub(f.qty).Mul(tUnit))
+		if !f.hasPrice && !t.hasPrice {
+			continue
+		}
+		fUnitTo, err := unitDisplay(f, fxTo, display)
+		if err != nil {
+			return AttributionResult{}, err
+		}
+		tUnitTo, err := unitDisplay(t, fxTo, display)
+		if err != nil {
+			return AttributionResult{}, err
+		}
+		price = price.Add(f.qty.Mul(tUnitTo.Sub(fUnitTo)))
+		qtyEff = qtyEff.Add(t.qty.Sub(f.qty).Mul(tUnitTo))
+		if fxMode == "historical" {
+			fUnitFrom, err := unitDisplay(f, fxFrom, display)
+			if err != nil {
+				return AttributionResult{}, err
+			}
+			explicitFx = explicitFx.Add(f.qty.Mul(fUnitTo.Sub(fUnitFrom)))
+		}
 	}
 
-	fromCash, err := s.cashDisplay(ctx, from, display, fxFrom)
+	fromCash, err := s.cashUnits(ctx, from)
 	if err != nil {
 		return AttributionResult{}, err
 	}
-	toCash, err := s.cashDisplay(ctx, to, display, fxTo)
+	toCash, err := s.cashUnits(ctx, to)
 	if err != nil {
 		return AttributionResult{}, err
 	}
@@ -153,14 +199,43 @@ func (s *Store) PeriodAttribution(ctx context.Context, from, to, display, fxMode
 		cashKeys[k] = true
 	}
 	for k := range cashKeys {
-		qtyEff = qtyEff.Add(toCash[k].Sub(fromCash[k]))
+		f, fOK := fromCash[k]
+		t, tOK := toCash[k]
+		fromAtTo := decZero
+		fromAtFrom := decZero
+		toAtTo := decZero
+		if fOK {
+			var err error
+			fromAtTo, err = cashDisplayValue(f, fxTo, display)
+			if err != nil {
+				return AttributionResult{}, err
+			}
+			if fxMode == "historical" {
+				fromAtFrom, err = cashDisplayValue(f, fxFrom, display)
+				if err != nil {
+					return AttributionResult{}, err
+				}
+			}
+		}
+		if tOK {
+			var err error
+			toAtTo, err = cashDisplayValue(t, fxTo, display)
+			if err != nil {
+				return AttributionResult{}, err
+			}
+		}
+		qtyEff = qtyEff.Add(toAtTo.Sub(fromAtTo))
+		if fxMode == "historical" && fOK {
+			explicitFx = explicitFx.Add(fromAtTo.Sub(fromAtFrom))
+		}
 	}
 
 	income, err := s.incomeInWindow(ctx, from, to, display, fxTo)
 	if err != nil {
 		return AttributionResult{}, err
 	}
-	fxEff := netChange.Sub(price).Sub(qtyEff).Sub(income)
+	residual := netChange.Sub(price).Sub(qtyEff).Sub(income).Sub(explicitFx)
+	fxEff := explicitFx.Add(residual)
 
 	return AttributionResult{
 		From: from, To: to, DisplayCurrency: display,

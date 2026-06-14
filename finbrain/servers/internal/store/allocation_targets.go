@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -136,6 +137,26 @@ func (s *Store) DeleteAllocationTargetSet(ctx context.Context, id int64) error {
 	return nil
 }
 
+func completeTargetItemsForActuals(set *AllocationTargetSet, actualByKey map[string]string) {
+	seen := map[string]bool{}
+	for _, it := range set.Items {
+		seen[it.DimensionValue] = true
+	}
+	var missing []string
+	for key := range actualByKey {
+		if !seen[key] {
+			missing = append(missing, key)
+		}
+	}
+	sort.Strings(missing)
+	for _, key := range missing {
+		set.Items = append(set.Items, AllocationTargetItem{
+			DimensionValue: key,
+			TargetPct:      "0.00",
+		})
+	}
+}
+
 // EvaluateDrift fills Actual/Drift/Rebalance/OverThreshold for each item by
 // comparing target percentages to the live allocation for the set's dimension
 // (§6.10), using net worth for the rebalance amount.
@@ -152,6 +173,7 @@ func (s *Store) EvaluateDrift(ctx context.Context, id int64, onDate, displayCurr
 	for _, b := range val.Allocations[set.Dimension] {
 		actualByKey[b.Key] = b.Percent
 	}
+	completeTargetItemsForActuals(&set, actualByKey)
 	netWorth, _ := decimalFromString(val.NetWorth)
 	threshold := mustDec(set.DriftThresholdPct)
 	for i := range set.Items {

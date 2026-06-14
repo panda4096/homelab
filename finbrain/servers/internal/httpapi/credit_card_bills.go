@@ -155,6 +155,42 @@ func (s *Server) normalizeAndValidateReviewBatch(r *http.Request, batch *store.R
 			errs = append(errs, newBatchRowError("position_snapshots", i, "", "business_rule_violated", msg))
 		}
 	}
+	for i := range batch.Transactions {
+		t := &batch.Transactions[i]
+		if t.TradeDate == "" {
+			t.TradeDate = batch.ReviewDate
+		}
+		if msg := s.normalizeAndValidateTransaction(r, t); msg != "" {
+			errs = append(errs, newBatchRowError("transactions", i, "", "business_rule_violated", msg))
+		}
+	}
+	for i := range batch.Transfers {
+		t := &batch.Transfers[i]
+		if t.TransferDate == "" {
+			t.TransferDate = batch.ReviewDate
+		}
+		if msg := s.normalizeAndValidateTransfer(r, t); msg != "" {
+			errs = append(errs, newBatchRowError("transfers", i, "", "business_rule_violated", msg))
+		}
+	}
+	for i := range batch.IncomeEvents {
+		e := &batch.IncomeEvents[i]
+		if e.EventDate == "" {
+			e.EventDate = batch.ReviewDate
+		}
+		if msg := s.normalizeAndValidateIncomeEvent(r, e); msg != "" {
+			errs = append(errs, newBatchRowError("income_events", i, "", "business_rule_violated", msg))
+		}
+	}
+	for i := range batch.CorporateActions {
+		c := &batch.CorporateActions[i]
+		if c.EventDate == "" {
+			c.EventDate = batch.ReviewDate
+		}
+		if msg := s.normalizeAndValidateCorporateAction(r, c); msg != "" {
+			errs = append(errs, newBatchRowError("corporate_actions", i, "", "business_rule_violated", msg))
+		}
+	}
 	for i := range batch.CreditCardBills {
 		b := &batch.CreditCardBills[i]
 		if b.StatementDate == "" {

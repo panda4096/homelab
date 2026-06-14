@@ -1,15 +1,21 @@
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { Badge, Button, Card, Icon } from '../ds'
 import {
+  getAccountReconciliation,
+  getAllocationTargetDrift,
   getValuation,
   getTrend,
+  listAllocationTargets,
   listAccountTemplates,
   listAccounts,
+  listAnnotations,
+  listCreditCardBills,
   type AccountTemplate,
+  type CreditCardBill,
   type ValuationBucket,
 } from '../api'
-import { currencyLabel, KIND_LABEL, KIND_TONE, MARKET_TONE, native } from '../lib/format'
+import { currencyLabel, KIND_LABEL, KIND_TONE, MARKET_TONE, native, supportsBalanceSnapshots, supportsPositionSnapshots } from '../lib/format'
 import {
   CurrencyValue,
   DeltaValue,
@@ -41,6 +47,37 @@ export function Dashboard() {
   const trend = useQuery({
     queryKey: ['trend', 'dashboard', displayCurrency, fxMode],
     queryFn: () => getTrend({ granularity: 'month', display_currency: displayCurrency, fx_mode: fxMode }),
+    enabled: accounts.length > 0,
+  })
+  const targetSets = useQuery({
+    queryKey: ['allocation-targets'],
+    queryFn: listAllocationTargets,
+    enabled: accounts.length > 0,
+  })
+  const driftQueries = useQueries({
+    queries: (targetSets.data ?? [])
+      .filter((s) => s.is_dashboard_visible && !s.is_archived)
+      .slice(0, 4)
+      .map((s) => ({
+        queryKey: ['target-drift', s.id, displayCurrency, fxMode],
+        queryFn: () => getAllocationTargetDrift(s.id, { display_currency: displayCurrency, fx_mode: fxMode }),
+      })),
+  })
+  const reconAccounts = accounts.filter((a) => !a.is_archived && (supportsBalanceSnapshots(a.kind) || supportsPositionSnapshots(a.kind)))
+  const reconQueries = useQueries({
+    queries: reconAccounts.slice(0, 12).map((a) => ({
+      queryKey: ['reconciliation', a.id, 'dashboard'],
+      queryFn: () => getAccountReconciliation(a.id, {}),
+    })),
+  })
+  const bills = useQuery({
+    queryKey: ['credit-card-bills', 'dashboard'],
+    queryFn: listCreditCardBills,
+    enabled: accounts.length > 0,
+  })
+  const annotations = useQuery({
+    queryKey: ['annotations', 'dashboard'],
+    queryFn: () => listAnnotations({ from: oneYearAgoISO(), to: new Date().toISOString().slice(0, 10) }),
     enabled: accounts.length > 0,
   })
   const hasAccounts = accounts.length > 0
@@ -83,6 +120,13 @@ export function Dashboard() {
   const missingPriceCount = v.warnings.filter((w) => w.kind === 'missing_price').length
   const fxFallbackCount = v.warnings.filter((w) => w.kind === 'fx_fallback').length
   const liabilityValue = num(v.total_liabilities) ?? 0
+  const driftAlerts = driftQueries.flatMap((q) => (q.data?.items ?? []).filter((i) => i.over_threshold).map((i) => `${q.data?.name ?? '目标'} · ${i.dimension_value} ${i.drift ?? '0.00'}%`))
+  const reconAlerts = reconQueries
+    .map((q) => q.data)
+    .filter((r): r is NonNullable<typeof r> => !!r && r.over_threshold)
+    .map((r) => `${r.account_name} · ${native(r.reconciliation_delta, r.currency)}`)
+  const billSummary = summarizeBills(bills.data ?? [])
+  const recentAnnotations = (annotations.data ?? []).slice(0, 4).map((a) => `${a.event_date} · ${a.label}`)
 
   return (
     <Page>
@@ -258,6 +302,45 @@ export function Dashboard() {
       </div>
 
       <div className="fb-grid kpi-4">
+        <SignalCard
+          icon="target"
+          title="目标漂移"
+          value={driftAlerts.length ? `${driftAlerts.length} 项超阈值` : '无超阈值'}
+          tone={driftAlerts.length ? 'warning' : 'success'}
+          lines={driftAlerts.slice(0, 3)}
+          action="查看目标"
+          onAction={() => navigate('/targets')}
+        />
+        <SignalCard
+          icon="scale"
+          title="现金对账"
+          value={reconAlerts.length ? `${reconAlerts.length} 个账户异常` : '差额正常'}
+          tone={reconAlerts.length ? 'warning' : 'success'}
+          lines={reconAlerts.slice(0, 3)}
+          action="去对账"
+          onAction={() => navigate('/recon')}
+        />
+        <SignalCard
+          icon="credit-card"
+          title="信用卡近 12 月"
+          value={billSummary.total || '暂无账单'}
+          tone={billSummary.unpaid > 0 ? 'warning' : 'neutral'}
+          lines={[`${billSummary.count} 期账单`, `${billSummary.unpaid} 期未还`]}
+          action="看账户"
+          onAction={() => navigate('/accounts')}
+        />
+        <SignalCard
+          icon="bookmark"
+          title="最近标注"
+          value={recentAnnotations.length ? `${recentAnnotations.length} 条` : '暂无标注'}
+          tone="neutral"
+          lines={recentAnnotations}
+          action="趋势分析"
+          onAction={() => navigate('/trend')}
+        />
+      </div>
+
+      <div className="fb-grid kpi-4">
         <AllocationCard title="按用途" dim="kind" buckets={v.allocations.kind ?? []} total={v.total_assets} currency={v.display_currency} />
         <AllocationCard title="按账户币种" dim="currency" buckets={v.allocations.currency ?? []} total={v.total_assets} currency={v.display_currency} />
         <AllocationCard title="按真实计价币种" dim="quote_currency" buckets={v.allocations.quote_currency ?? []} total={v.total_assets} currency={v.display_currency} />
@@ -341,6 +424,46 @@ function SmallMetric({ icon, label, value }: { icon: string; label: string; valu
         <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{label}</span>
       </div>
       <div style={{ marginTop: 12, fontSize: 20, color: 'var(--text-tertiary)' }}>{value}</div>
+    </div>
+  )
+}
+
+function SignalCard({
+  icon,
+  title,
+  value,
+  tone,
+  lines,
+  action,
+  onAction,
+}: {
+  icon: string
+  title: string
+  value: string
+  tone: 'success' | 'warning' | 'neutral'
+  lines: string[]
+  action: string
+  onAction: () => void
+}) {
+  return (
+    <div className="fb-card" style={{ padding: 15, minHeight: 152, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name={icon} size={15} color={tone === 'warning' ? 'var(--warning)' : 'var(--accent)'} />
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{title}</span>
+        <span style={{ marginLeft: 'auto' }}>
+          <Badge tone={tone === 'warning' ? 'warning' : tone === 'success' ? 'success' : 'neutral'}>{value}</Badge>
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minHeight: 48 }}>
+        {lines.length ? lines.slice(0, 3).map((line, index) => (
+          <div key={index} style={{ fontSize: 11.5, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {line}
+          </div>
+        )) : <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>暂无需要处理的项目</div>}
+      </div>
+      <Button variant="ghost" size="sm" iconRight={<Icon name="arrow-right" size={13} />} onClick={onAction} style={{ marginTop: 'auto', alignSelf: 'flex-start' }}>
+        {action}
+      </Button>
     </div>
   )
 }
@@ -509,4 +632,29 @@ function bucketColor(dim: string, key: string, index: number) {
 function staticTrend(value: string) {
   const v = num(value) ?? 0
   return [v, v]
+}
+
+function oneYearAgoISO() {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+function summarizeBills(bills: CreditCardBill[]) {
+  const from = oneYearAgoISO()
+  const recent = bills.filter((b) => b.statement_date >= from)
+  const byCurrency = new Map<string, number>()
+  for (const bill of recent) {
+    byCurrency.set(bill.currency, (byCurrency.get(bill.currency) ?? 0) + (num(bill.amount_total) ?? 0))
+  }
+  const total = [...byCurrency.entries()]
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, 2)
+    .map(([currency, amount]) => native(amount, currency))
+    .join(' / ')
+  return {
+    total,
+    count: recent.length,
+    unpaid: recent.filter((b) => !b.paid_at).length,
+  }
 }

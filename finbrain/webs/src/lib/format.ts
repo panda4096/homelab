@@ -19,6 +19,8 @@ export const CURRENCY_LABEL: Record<string, string> = {
   CNY: '人民币',
   HKD: '港币',
   USD: '美元',
+  JPY: '日元',
+  EUR: '欧元',
 }
 
 export function currencyLabel(ccy: string): string {

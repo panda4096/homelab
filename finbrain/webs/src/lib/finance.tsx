@@ -385,11 +385,19 @@ function polar(cx: number, cy: number, r: number, a: number) {
   return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)]
 }
 
-function arc(cx: number, cy: number, r: number, a0: number, a1: number) {
-  const [x0, y0] = polar(cx, cy, r, a0)
-  const [x1, y1] = polar(cx, cy, r, a1)
+function ringSegmentPath(cx: number, cy: number, outerR: number, innerR: number, a0: number, a1: number) {
+  const [x0o, y0o] = polar(cx, cy, outerR, a0)
+  const [x1o, y1o] = polar(cx, cy, outerR, a1)
+  const [x1i, y1i] = polar(cx, cy, innerR, a1)
+  const [x0i, y0i] = polar(cx, cy, innerR, a0)
   const large = a1 - a0 > 180 ? 1 : 0
-  return `M${x0} ${y0} A${r} ${r} 0 ${large} 1 ${x1} ${y1}`
+  return [
+    `M${x0o} ${y0o}`,
+    `A${outerR} ${outerR} 0 ${large} 1 ${x1o} ${y1o}`,
+    `L${x1i} ${y1i}`,
+    `A${innerR} ${innerR} 0 ${large} 0 ${x0i} ${y0i}`,
+    'Z',
+  ].join(' ')
 }
 
 export interface DonutItem {
@@ -416,35 +424,63 @@ export function Donut({
   const total = items.reduce((s, it) => s + Math.max(0, it.value), 0) || 1
   const cx = size / 2
   const cy = size / 2
-  const r = (size - thickness) / 2
+  const outerR = size / 2 - 1
+  const innerR = Math.max(outerR - thickness, 1)
+  const midR = innerR + thickness / 2
+  const gapDeg = items.length > 1 ? 1.6 : 0
   let a = 0
   const segs = items.map((it, i) => {
     const sweep = (Math.max(0, it.value) / total) * 360
-    const seg = { ...it, a0: a + 1, a1: a + sweep - 1, i }
+    const gap = Math.min(gapDeg, sweep * 0.4)
+    const a0 = a + gap / 2
+    const a1 = a + sweep - gap / 2
+    const full = sweep >= 359.5
+    const seg = {
+      ...it,
+      d: full ? '' : ringSegmentPath(cx, cy, outerR, innerR, a0, a1),
+      full,
+      i,
+    }
     a += sweep
     return seg
   })
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
       <svg width={size} height={size} style={{ flex: 'none' }}>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--surface-inset)" strokeWidth={thickness} />
-        {segs.map((s) => (
-          <path
-            key={s.key}
-            d={arc(cx, cy, r, s.a0, s.a1)}
-            fill="none"
-            stroke={s.color}
-            strokeWidth={hover === s.i ? thickness + 3 : thickness}
-            strokeLinecap="round"
-            onMouseEnter={() => setHover(s.i)}
-            onMouseLeave={() => setHover(null)}
-            style={{
-              transition: 'stroke-width .15s',
-              cursor: 'default',
-              opacity: hover == null || hover === s.i ? 1 : 0.4,
-            }}
-          />
-        ))}
+        <circle cx={cx} cy={cy} r={midR} fill="none" stroke="var(--surface-inset)" strokeWidth={thickness} />
+        {segs.map((s) =>
+          s.full ? (
+            <circle
+              key={s.key}
+              cx={cx}
+              cy={cy}
+              r={midR}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={thickness}
+              onMouseEnter={() => setHover(s.i)}
+              onMouseLeave={() => setHover(null)}
+              style={{
+                cursor: 'default',
+                opacity: hover == null || hover === s.i ? 1 : 0.4,
+                transition: 'opacity .15s',
+              }}
+            />
+          ) : (
+            <path
+              key={s.key}
+              d={s.d}
+              fill={s.color}
+              onMouseEnter={() => setHover(s.i)}
+              onMouseLeave={() => setHover(null)}
+              style={{
+                cursor: 'default',
+                opacity: hover == null || hover === s.i ? 1 : 0.4,
+                transition: 'opacity .15s',
+              }}
+            />
+          ),
+        )}
         <text
           x={cx}
           y={cy - 2}
@@ -468,26 +504,28 @@ export function Donut({
           {centerSub}
         </text>
       </svg>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0, flex: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 7, minWidth: 0, flex: '0 1 320px' }}>
         {segs.map((s) => (
           <div
             key={s.key}
             style={{
-              display: 'flex',
+              display: 'grid',
+              gridTemplateColumns: '8px minmax(0, 1fr) 46px',
+              columnGap: 8,
               alignItems: 'center',
-              gap: 8,
               fontSize: 12,
+              width: 'min(100%, 300px)',
               opacity: hover == null || hover === s.i ? 1 : 0.45,
               transition: 'opacity .15s',
             }}
             onMouseEnter={() => setHover(s.i)}
             onMouseLeave={() => setHover(null)}
           >
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flex: 'none' }} />
-            <span style={{ color: 'var(--text-secondary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
+            <span style={{ color: 'var(--text-secondary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {s.name}
             </span>
-            <span className="fb-num" style={{ marginLeft: 'auto', color: 'var(--text-primary)', paddingLeft: 14 }}>
+            <span className="fb-num" style={{ color: 'var(--text-primary)', textAlign: 'right', whiteSpace: 'nowrap' }}>
               {((s.value / total) * 100).toFixed(1)}%
             </span>
           </div>

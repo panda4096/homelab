@@ -18,10 +18,7 @@ import {
   listAccounts,
   listAllocationTargets,
   listBalanceSnapshots,
-  listCorporateActions,
-  listIncomeEvents,
   listPositions,
-  listTransfers,
   submitReviewBatch,
   type Account,
 } from '../api'
@@ -78,11 +75,63 @@ interface BillDraft {
   note: string
 }
 
+interface TransactionDraft {
+  key: string
+  account_id: number
+  account_label: string
+  symbol: string
+  action: 'buy' | 'sell'
+  trade_date: string
+  quantity: string
+  price: string
+  currency: string
+  fee: string
+  is_settled: boolean
+  notes: string
+}
+
+interface CorporateActionDraft {
+  key: string
+  symbol: string
+  action: 'split' | 'merge' | 'rights'
+  event_date: string
+  ratio_numerator: string
+  ratio_denominator: string
+  notes: string
+}
+
+interface TransferDraft {
+  key: string
+  from_account_id: string
+  to_account_id: string
+  from_amount: string
+  to_amount: string
+  transfer_date: string
+  notes: string
+}
+
+interface IncomeDraft {
+  key: string
+  event_kind: 'dividend' | 'interest' | 'rebate' | 'other'
+  event_date: string
+  account_id: string
+  symbol: string
+  amount: string
+  currency: string
+  payment_account_id: string
+  tax_withheld: string
+  note: string
+}
+
 interface ReviewDraft {
   reviewDate: string
   balances: BalanceDraft[]
   positions: PositionDraft[]
   bills: BillDraft[]
+  transactions: TransactionDraft[]
+  corporateActions: CorporateActionDraft[]
+  transfers: TransferDraft[]
+  incomeEvents: IncomeDraft[]
 }
 
 export function ReviewWizard() {
@@ -94,6 +143,10 @@ export function ReviewWizard() {
   const [balances, setBalances] = useState<BalanceDraft[]>([])
   const [positions, setPositions] = useState<PositionDraft[]>([])
   const [bills, setBills] = useState<BillDraft[]>([])
+  const [transactions, setTransactions] = useState<TransactionDraft[]>([])
+  const [corporateActions, setCorporateActions] = useState<CorporateActionDraft[]>([])
+  const [transfers, setTransfers] = useState<TransferDraft[]>([])
+  const [incomeEvents, setIncomeEvents] = useState<IncomeDraft[]>([])
   const [draftLoaded, setDraftLoaded] = useState(false)
   const [initialized, setInitialized] = useState(false)
   const [batchErrors, setBatchErrors] = useState<string[]>([])
@@ -142,6 +195,10 @@ export function ReviewWizard() {
         if (Array.isArray(d.balances)) setBalances(d.balances)
         if (Array.isArray(d.positions)) setPositions(d.positions)
         if (Array.isArray(d.bills)) setBills(d.bills)
+        if (Array.isArray(d.transactions)) setTransactions(d.transactions)
+        if (Array.isArray(d.corporateActions)) setCorporateActions(d.corporateActions)
+        if (Array.isArray(d.transfers)) setTransfers(d.transfers)
+        if (Array.isArray(d.incomeEvents)) setIncomeEvents(d.incomeEvents)
         setInitialized(true)
       }
     } catch {
@@ -192,9 +249,9 @@ export function ReviewWizard() {
 
   useEffect(() => {
     if (!draftLoaded || !initialized) return
-    const payload: ReviewDraft = { reviewDate, balances, positions, bills }
+    const payload: ReviewDraft = { reviewDate, balances, positions, bills, transactions, corporateActions, transfers, incomeEvents }
     localStorage.setItem(DRAFT_KEY, JSON.stringify(payload))
-  }, [balances, bills, draftLoaded, initialized, positions, reviewDate])
+  }, [balances, bills, corporateActions, draftLoaded, incomeEvents, initialized, positions, reviewDate, transactions, transfers])
 
   const submit = useMutation({
     mutationFn: () =>
@@ -231,6 +288,53 @@ export function ReviewWizard() {
             payment_account_id: b.paid && b.payment_account_id ? Number(b.payment_account_id) : null,
             note: b.note.trim() || null,
           })),
+        transactions: transactions
+          .filter((t) => t.account_id > 0 && t.symbol.trim() && t.quantity.trim() && t.price.trim())
+          .map((t) => ({
+            account_id: t.account_id,
+            symbol: t.symbol.trim().toUpperCase(),
+            action: t.action,
+            trade_date: t.trade_date || reviewDate,
+            quantity: t.quantity.trim(),
+            price: t.price.trim(),
+            currency: t.currency,
+            fee: t.fee.trim() || null,
+            is_settled: t.is_settled,
+            notes: t.notes.trim() || null,
+          })),
+        transfers: transfers
+          .filter((t) => t.from_account_id && t.to_account_id && t.from_amount.trim() && t.to_amount.trim())
+          .map((t) => ({
+            from_account_id: Number(t.from_account_id),
+            to_account_id: Number(t.to_account_id),
+            from_amount: t.from_amount.trim(),
+            to_amount: t.to_amount.trim(),
+            transfer_date: t.transfer_date || reviewDate,
+            notes: t.notes.trim() || null,
+          })),
+        income_events: incomeEvents
+          .filter((e) => e.account_id && e.amount.trim())
+          .map((e) => ({
+            event_kind: e.event_kind,
+            event_date: e.event_date || reviewDate,
+            account_id: Number(e.account_id),
+            symbol: e.symbol.trim() || null,
+            amount: e.amount.trim(),
+            currency: e.currency,
+            payment_account_id: e.payment_account_id ? Number(e.payment_account_id) : null,
+            tax_withheld: e.tax_withheld.trim() || null,
+            note: e.note.trim() || null,
+          })),
+        corporate_actions: corporateActions
+          .filter((c) => c.symbol.trim() && c.ratio_numerator.trim() && c.ratio_denominator.trim())
+          .map((c) => ({
+            symbol: c.symbol.trim().toUpperCase(),
+            action: c.action,
+            event_date: c.event_date || reviewDate,
+            ratio_numerator: c.ratio_numerator.trim(),
+            ratio_denominator: c.ratio_denominator.trim(),
+            notes: c.notes.trim() || null,
+          })),
       }),
     onSuccess: (res) => {
       localStorage.removeItem(DRAFT_KEY)
@@ -240,7 +344,11 @@ export function ReviewWizard() {
       void qc.invalidateQueries({ queryKey: ['balance-snapshots'] })
       void qc.invalidateQueries({ queryKey: ['positions'] })
       void qc.invalidateQueries({ queryKey: ['credit-card-bills'] })
-      toast.success(`盘点已提交：${res.balance_snapshots + res.position_snapshots + res.credit_card_bills} 条记录`)
+      void qc.invalidateQueries({ queryKey: ['transactions'] })
+      void qc.invalidateQueries({ queryKey: ['transfers'] })
+      void qc.invalidateQueries({ queryKey: ['income-events'] })
+      void qc.invalidateQueries({ queryKey: ['corporate-actions'] })
+      toast.success(`盘点已提交：${res.balance_snapshots + res.position_snapshots + res.credit_card_bills + res.transactions + res.transfers + res.income_events + res.corporate_actions} 条记录`)
       navigate('/dashboard')
     },
     onError: (e) => {
@@ -257,6 +365,10 @@ export function ReviewWizard() {
     balances: balances.filter((b) => !b.skip && b.balance.trim()).length,
     positions: positions.filter((p) => !p.skip && p.symbol.trim() && p.quantity.trim()).length,
     bills: bills.filter((b) => b.amount_total.trim()).length,
+    transactions: transactions.filter((t) => t.account_id > 0 && t.symbol.trim() && t.quantity.trim() && t.price.trim()).length,
+    corporateActions: corporateActions.filter((c) => c.symbol.trim() && c.ratio_numerator.trim() && c.ratio_denominator.trim()).length,
+    transfers: transfers.filter((t) => t.from_account_id && t.to_account_id && t.from_amount.trim() && t.to_amount.trim()).length,
+    incomeEvents: incomeEvents.filter((e) => e.account_id && e.amount.trim()).length,
   }
 
   return (
@@ -294,17 +406,31 @@ export function ReviewWizard() {
             ) : step === 2 ? (
               <BalanceStep rows={balances} setRows={setBalances} />
             ) : step === 3 ? (
-              <PositionStep rows={positions} setRows={setPositions} accounts={positionAccounts} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <PositionStep rows={positions} setRows={setPositions} accounts={positionAccounts} />
+                <TransactionStep rows={transactions} setRows={setTransactions} accounts={positionAccounts} reviewDate={reviewDate} />
+              </div>
+            ) : step === 4 ? (
+              <CorporateActionStep rows={corporateActions} setRows={setCorporateActions} reviewDate={reviewDate} />
+            ) : step === 5 ? (
+              <TransferStep rows={transfers} setRows={setTransfers} accounts={paymentAccounts} reviewDate={reviewDate} />
             ) : step === 6 ? (
               <BillStep rows={bills} setRows={setBills} creditAccounts={creditAccounts} paymentAccounts={paymentAccounts} reviewDate={reviewDate} />
-            ) : step === 10 ? (
-              <PreviewStep balances={balances} positions={positions} bills={bills} counts={counts} errors={batchErrors} />
-            ) : step === 4 ? (
-              <CorporateActionsReview />
-            ) : step === 5 ? (
-              <TransfersReview />
             ) : step === 7 ? (
-              <IncomeReview />
+              <IncomeStep rows={incomeEvents} setRows={setIncomeEvents} accounts={activeAccounts} paymentAccounts={paymentAccounts} reviewDate={reviewDate} />
+            ) : step === 10 ? (
+              <PreviewStep
+                balances={balances}
+                positions={positions}
+                transactions={transactions}
+                corporateActions={corporateActions}
+                transfers={transfers}
+                bills={bills}
+                incomeEvents={incomeEvents}
+                accounts={activeAccounts}
+                counts={counts}
+                errors={batchErrors}
+              />
             ) : step === 8 ? (
               <ReconReview />
             ) : step === 9 ? (
@@ -321,7 +447,7 @@ export function ReviewWizard() {
               <Button
                 variant="secondary"
                 onClick={() => {
-                  localStorage.setItem(DRAFT_KEY, JSON.stringify({ reviewDate, balances, positions, bills }))
+                  localStorage.setItem(DRAFT_KEY, JSON.stringify({ reviewDate, balances, positions, bills, transactions, corporateActions, transfers, incomeEvents }))
                   toast.success('草稿已保存')
                 }}
               >
@@ -333,7 +459,7 @@ export function ReviewWizard() {
                 onClick={() => {
                   setBatchErrors([])
                   if (step === 10) {
-                    const errors = validateReviewDraft(bills)
+                    const errors = validateReviewDraft(bills, transactions, corporateActions, transfers, incomeEvents)
                     if (errors.length) {
                       setBatchErrors(errors)
                       return
@@ -546,6 +672,287 @@ function PositionDraftRow({
   )
 }
 
+function TransactionStep({
+  rows,
+  setRows,
+  accounts,
+  reviewDate,
+}: {
+  rows: TransactionDraft[]
+  setRows: (rows: TransactionDraft[] | ((rows: TransactionDraft[]) => TransactionDraft[])) => void
+  accounts: Account[]
+  reviewDate: string
+}) {
+  function addRow() {
+    const account = accounts[0]
+    if (!account) return
+    setRows((items) => [
+      ...items,
+      {
+        key: `txn:${Date.now()}`,
+        account_id: account.id,
+        account_label: accountLabel(account),
+        symbol: '',
+        action: 'buy',
+        trade_date: reviewDate,
+        quantity: '',
+        price: '',
+        currency: account.currency,
+        fee: '',
+        is_settled: true,
+        notes: '',
+      },
+    ])
+  }
+  if (!accounts.length) return null
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <SectionTitle title="补录交易流水" hint="可选；买卖流水会参与持仓回放、已实现盈亏和净持有成本。" />
+        <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={13} />} onClick={addRow}>新增交易</Button>
+      </div>
+      {rows.length ? rows.map((row) => (
+        <TransactionDraftRow key={row.key} row={row} setRows={setRows} accounts={accounts} />
+      )) : <EmptyLine text="本次盘点暂无待提交交易流水。" />}
+    </div>
+  )
+}
+
+function TransactionDraftRow({
+  row,
+  setRows,
+  accounts,
+}: {
+  row: TransactionDraft
+  setRows: (rows: TransactionDraft[] | ((rows: TransactionDraft[]) => TransactionDraft[])) => void
+  accounts: Account[]
+}) {
+  function patch(next: Partial<TransactionDraft>) {
+    setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(148px, 1.1fr) 82px minmax(116px, .8fr) 102px 112px 78px 88px 62px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
+      <Select
+        size="sm"
+        value={String(row.account_id)}
+        onChange={(e) => {
+          const account = accounts.find((a) => String(a.id) === e.target.value)
+          if (account) patch({ account_id: account.id, account_label: accountLabel(account), currency: account.currency })
+        }}
+        options={accounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))}
+      />
+      <Select size="sm" value={row.action} onChange={(e) => patch({ action: e.target.value as 'buy' | 'sell' })} options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />
+      <Input placeholder="标的" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
+      <Input numeric placeholder="数量" value={row.quantity} onChange={(e) => patch({ quantity: e.target.value })} size="sm" />
+      <Input numeric placeholder="价格" value={row.price} onChange={(e) => patch({ price: e.target.value })} size="sm" />
+      <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
+      <Input numeric placeholder="手续费" value={row.fee} onChange={(e) => patch({ fee: e.target.value })} size="sm" />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+        <input type="checkbox" checked={row.is_settled} onChange={(e) => patch({ is_settled: e.target.checked })} /> 已交割
+      </label>
+      <IconButton aria-label="移除交易" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
+        <Icon name="x" size={13} />
+      </IconButton>
+      <div style={{ gridColumn: '1 / 3' }}>
+        <Input type="date" value={row.trade_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ trade_date: e.target.value })} size="sm" />
+      </div>
+      <div style={{ gridColumn: '3 / -1' }}>
+        <Input placeholder="备注" value={row.notes} onChange={(e) => patch({ notes: e.target.value })} size="sm" />
+      </div>
+    </div>
+  )
+}
+
+function CorporateActionStep({
+  rows,
+  setRows,
+  reviewDate,
+}: {
+  rows: CorporateActionDraft[]
+  setRows: (rows: CorporateActionDraft[] | ((rows: CorporateActionDraft[]) => CorporateActionDraft[])) => void
+  reviewDate: string
+}) {
+  function addRow() {
+    setRows((items) => [...items, { key: `ca:${Date.now()}`, symbol: '', action: 'split', event_date: reviewDate, ratio_numerator: '', ratio_denominator: '1', notes: '' }])
+  }
+  return (
+    <DraftSection title="公司动作" hint="录入拆股、合股、配股等影响持仓回放的事件。" button="新增公司动作" onAdd={addRow}>
+      {rows.length ? rows.map((row) => (
+        <CorporateActionDraftRow key={row.key} row={row} setRows={setRows} />
+      )) : <EmptyLine text="本次盘点暂无待提交公司动作。" />}
+    </DraftSection>
+  )
+}
+
+function CorporateActionDraftRow({
+  row,
+  setRows,
+}: {
+  row: CorporateActionDraft
+  setRows: (rows: CorporateActionDraft[] | ((rows: CorporateActionDraft[]) => CorporateActionDraft[])) => void
+}) {
+  function patch(next: Partial<CorporateActionDraft>) {
+    setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(130px, 1fr) 94px 126px 112px 112px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
+      <Input placeholder="标的" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
+      <Select size="sm" value={row.action} onChange={(e) => patch({ action: e.target.value as 'split' | 'merge' | 'rights' })} options={[{ value: 'split', label: '拆股' }, { value: 'merge', label: '合股' }, { value: 'rights', label: '配股' }]} />
+      <Input type="date" value={row.event_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
+      <Input numeric placeholder="比例分子" value={row.ratio_numerator} onChange={(e) => patch({ ratio_numerator: e.target.value })} size="sm" />
+      <Input numeric placeholder="比例分母" value={row.ratio_denominator} onChange={(e) => patch({ ratio_denominator: e.target.value })} size="sm" />
+      <IconButton aria-label="移除公司动作" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
+        <Icon name="x" size={13} />
+      </IconButton>
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Input placeholder="备注" value={row.notes} onChange={(e) => patch({ notes: e.target.value })} size="sm" />
+      </div>
+    </div>
+  )
+}
+
+function TransferStep({
+  rows,
+  setRows,
+  accounts,
+  reviewDate,
+}: {
+  rows: TransferDraft[]
+  setRows: (rows: TransferDraft[] | ((rows: TransferDraft[]) => TransferDraft[])) => void
+  accounts: Account[]
+  reviewDate: string
+}) {
+  function addRow() {
+    setRows((items) => [...items, { key: `transfer:${Date.now()}`, from_account_id: '', to_account_id: '', from_amount: '', to_amount: '', transfer_date: reviewDate, notes: '' }])
+  }
+  return (
+    <DraftSection title="账户转账" hint="录入账户间资金移动，净资产不变但会影响现金对账。" button="新增转账" onAdd={addRow}>
+      {rows.length ? rows.map((row) => (
+        <TransferDraftRow key={row.key} row={row} setRows={setRows} accounts={accounts} />
+      )) : <EmptyLine text="本次盘点暂无待提交转账。" />}
+    </DraftSection>
+  )
+}
+
+function TransferDraftRow({
+  row,
+  setRows,
+  accounts,
+}: {
+  row: TransferDraft
+  setRows: (rows: TransferDraft[] | ((rows: TransferDraft[]) => TransferDraft[])) => void
+  accounts: Account[]
+}) {
+  function patch(next: Partial<TransferDraft>) {
+    setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(150px, 1fr) 118px 118px 126px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
+      <Select size="sm" value={row.from_account_id} onChange={(e) => patch({ from_account_id: e.target.value })} placeholder="转出账户" options={accounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))} />
+      <Select size="sm" value={row.to_account_id} onChange={(e) => patch({ to_account_id: e.target.value })} placeholder="转入账户" options={accounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))} />
+      <Input numeric placeholder="转出金额" value={row.from_amount} onChange={(e) => patch({ from_amount: e.target.value })} size="sm" />
+      <Input numeric placeholder="转入金额" value={row.to_amount} onChange={(e) => patch({ to_amount: e.target.value })} size="sm" />
+      <Input type="date" value={row.transfer_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ transfer_date: e.target.value })} size="sm" />
+      <IconButton aria-label="移除转账" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
+        <Icon name="x" size={13} />
+      </IconButton>
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Input placeholder="备注" value={row.notes} onChange={(e) => patch({ notes: e.target.value })} size="sm" />
+      </div>
+    </div>
+  )
+}
+
+function IncomeStep({
+  rows,
+  setRows,
+  accounts,
+  paymentAccounts,
+  reviewDate,
+}: {
+  rows: IncomeDraft[]
+  setRows: (rows: IncomeDraft[] | ((rows: IncomeDraft[]) => IncomeDraft[])) => void
+  accounts: Account[]
+  paymentAccounts: Account[]
+  reviewDate: string
+}) {
+  function addRow() {
+    const account = accounts[0]
+    setRows((items) => [...items, { key: `income:${Date.now()}`, event_kind: 'dividend', event_date: reviewDate, account_id: account ? String(account.id) : '', symbol: '', amount: '', currency: account?.currency ?? 'USD', payment_account_id: '', tax_withheld: '', note: '' }])
+  }
+  return (
+    <DraftSection title="收益事件" hint="录入分红、利息、返现等非买卖收益。" button="新增收益" onAdd={addRow}>
+      {rows.length ? rows.map((row) => (
+        <IncomeDraftRow key={row.key} row={row} setRows={setRows} accounts={accounts} paymentAccounts={paymentAccounts} />
+      )) : <EmptyLine text="本次盘点暂无待提交收益事件。" />}
+    </DraftSection>
+  )
+}
+
+function IncomeDraftRow({
+  row,
+  setRows,
+  accounts,
+  paymentAccounts,
+}: {
+  row: IncomeDraft
+  setRows: (rows: IncomeDraft[] | ((rows: IncomeDraft[]) => IncomeDraft[])) => void
+  accounts: Account[]
+  paymentAccounts: Account[]
+}) {
+  function patch(next: Partial<IncomeDraft>) {
+    setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(150px, 1fr) minmax(116px, .75fr) 112px 76px 126px 92px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
+      <Select size="sm" value={row.event_kind} onChange={(e) => patch({ event_kind: e.target.value as IncomeDraft['event_kind'] })} options={[{ value: 'dividend', label: '分红' }, { value: 'interest', label: '利息' }, { value: 'rebate', label: '返现' }, { value: 'other', label: '其他' }]} />
+      <Select
+        size="sm"
+        value={row.account_id}
+        onChange={(e) => {
+          const account = accounts.find((a) => String(a.id) === e.target.value)
+          patch({ account_id: e.target.value, currency: account?.currency ?? row.currency })
+        }}
+        placeholder="归属账户"
+        options={accounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))}
+      />
+      <Input placeholder="标的可空" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
+      <Input numeric placeholder="金额" value={row.amount} onChange={(e) => patch({ amount: e.target.value })} size="sm" />
+      <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
+      <Input type="date" value={row.event_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
+      <Input numeric placeholder="税费" value={row.tax_withheld} onChange={(e) => patch({ tax_withheld: e.target.value })} size="sm" />
+      <IconButton aria-label="移除收益" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
+        <Icon name="x" size={13} />
+      </IconButton>
+      <Select size="sm" value={row.payment_account_id} onChange={(e) => patch({ payment_account_id: e.target.value })} placeholder="收款账户可空" options={paymentAccounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))} wrapStyle={{ gridColumn: '1 / 4' }} />
+      <div style={{ gridColumn: '4 / -1' }}>
+        <Input placeholder="备注" value={row.note} onChange={(e) => patch({ note: e.target.value })} size="sm" />
+      </div>
+    </div>
+  )
+}
+
+function DraftSection({ title, hint, button, onAdd, children }: { title: string; hint: string; button: string; onAdd: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <SectionTitle title={title} hint={hint} />
+        <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={13} />} onClick={onAdd}>{button}</Button>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function SectionTitle({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 13.5, color: 'var(--text-strong)', fontWeight: 500 }}>{title}</div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', marginTop: 3 }}>{hint}</div>
+    </div>
+  )
+}
+
 function BillStep({
   rows,
   setRows,
@@ -644,22 +1051,36 @@ function BillDraftRow({
 function PreviewStep({
   balances,
   positions,
+  transactions,
+  corporateActions,
+  transfers,
   bills,
+  incomeEvents,
+  accounts,
   counts,
   errors,
 }: {
   balances: BalanceDraft[]
   positions: PositionDraft[]
+  transactions: TransactionDraft[]
+  corporateActions: CorporateActionDraft[]
+  transfers: TransferDraft[]
   bills: BillDraft[]
-  counts: { balances: number; positions: number; bills: number }
+  incomeEvents: IncomeDraft[]
+  accounts: Account[]
+  counts: { balances: number; positions: number; bills: number; transactions: number; corporateActions: number; transfers: number; incomeEvents: number }
   errors: string[]
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className="fb-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+      <div className="fb-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         <PreviewCard label="余额记录" value={counts.balances} />
         <PreviewCard label="持仓记录" value={counts.positions} />
+        <PreviewCard label="交易流水" value={counts.transactions} />
+        <PreviewCard label="公司动作" value={counts.corporateActions} />
+        <PreviewCard label="账户转账" value={counts.transfers} />
         <PreviewCard label="信用卡账单" value={counts.bills} />
+        <PreviewCard label="收益事件" value={counts.incomeEvents} />
       </div>
       {errors.length ? (
         <div style={{ background: 'var(--warning-bg)', border: '1px solid rgba(221,162,62,0.3)', borderRadius: 'var(--radius-md)', padding: 12 }}>
@@ -668,10 +1089,14 @@ function PreviewStep({
           ))}
         </div>
       ) : null}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
         <PreviewList title="余额" rows={balances.filter((b) => !b.skip && b.balance).map((b) => `${b.account_label} · ${native(b.balance, b.currency, 2)}`)} />
         <PreviewList title="持仓" rows={positions.filter((p) => !p.skip && p.symbol && p.quantity).map((p) => `${p.account_label} · ${p.symbol} · ${quantity(p.quantity)}`)} />
+        <PreviewList title="交易" rows={transactions.filter((t) => t.symbol && t.quantity && t.price).map((t) => `${t.account_label} · ${t.action === 'buy' ? '买入' : '卖出'} ${t.symbol} · ${quantity(t.quantity)} @ ${t.price} ${t.currency}`)} />
+        <PreviewList title="公司动作" rows={corporateActions.filter((c) => c.symbol && c.ratio_numerator && c.ratio_denominator).map((c) => `${c.event_date} · ${c.symbol} · ${CA_ACTION[c.action]} ${c.ratio_numerator}:${c.ratio_denominator}`)} />
+        <PreviewList title="转账" rows={transfers.filter((t) => t.from_account_id && t.to_account_id && t.from_amount && t.to_amount).map((t) => `${accountNameByID(t.from_account_id, accounts)} → ${accountNameByID(t.to_account_id, accounts)} · ${t.from_amount}/${t.to_amount}`)} />
         <PreviewList title="账单" rows={bills.filter((b) => b.amount_total).map((b) => `${b.account_label} · ${native(b.amount_total, b.currency, 2)} · ${b.paid ? '已还' : '未还'}`)} />
+        <PreviewList title="收益" rows={incomeEvents.filter((e) => e.account_id && e.amount).map((e) => `${INCOME_KIND[e.event_kind]}${e.symbol ? ' · ' + e.symbol : ''} · ${native(e.amount, e.currency, 2)}`)} />
       </div>
       <SectionHint>确认提交后，所有记录在同一个事务里写入；任一行失败会整批回滚。</SectionHint>
     </div>
@@ -698,49 +1123,9 @@ function PreviewList({ title, rows }: { title: string; rows: string[] }) {
   )
 }
 
-// Review steps (4/5/7/8/9) are read-only "since last review" prompts — they don't
-// add to the batch (those entities are recorded on their own screens), they remind
-// the owner to backfill what's missing before confirming (§7.5).
+// Compact labels used by preview and review summaries.
 const CA_ACTION: Record<string, string> = { split: '拆股', merge: '合股', rights: '配股' }
 const INCOME_KIND: Record<string, string> = { dividend: '分红', interest: '利息', rebate: '返现', other: '其他' }
-
-function ReviewListCard({ title, hint, cta, to, loading, lines }: { title: string; hint: string; cta: string; to: string; loading: boolean; lines: string[] }) {
-  const navigate = useNavigate()
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <SectionHint>{hint}</SectionHint>
-      <div className="fb-card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-strong)' }}>{title}</span>
-          <Button size="sm" variant="ghost" style={{ marginLeft: 'auto' }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate(to)}>{cta}</Button>
-        </div>
-        {lines.length ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {lines.map((l, i) => <div key={i} style={{ fontSize: 12.5, color: 'var(--text-secondary)', padding: '6px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)' }}>{l}</div>)}
-          </div>
-        ) : <span style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>{loading ? '加载中…' : '近期无记录 — 如有遗漏请点右上角补录'}</span>}
-      </div>
-    </div>
-  )
-}
-
-function CorporateActionsReview() {
-  const q = useQuery({ queryKey: ['corporate-actions', ''], queryFn: () => listCorporateActions() })
-  const lines = (q.data?.items ?? []).slice(0, 8).map((c) => `${c.event_date} · ${c.symbol} · ${CA_ACTION[c.action] ?? c.action} ${c.ratio_numerator}:${c.ratio_denominator}`)
-  return <ReviewListCard title="公司动作回顾" hint="确认本期间的拆股 / 合股 / 配股是否已录入（影响持仓回放）" cta="去公司动作" to="/corporate-actions" loading={q.isLoading} lines={lines} />
-}
-
-function TransfersReview() {
-  const q = useQuery({ queryKey: ['transfers'], queryFn: () => listTransfers() })
-  const lines = (q.data?.items ?? []).slice(0, 8).map((t) => `${t.transfer_date} · ${t.from_account_name} → ${t.to_account_name} · ${t.from_amount}/${t.to_amount}`)
-  return <ReviewListCard title="账户转账回顾" hint="确认本期间的账户间转账是否已录入（现金对账差额常源于漏录转账）" cta="去转账" to="/transfers" loading={q.isLoading} lines={lines} />
-}
-
-function IncomeReview() {
-  const q = useQuery({ queryKey: ['income-events', ''], queryFn: () => listIncomeEvents() })
-  const lines = (q.data?.items ?? []).slice(0, 8).map((e) => `${e.event_date} · ${INCOME_KIND[e.event_kind] ?? e.event_kind}${e.symbol ? ' · ' + e.symbol : ''} · ${e.amount} ${e.currency}`)
-  return <ReviewListCard title="收益事件回顾" hint="确认本期间的分红 / 利息 / 返现是否已录入（计入累计收益）" cta="去收益事件" to="/income" loading={q.isLoading} lines={lines} />
-}
 
 function ReconReview() {
   return (
@@ -761,9 +1146,25 @@ function ReconLink() {
 }
 
 function DriftReview() {
+  const navigate = useNavigate()
   const q = useQuery({ queryKey: ['allocation-targets'], queryFn: () => listAllocationTargets() })
   const lines = (q.data ?? []).filter((s) => !s.is_archived).map((s) => `${s.name} · ${s.dimension} · 阈值 ±${s.drift_threshold_pct}%`)
-  return <ReviewListCard title="目标漂移检视" hint="检视各目标配置的当前漂移（提醒为主，不阻塞提交）" cta="去目标配置" to="/targets" loading={q.isLoading} lines={lines} />
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <SectionHint>检视各目标配置的当前漂移（提醒为主，不阻塞提交）。</SectionHint>
+      <div className="fb-card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-strong)' }}>目标配置</span>
+          <Button size="sm" variant="ghost" style={{ marginLeft: 'auto' }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate('/targets')}>去目标配置</Button>
+        </div>
+        {lines.length ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {lines.map((line, index) => <div key={index} style={{ fontSize: 12.5, color: 'var(--text-secondary)', padding: '6px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)' }}>{line}</div>)}
+          </div>
+        ) : <span style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>{q.isLoading ? '加载中…' : '暂无目标配置'}</span>}
+      </div>
+    </div>
+  )
 }
 
 function PlaceholderStep({ step }: { step: { label: string; icon: string } }) {
@@ -792,6 +1193,11 @@ function accountLabel(account: Account) {
   return `${account.institution} · ${account.name}`
 }
 
+function accountNameByID(id: string, accounts: Account[]) {
+  const account = accounts.find((a) => String(a.id) === id)
+  return account ? accountLabel(account) : `账户 ${id}`
+}
+
 function formatBatchErrorDetail(detail: any) {
   const entity = detail?.entity_type ?? detail?.resource ?? 'row'
   const rawIndex = typeof detail?.line_index === 'number' ? detail.line_index : detail?.index
@@ -802,7 +1208,13 @@ function formatBatchErrorDetail(detail: any) {
   return `${entity}${indexText}${fieldText}${codeText}: ${message}`
 }
 
-function validateReviewDraft(bills: BillDraft[]) {
+function validateReviewDraft(
+  bills: BillDraft[],
+  transactions: TransactionDraft[],
+  corporateActions: CorporateActionDraft[],
+  transfers: TransferDraft[],
+  incomeEvents: IncomeDraft[],
+) {
   const errors: string[] = []
   const maxDate = maxSnapshotDateISO()
   bills.forEach((bill, index) => {
@@ -818,13 +1230,51 @@ function validateReviewDraft(bills: BillDraft[]) {
       errors.push(`${row}: 还款日不能晚于 ${maxDate}`)
     }
   })
+  transactions.forEach((txn, index) => {
+    if (!txn.symbol.trim() && !txn.quantity.trim() && !txn.price.trim()) return
+    const row = `transactions #${index + 1}`
+    if (!txn.symbol.trim()) errors.push(`${row}: 标的必填`)
+    if (!isNumericString(txn.quantity) || Number(txn.quantity) <= 0) errors.push(`${row}: 数量必须大于 0`)
+    if (!isNumericString(txn.price) || Number(txn.price) < 0) errors.push(`${row}: 价格必须大于等于 0`)
+    if (txn.fee.trim() && (!isNumericString(txn.fee) || Number(txn.fee) < 0)) errors.push(`${row}: 手续费必须大于等于 0`)
+    if ((txn.trade_date || '') > maxDate) errors.push(`${row}: 交易日不能晚于 ${maxDate}`)
+  })
+  corporateActions.forEach((action, index) => {
+    if (!action.symbol.trim() && !action.ratio_numerator.trim() && !action.ratio_denominator.trim()) return
+    const row = `corporate_actions #${index + 1}`
+    if (!action.symbol.trim()) errors.push(`${row}: 标的必填`)
+    if (!isNumericString(action.ratio_numerator) || Number(action.ratio_numerator) <= 0) errors.push(`${row}: 比例分子必须大于 0`)
+    if (!isNumericString(action.ratio_denominator) || Number(action.ratio_denominator) <= 0) errors.push(`${row}: 比例分母必须大于 0`)
+    if ((action.event_date || '') > maxDate) errors.push(`${row}: 事件日不能晚于 ${maxDate}`)
+  })
+  transfers.forEach((transfer, index) => {
+    if (!transfer.from_account_id && !transfer.to_account_id && !transfer.from_amount.trim() && !transfer.to_amount.trim()) return
+    const row = `transfers #${index + 1}`
+    if (!transfer.from_account_id || !transfer.to_account_id) errors.push(`${row}: 转出和转入账户必填`)
+    if (transfer.from_account_id && transfer.from_account_id === transfer.to_account_id) errors.push(`${row}: 转出与转入账户不能相同`)
+    if (!isNumericString(transfer.from_amount) || Number(transfer.from_amount) <= 0) errors.push(`${row}: 转出金额必须大于 0`)
+    if (!isNumericString(transfer.to_amount) || Number(transfer.to_amount) <= 0) errors.push(`${row}: 转入金额必须大于 0`)
+    if ((transfer.transfer_date || '') > maxDate) errors.push(`${row}: 转账日不能晚于 ${maxDate}`)
+  })
+  incomeEvents.forEach((income, index) => {
+    if (!income.account_id && !income.amount.trim() && !income.symbol.trim()) return
+    const row = `income_events #${index + 1}`
+    if (!income.account_id) errors.push(`${row}: 归属账户必填`)
+    if (income.event_kind === 'dividend' && !income.symbol.trim()) errors.push(`${row}: 分红事件必须关联标的`)
+    if (!isNumericString(income.amount) || Number(income.amount) <= 0) errors.push(`${row}: 金额必须大于 0`)
+    if (income.tax_withheld.trim() && (!isNumericString(income.tax_withheld) || Number(income.tax_withheld) < 0)) errors.push(`${row}: 税费必须大于等于 0`)
+    if ((income.event_date || '') > maxDate) errors.push(`${row}: 事件日不能晚于 ${maxDate}`)
+  })
   return errors
 }
 
 function subtitleForStep(step: number) {
   if (step === 2) return '列出所有非信用卡的活跃金额型账户，逐个填入当日余额'
-  if (step === 3) return '列出持仓型账户的当前持仓，确认数量、成本或新增标的'
+  if (step === 3) return '列出持仓型账户的当前持仓，确认数量、成本并可补录买卖流水'
+  if (step === 4) return '补录会影响持仓回放的拆股、合股、配股'
+  if (step === 5) return '补录账户间资金移动，供现金对账和现金流回放使用'
   if (step === 6) return '信用卡账户不使用余额快照，本期未还账单会计入总负债'
+  if (step === 7) return '补录分红、利息、返现等收益事件'
   if (step === 10) return '确认本批次将写入的记录'
   return null
 }

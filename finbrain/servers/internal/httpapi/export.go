@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/csv"
 	"fmt"
 	"net/http"
@@ -18,23 +19,28 @@ var exportTables = []string{
 }
 
 func (s *Server) exportData(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="finbrain-export.zip"`)
-	zw := zip.NewWriter(w)
-	defer zw.Close()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
 
 	for _, table := range exportTables {
 		res, err := s.store.RunReadOnlyQuery(r.Context(), "SELECT * FROM "+table+" ORDER BY 1", 1_000_000)
 		if err != nil {
-			// Best-effort: skip a table that fails rather than abort the whole zip.
-			continue
+			_ = zw.Close()
+			writeStorageError(w, r, err)
+			return
 		}
 		f, err := zw.Create(table + ".csv")
 		if err != nil {
+			_ = zw.Close()
+			writeInternal(w, r, err)
 			return
 		}
 		cw := csv.NewWriter(f)
-		_ = cw.Write(res.Columns)
+		if err := cw.Write(res.Columns); err != nil {
+			_ = zw.Close()
+			writeInternal(w, r, err)
+			return
+		}
 		for _, row := range res.Rows {
 			rec := make([]string, len(row))
 			for i, c := range row {
@@ -44,8 +50,24 @@ func (s *Server) exportData(w http.ResponseWriter, r *http.Request) {
 					rec[i] = fmt.Sprint(c)
 				}
 			}
-			_ = cw.Write(rec)
+			if err := cw.Write(rec); err != nil {
+				_ = zw.Close()
+				writeInternal(w, r, err)
+				return
+			}
 		}
 		cw.Flush()
+		if err := cw.Error(); err != nil {
+			_ = zw.Close()
+			writeInternal(w, r, err)
+			return
+		}
 	}
+	if err := zw.Close(); err != nil {
+		writeInternal(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="finbrain-export.zip"`)
+	_, _ = w.Write(buf.Bytes())
 }

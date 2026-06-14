@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
@@ -37,6 +38,7 @@ type valuationPositionRow struct {
 	DisplayName      *string
 	Market           *string
 	QuoteCurrency    *string
+	AssetKind        *string
 	Quantity         string
 	AvgCost          *string
 	CostCurrency     *string
@@ -133,6 +135,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		cashValue = cashValue.Add(displayValue)
 
 		alloc.add("kind", c.AccountKind, c.AccountKind, displayValue)
+		alloc.add("asset_kind", "cash", "cash", displayValue)
 		alloc.add("institution", c.Institution, c.Institution, displayValue)
 		alloc.add("currency", c.AccountCurrency, c.AccountCurrency, displayValue)
 		alloc.add("quote_currency", c.AccountCurrency, c.AccountCurrency, displayValue)
@@ -145,21 +148,18 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 
 	positionValue := decZero
 	positionCost := decZero
+	positionNetCost := decZero
 	unrealizedPL := decZero
 	costForPL := decZero
 
 	for _, p := range positionRows {
-		qty, err := decimalFromString(p.Quantity)
+		replay, hasReplay, err := s.applyReplayToPositionRow(ctx, &p, onDate)
 		if err != nil {
 			return Valuation{}, err
 		}
-		// §6.7/§6.15: when the (account, symbol) has transaction history, prefer the
-		// replay-derived quantity & weighted buy cost over the raw snapshot.
-		if rep, rerr := s.ReplayHolding(ctx, p.AccountID, p.Symbol, onDate, false); rerr == nil && rep.HasHistory {
-			qty = rep.Quantity
-			p.Quantity = formatVariableDecimal(rep.Quantity)
-			wbc := formatVariableDecimal(rep.WeightedBuyCost)
-			p.AvgCost = &wbc
+		qty, err := decimalFromString(p.Quantity)
+		if err != nil {
+			return Valuation{}, err
 		}
 		if !qty.GreaterThan(decZero) {
 			continue
@@ -177,6 +177,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 			DisplayName:      p.DisplayName,
 			Market:           p.Market,
 			QuoteCurrency:    quoteExposureCurrency,
+			AssetKind:        p.AssetKind,
 			Quantity:         p.Quantity,
 			AvgCost:          p.AvgCost,
 			CostCurrency:     costCurrency,
@@ -189,7 +190,9 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		}
 
 		var nativeCost, displayCost decimal.Decimal
+		var displayNetCost decimal.Decimal
 		hasCost := false
+		hasNetCost := false
 		if p.AvgCost != nil {
 			avgCost, err := decimalFromString(*p.AvgCost)
 			if err != nil {
@@ -208,6 +211,21 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 			displayCost = nativeCost.Mul(costFx.Rate)
 			pos.CostValueDisplay = stringPtr(formatMoneyDecimal(displayCost))
 			hasCost = true
+
+			netCost := avgCost
+			if hasReplay {
+				netCost = replay.WeightedBuyCost
+				if qty.GreaterThan(decZero) && !replay.RealizedPL.IsZero() {
+					netCost = netCost.Sub(replay.RealizedPL.DivRound(qty, 18))
+				}
+				realizedDisplay := replay.RealizedPL.Mul(costFx.Rate)
+				pos.RealizedPLDisplay = stringPtr(formatMoneyDecimal(realizedDisplay))
+			}
+			nativeNetCost := qty.Mul(netCost)
+			displayNetCost = nativeNetCost.Mul(costFx.Rate)
+			pos.NetCost = stringPtr(formatMoneyDecimal(netCost))
+			pos.NetCostValueDisplay = stringPtr(formatMoneyDecimal(displayNetCost))
+			hasNetCost = true
 		}
 
 		if p.Price == nil || p.PriceCurrency == nil || p.PriceDate == nil {
@@ -251,7 +269,9 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		pos.MarketValueDisplay = stringPtr(formatMoneyDecimal(displayMarketValue))
 
 		marketKey := firstNonEmpty(ptrValue(p.Market), "UNKNOWN")
+		assetKindKey := firstNonEmpty(ptrValue(p.AssetKind), p.AccountKind)
 		alloc.add("kind", p.AccountKind, p.AccountKind, displayMarketValue)
+		alloc.add("asset_kind", assetKindKey, assetKindKey, displayMarketValue)
 		alloc.add("institution", p.Institution, p.Institution, displayMarketValue)
 		alloc.add("currency", p.AccountCurrency, p.AccountCurrency, displayMarketValue)
 		alloc.add("quote_currency", quoteExposureCurrency, quoteExposureCurrency, displayMarketValue)
@@ -265,6 +285,9 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 			nativePL := nativeMarketValue.Sub(nativeCost)
 			pos.UnrealizedPLDisplay = stringPtr(formatMoneyDecimal(plDisplay))
 			pos.UnrealizedPLPct = stringPtr(formatPercentDecimal(percent(nativePL, nativeCost)))
+		}
+		if hasNetCost {
+			positionNetCost = positionNetCost.Add(displayNetCost)
 		}
 
 		val.Positions = append(val.Positions, pos)
@@ -315,6 +338,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	val.CashValue = formatMoneyDecimal(cashValue)
 	val.PositionValue = formatMoneyDecimal(positionValue)
 	val.PositionCost = formatMoneyDecimal(positionCost)
+	val.PositionNetCost = formatMoneyDecimal(positionNetCost)
 	val.UnrealizedPL = formatMoneyDecimal(unrealizedPL)
 	if !costForPL.IsZero() {
 		val.UnrealizedPLPct = stringPtr(formatPercentDecimal(percent(unrealizedPL, costForPL)))
@@ -325,6 +349,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	quoteExposureTotal := alloc.absTotal("quote_currency")
 	val.Allocations = alloc.build(map[string]decimal.Decimal{
 		"kind":           totalAssets,
+		"asset_kind":     totalAssets,
 		"institution":    totalAssets,
 		"currency":       totalAssets,
 		"market":         positionValue,
@@ -427,6 +452,47 @@ func prevYearEndDate(year string) string {
 	return fmt.Sprintf("%04d-12-31", y-1)
 }
 
+func (s *Store) applyReplayToPositionRow(ctx context.Context, p *valuationPositionRow, onDate string) (HoldingState, bool, error) {
+	rep, err := s.ReplayHolding(ctx, p.AccountID, p.Symbol, onDate, false)
+	if err != nil {
+		return HoldingState{}, false, err
+	}
+	if !rep.HasHistory {
+		return rep, false, nil
+	}
+	p.Quantity = formatVariableDecimal(rep.Quantity)
+	wbc := formatVariableDecimal(rep.WeightedBuyCost)
+	p.AvgCost = &wbc
+	if rep.Currency != "" && ptrValue(p.CostCurrency) == "" {
+		ccy := rep.Currency
+		p.CostCurrency = &ccy
+	}
+	if rep.HoldingStartDate != "" {
+		start := rep.HoldingStartDate
+		p.HoldingStartDate = &start
+		if p.SnapshotDate == "" {
+			p.SnapshotDate = start
+		}
+		if days := holdingDaysBetween(start, onDate); days != nil {
+			p.HoldingDays = days
+		}
+	}
+	return rep, true, nil
+}
+
+func holdingDaysBetween(start, end string) *int {
+	startT, err := time.Parse("2006-01-02", start)
+	if err != nil {
+		return nil
+	}
+	endT, err := time.Parse("2006-01-02", end)
+	if err != nil || endT.Before(startT) {
+		return nil
+	}
+	days := int(endT.Sub(startT).Hours() / 24)
+	return &days
+}
+
 func (s *Store) currentCashRows(ctx context.Context, onDate string) ([]valuationCashRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_balance AS (
@@ -464,41 +530,59 @@ func (s *Store) currentPositionRows(ctx context.Context, onDate string) ([]valua
 			FROM position_snapshots
 			WHERE snapshot_date <= $1::date
 			ORDER BY account_id, symbol, snapshot_date DESC
+		),
+		position_keys AS (
+			SELECT account_id, symbol
+			FROM latest_position
+			WHERE quantity > 0
+			UNION
+			SELECT DISTINCT account_id, symbol
+			FROM transactions
+			WHERE trade_date <= $1::date
 		)
-		SELECT a.id, a.name, a.currency, a.kind, inst.name, lp.symbol,
-		       ins.display_name, ins.market, ins.quote_currency,
-		       lp.quantity::text, lp.avg_cost::text, lp.cost_currency, lp.snapshot_date::text,
+		SELECT a.id, a.name, a.currency, a.kind, inst.name, pk.symbol,
+		       ins.display_name, ins.market, ins.quote_currency, ins.asset_kind,
+		       COALESCE(lp.quantity, 0)::text, lp.avg_cost::text, lp.cost_currency,
+		       COALESCE(lp.snapshot_date::text, first_txn.first_trade_date::text, ''),
 		       pr.price_date::text, pr.price::text, pr.currency,
 		       hs.holding_start_date::text, ($1::date - hs.holding_start_date)::int
-		FROM latest_position lp
-		JOIN accounts a ON a.id = lp.account_id
+		FROM position_keys pk
+		JOIN accounts a ON a.id = pk.account_id
 		JOIN institutions inst ON inst.id = a.institution_id
-		LEFT JOIN instruments ins ON ins.symbol = lp.symbol
+		LEFT JOIN latest_position lp ON lp.account_id = pk.account_id AND lp.symbol = pk.symbol
+		LEFT JOIN instruments ins ON ins.symbol = pk.symbol
 		LEFT JOIN LATERAL (
 			SELECT price_date, price, currency
 			FROM prices p
-			WHERE p.symbol = lp.symbol AND p.price_date <= $1::date
+			WHERE p.symbol = pk.symbol AND p.price_date <= $1::date
 			ORDER BY p.price_date DESC, (p.currency = COALESCE(ins.quote_currency, '')) DESC, p.id DESC
 			LIMIT 1
 		) pr ON true
 		LEFT JOIN LATERAL (
+			SELECT MIN(t.trade_date) AS first_trade_date
+			FROM transactions t
+			WHERE t.account_id = pk.account_id
+			  AND t.symbol = pk.symbol
+			  AND t.trade_date <= $1::date
+		) first_txn ON true
+		LEFT JOIN LATERAL (
 			SELECT MIN(ps.snapshot_date) AS holding_start_date
 			FROM position_snapshots ps
-			WHERE ps.account_id = lp.account_id
-			  AND ps.symbol = lp.symbol
+			WHERE ps.account_id = pk.account_id
+			  AND ps.symbol = pk.symbol
 			  AND ps.snapshot_date <= $1::date
 			  AND ps.quantity > 0
 			  AND ps.snapshot_date > COALESCE((
 			      SELECT MAX(z.snapshot_date)
 			      FROM position_snapshots z
-			      WHERE z.account_id = lp.account_id
-			        AND z.symbol = lp.symbol
+			      WHERE z.account_id = pk.account_id
+			        AND z.symbol = pk.symbol
 			        AND z.snapshot_date <= $1::date
 			        AND z.quantity = 0
 			  ), '-infinity'::date)
 		) hs ON true
-		WHERE NOT a.is_archived AND lp.quantity > 0
-		ORDER BY inst.display_order, inst.name, a.display_order, a.name, lp.symbol`, onDate)
+		WHERE NOT a.is_archived
+		ORDER BY inst.display_order, inst.name, a.display_order, a.name, pk.symbol`, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +593,7 @@ func (s *Store) currentPositionRows(ctx context.Context, onDate string) ([]valua
 		if err := rows.Scan(
 			&r.AccountID, &r.AccountName, &r.AccountCurrency, &r.AccountKind, &r.Institution,
 			&r.Symbol, &r.DisplayName, &r.Market, &r.QuoteCurrency,
-			&r.Quantity, &r.AvgCost, &r.CostCurrency, &r.SnapshotDate,
+			&r.AssetKind, &r.Quantity, &r.AvgCost, &r.CostCurrency, &r.SnapshotDate,
 			&r.PriceDate, &r.Price, &r.PriceCurrency, &r.HoldingStartDate, &r.HoldingDays,
 		); err != nil {
 			return nil, err
@@ -646,6 +730,7 @@ type allocationBucket struct {
 func newAllocationBuilder() allocationBuilder {
 	return allocationBuilder{
 		"kind":           {},
+		"asset_kind":     {},
 		"institution":    {},
 		"currency":       {},
 		"quote_currency": {},
@@ -710,10 +795,14 @@ func buildSymbolPositionGroups(positions []ValuationPosition, totalPositionValue
 		qty          decimal.Decimal
 		marketValue  decimal.Decimal
 		costValue    decimal.Decimal
+		netCostValue decimal.Decimal
 		plValue      decimal.Decimal
+		realizedPL   decimal.Decimal
 		hasMarket    bool
 		hasCost      bool
+		hasNetCost   bool
 		hasPL        bool
+		hasRealized  bool
 		holdingStart *string
 		holdingDays  *int
 	}
@@ -737,6 +826,7 @@ func buildSymbolPositionGroups(positions []ValuationPosition, totalPositionValue
 					DisplayName:     p.DisplayName,
 					Market:          p.Market,
 					QuoteCurrency:   displayCurrency,
+					AssetKind:       p.AssetKind,
 					Quantity:        "0",
 					CostCurrency:    displayCurrency,
 					SnapshotDate:    p.SnapshotDate,
@@ -750,6 +840,9 @@ func buildSymbolPositionGroups(positions []ValuationPosition, totalPositionValue
 		g.pos.Quantity = formatVariableDecimal(g.qty)
 		g.pos.MissingPrice = g.pos.MissingPrice || p.MissingPrice
 		g.pos.FxFallback = g.pos.FxFallback || p.FxFallback
+		if g.pos.AssetKind == nil && p.AssetKind != nil {
+			g.pos.AssetKind = p.AssetKind
+		}
 		if p.SnapshotDate > g.pos.SnapshotDate {
 			g.pos.SnapshotDate = p.SnapshotDate
 		}
@@ -775,6 +868,20 @@ func buildSymbolPositionGroups(positions []ValuationPosition, totalPositionValue
 			if err == nil {
 				g.costValue = g.costValue.Add(cv)
 				g.hasCost = true
+			}
+		}
+		if p.NetCostValueDisplay != nil {
+			cv, err := decimalFromString(*p.NetCostValueDisplay)
+			if err == nil {
+				g.netCostValue = g.netCostValue.Add(cv)
+				g.hasNetCost = true
+			}
+		}
+		if p.RealizedPLDisplay != nil {
+			pl, err := decimalFromString(*p.RealizedPLDisplay)
+			if err == nil {
+				g.realizedPL = g.realizedPL.Add(pl)
+				g.hasRealized = true
 			}
 		}
 		if p.UnrealizedPLDisplay != nil {
@@ -807,6 +914,18 @@ func buildSymbolPositionGroups(positions []ValuationPosition, totalPositionValue
 				avg := formatMoneyDecimal(g.costValue.DivRound(g.qty, 8))
 				g.pos.AvgCost = &avg
 			}
+		}
+		if g.hasNetCost {
+			cost := formatMoneyDecimal(g.netCostValue)
+			g.pos.NetCostValueDisplay = &cost
+			if !g.qty.IsZero() {
+				avg := formatMoneyDecimal(g.netCostValue.DivRound(g.qty, 8))
+				g.pos.NetCost = &avg
+			}
+		}
+		if g.hasRealized {
+			pl := formatMoneyDecimal(g.realizedPL)
+			g.pos.RealizedPLDisplay = &pl
 		}
 		if g.hasPL {
 			pl := formatMoneyDecimal(g.plValue)

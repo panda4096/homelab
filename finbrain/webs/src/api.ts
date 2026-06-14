@@ -210,6 +210,10 @@ export interface ReviewBatchInput {
   balance_snapshots: CreateBalanceSnapshotInput[]
   position_snapshots: CreatePositionSnapshotInput[]
   credit_card_bills: CreateCreditCardBillInput[]
+  transactions?: CreateTransactionInput[]
+  transfers?: CreateTransferInput[]
+  income_events?: CreateIncomeEventInput[]
+  corporate_actions?: CreateCorporateActionInput[]
 }
 
 export interface ReviewBatchResult {
@@ -217,6 +221,10 @@ export interface ReviewBatchResult {
   balance_snapshots: number
   position_snapshots: number
   credit_card_bills: number
+  transactions: number
+  transfers: number
+  income_events: number
+  corporate_actions: number
 }
 
 export interface AccountBlueprint {
@@ -308,8 +316,10 @@ export interface ValuationPosition {
   display_name: string | null
   market: string | null
   quote_currency: string
+  asset_kind: string | null
   quantity: string
   avg_cost: string | null
+  net_cost: string | null
   cost_currency: string
   snapshot_date: string
   price: string | null
@@ -318,6 +328,8 @@ export interface ValuationPosition {
   market_value: string | null
   market_value_display: string | null
   cost_value_display: string | null
+  net_cost_value_display: string | null
+  realized_pl_display: string | null
   unrealized_pl_display: string | null
   unrealized_pl_pct: string | null
   weight: string | null
@@ -338,6 +350,7 @@ export interface Valuation {
   cash_value: string
   position_value: string
   position_cost: string
+  position_net_cost: string
   unrealized_pl: string
   unrealized_pl_pct: string | null
   position_share: string | null

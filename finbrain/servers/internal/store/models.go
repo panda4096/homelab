@@ -104,6 +104,10 @@ type ReviewBatch struct {
 	BalanceSnapshots  []BalanceSnapshot  `json:"balance_snapshots"`
 	PositionSnapshots []PositionSnapshot `json:"position_snapshots"`
 	CreditCardBills   []CreditCardBill   `json:"credit_card_bills"`
+	Transactions      []Transaction      `json:"transactions"`
+	Transfers         []Transfer         `json:"transfers"`
+	IncomeEvents      []IncomeEvent      `json:"income_events"`
+	CorporateActions  []CorporateAction  `json:"corporate_actions"`
 }
 
 type ReviewBatchResult struct {
@@ -111,6 +115,10 @@ type ReviewBatchResult struct {
 	BalanceSnapshots  int    `json:"balance_snapshots"`
 	PositionSnapshots int    `json:"position_snapshots"`
 	CreditCardBills   int    `json:"credit_card_bills"`
+	Transactions      int    `json:"transactions"`
+	Transfers         int    `json:"transfers"`
+	IncomeEvents      int    `json:"income_events"`
+	CorporateActions  int    `json:"corporate_actions"`
 }
 
 // Valuation is the P2 current valuation payload consumed by the dashboard and
@@ -125,6 +133,7 @@ type Valuation struct {
 	CashValue        string                       `json:"cash_value"`
 	PositionValue    string                       `json:"position_value"`
 	PositionCost     string                       `json:"position_cost"`
+	PositionNetCost  string                       `json:"position_net_cost"`
 	UnrealizedPL     string                       `json:"unrealized_pl"`
 	UnrealizedPLPct  *string                      `json:"unrealized_pl_pct"`
 	PositionShare    *string                      `json:"position_share"`
@@ -159,8 +168,10 @@ type ValuationPosition struct {
 	DisplayName         *string `json:"display_name"`
 	Market              *string `json:"market"`
 	QuoteCurrency       string  `json:"quote_currency"`
+	AssetKind           *string `json:"asset_kind"`
 	Quantity            string  `json:"quantity"`
 	AvgCost             *string `json:"avg_cost"`
+	NetCost             *string `json:"net_cost"`
 	CostCurrency        string  `json:"cost_currency"`
 	SnapshotDate        string  `json:"snapshot_date"`
 	Price               *string `json:"price"`
@@ -169,6 +180,8 @@ type ValuationPosition struct {
 	MarketValue         *string `json:"market_value"`
 	MarketValueDisplay  *string `json:"market_value_display"`
 	CostValueDisplay    *string `json:"cost_value_display"`
+	NetCostValueDisplay *string `json:"net_cost_value_display"`
+	RealizedPLDisplay   *string `json:"realized_pl_display"`
 	UnrealizedPLDisplay *string `json:"unrealized_pl_display"`
 	UnrealizedPLPct     *string `json:"unrealized_pl_pct"`
 	Weight              *string `json:"weight"`

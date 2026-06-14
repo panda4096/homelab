@@ -117,7 +117,7 @@ finbrain **不是**：
 | **目标配置（allocation target）** | 业主预设的理想资产配置，按用途/币种/市场任一维度的目标百分比 |
 | **配置漂移（allocation drift）** | 当前实际配置 − 目标配置，正值=超配、负值=欠配；用于触发再平衡决策 |
 | **收益事件（income event）** | 持仓的"非市价回报"事件，包含分红（dividend）、利息（interest）、返现（rebate）、其他（other）；不改变持仓数量与平均成本，独立记录以便追溯真实回报 |
-| **基准（benchmark）** | 用于对比业主表现的外部参考曲线，如 HSI / S&P 500 / CSI 300；以特殊 symbol 在 `prices` 表维护历史值 |
+| **基准（benchmark）** | 用于对比业主表现的外部参考曲线，如 HSI / S&P 500 / CSI 300；以 `instruments.is_benchmark = true` 标记，并在 `prices` 表维护历史值 |
 | **标注（annotation）** | 在曲线/数据点上贴的人工或 LLM 生成的注释，用于回顾时还原决策上下文 |
 | **信用卡账单（credit card bill）** | 信用卡某一期的账单记录，包含总额、出账日、顶类目 |
 | **顶类目（top categories）** | 业主对信用卡当期消费的归类摘要。自由文本，不限制类目集合 |
@@ -456,7 +456,7 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 回放语义（详见 §6.17）：
 
 - split / merge：调整后续 quantity 与加权买入成本；**不回写历史已实现盈亏**
-- rights：系统按业主填写的配股价生成一条等价 buy 交易（标记 `source = corporate_action_<id>`），走 §6.15 的 buy 分支
+- rights：系统按业主填写的配股价在回放事件流中构造一条等价 buy 事件（不写入 `transactions` 表），走 §6.15 的 buy 分支
 
 约束：
 
@@ -621,6 +621,7 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 | `currency`（账户币种） | `CNY 50%` / `HKD 25%` / `USD 25%` |
 | `quote_currency`（真实计价币种） | `CNY 40%` / `USD 40%` / `HKD 20%` |
 | `market`（仅持仓） | `US 50%` / `HK 30%` / `CN 20%` |
+| `asset_kind`（标的资产类型） | `equity 60%` / `fund 20%` / `crypto 5%` |
 | `institution` | `汇丰 60%` / `富途 25%` / `招行 15%` |
 | 自定义 | 业主自由命名维度并选择枚举值 |
 
@@ -679,7 +680,7 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 
 业主可以：
 
-- 维护基准列表（见 §7.18）：每条基准包含 symbol、显示名、资产类型；价格数据存放在 `prices` 表中（与普通持仓一致）。基准曲线质量取决于历史价格点密度，建议用 §4.10.1 批量导入补足较密的历史价（如每周一条）
+- 维护基准列表（见 §7.18）：基准就是 `instruments.is_benchmark=true` 的标的，包含 symbol、显示名、资产类型；价格数据存放在 `prices` 表中（与普通持仓一致）。基准曲线质量取决于历史价格点密度，建议用 §4.10.1 批量导入补足较密的历史价（如每周一条）
 - 在趋势分析图上勾选要叠加的基准
 - 选择对比口径：
   - **绝对值**：双 y 轴，左 = 业主净值，右 = 基准点位
@@ -746,10 +747,10 @@ position_snapshots:  2026-05-05  MU     6 股, 平均成本 USD 399.75
 
 业主可以在查询入口直接提问，系统：
 
-1. 调用 LLM 把问题翻译成 SQL（仅 SELECT，禁止 DML/DDL）
-2. 在 finbrain 数据库上执行
+1. 调用 LLM 从后端注册的 read / draft skill 中选择一个，并按其 schema 填参数
+2. 后端执行该 skill，复用既有领域方法和业务口径
 3. 把结果以表格 / 数字 / 图表渲染
-4. 同时展示生成的 SQL 与可读解释
+4. 折叠展示 skill 名、参数与口径说明；**不展示 SQL，也不允许 LLM 生成 SQL**
 
 支持的提问示例（见 §8.2 详细契约）：
 
@@ -801,12 +802,11 @@ accounts ──┬──< balance_snapshots
            │
            └──< （间接被 allocation_targets 与 annotations 引用）
 
-instruments       （标的元数据，symbol 主键，含真实计价币种、市场、资产类型）
+instruments       （标的元数据，symbol 主键，含真实计价币种、市场、资产类型、基准标记）
 corporate_actions （公司动作；按 symbol 关联 instruments，影响所有持有该 symbol 的账户）
 prices            （独立，按 symbol 关联 instruments；基准曲线也存这里）
 fx_rates          （独立）
 allocation_targets（业主目标配置，多套；每套含若干 dimension/key/pct 项）
-benchmarks        （基准列表，引用 prices.symbol）
 annotations       （标注；通过 anchor_kind + anchor_keys 锚到日期/账户/标的/持仓）
 account_templates （建账模板，与运行时账户无引用关系）
 user_preferences  （单行）
@@ -838,7 +838,7 @@ summaries         （独立，存阶段总结）
 
 #### 5.2.2 `instruments`
 
-标的元数据表。一个 symbol 一行，被 `position_snapshots`、`prices`、`income_events`、`benchmarks` 共同引用。
+标的元数据表。一个 symbol 一行，被 `position_snapshots`、`prices`、`income_events` 共同引用；基准身份也在本表标记。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -847,7 +847,7 @@ summaries         （独立，存阶段总结）
 | `market` | varchar(16) | | 市场标签：`US` / `HK` / `CN` / `CRYPTO` / `INDEX` / `OTHER`，开放枚举 |
 | `quote_currency` | varchar(8) | | 标的真实计价币种；不填时由应用层在首次出现 `prices` 记录时回填该 price 的 currency |
 | `asset_kind` | varchar(16) | | 资产类型：`equity` / `fund` / `etf` / `crypto` / `bond` / `index` / `other`，开放枚举 |
-| `is_benchmark` | boolean | ✓ | 是否参与基准对比（默认 false；置 true 后该 symbol 出现在基准选择器中），与 `benchmarks` 表配合使用 |
+| `is_benchmark` | boolean | ✓ | 是否参与基准对比（默认 false；置 true 后该 symbol 出现在基准选择器中） |
 | `note` | text | | 自由备注 |
 | `created_at` | timestamptz | ✓ | |
 | `updated_at` | timestamptz | ✓ | |
@@ -856,7 +856,7 @@ summaries         （独立，存阶段总结）
 
 - `PRIMARY KEY(symbol)`
 - 应用层规则：首次在持仓快照、价格、收益事件中引用未登记的 symbol 时，自动创建一条空元数据记录；业主可随时补全字段
-- 删除 instruments 必须级联检查所有引用方为空，否则禁止；通常只归档为 `is_benchmark=false`，不删除
+- 删除 instruments 必须级联检查所有引用方为空，否则禁止；取消基准身份时仅把 `is_benchmark` 置为 false，不删除历史价格
 
 #### 5.2.3 `balance_snapshots`
 
@@ -978,25 +978,16 @@ summaries         （独立，存阶段总结）
 - `base_currency != quote_currency`
 - `rate > 0`
 
-#### 5.2.9 `benchmarks`
+#### 5.2.9 基准建模（无独立表）
 
-业主选择参与"基准对比"（§4.18）的标的清单。基准的价格数据存放在 `prices` 表中，与普通持仓共用同一张表；本表仅描述"哪些 symbol 是基准、显示名是什么"。
+基准不使用独立 `benchmarks` 表。一个 symbol 是否参与"基准对比"完全由 `instruments.is_benchmark` 决定：
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `id` | bigint | ✓ | 主键 |
-| `symbol` | varchar(64) | ✓ | FK → `instruments.symbol`；同时要求 `instruments.is_benchmark = true` |
-| `display_name` | varchar(128) | ✓ | 显示名（"S&P 500"、"恒生指数"） |
-| `default_visible` | boolean | ✓ | 是否在趋势图上默认勾选叠加 |
-| `display_order` | int | ✓ | 排序 |
-| `note` | text | | |
-| `created_at` | timestamptz | ✓ | |
-| `updated_at` | timestamptz | ✓ | |
+- `instruments.is_benchmark = true`：该 symbol 出现在趋势分析的基准选择器中
+- 基准显示名来自 `instruments.display_name`，缺省回退为 `symbol`
+- 基准资产类型来自 `instruments.asset_kind`（常见为 `index` / `etf` / `crypto`）
+- 基准历史点位仍存放在 `prices` 表中，与普通持仓共用 `(symbol, price_date, price, currency)` 时间序列
 
-约束：
-
-- `UNIQUE(symbol)`
-- 删除 `benchmarks` 行只取消"作为基准"的身份，不删除 `prices` 中的历史价格
+取消基准身份只更新 `instruments.is_benchmark=false`，不删除 `prices` 中的历史价格。
 
 #### 5.2.10 `allocation_targets`
 
@@ -1008,7 +999,7 @@ summaries         （独立，存阶段总结）
 |---|---|---|---|
 | `id` | bigint | ✓ | 主键 |
 | `name` | varchar(128) | ✓ | 业主自命名（"按用途分布目标"） |
-| `dimension` | varchar(32) | ✓ | 目标维度：`kind` / `currency` / `quote_currency` / `market` / `institution` / 自定义字符串 |
+| `dimension` | varchar(32) | ✓ | 目标维度：`kind` / `currency` / `quote_currency` / `market` / `asset_kind` / `institution` / 自定义字符串 |
 | `drift_threshold_pct` | numeric(5,2) | ✓ | 漂移阈值，超过则 UI 高亮，默认 5.00 |
 | `is_dashboard_visible` | boolean | ✓ | 是否在仪表盘展示，默认 true |
 | `is_archived` | boolean | ✓ | 默认 false |
@@ -1158,7 +1149,7 @@ summaries         （独立，存阶段总结）
 - `UNIQUE(symbol, action, event_date)`
 - 拆股回放规则：之后所有持仓数量 × `ratio_numerator / ratio_denominator`，加权买入成本按反比缩放；**不回写已实现盈亏**
 - 合股是拆股的反向
-- 配股按"系统自动生成一条 buy 交易"的方式处理（数量与价格按 `extra` 推断），生成的 `transactions` 行 `source = corporate_action_<id>`
+- 配股按"回放时构造一条等价 buy 事件"的方式处理（数量与价格按 `extra` 推断）；该事件只存在于回放事件流中，不物化为 `transactions` 行
 
 #### 5.2.17 `transfers`
 
@@ -1408,6 +1399,7 @@ actual_pct(set, dim_value) =
 其中 aggregate_value 按维度选择不同口径：
 - dimension = kind / institution / currency / market：基于 §6.4 net_worth 的子集
 - dimension = quote_currency：基于 §6.9 的暴露口径
+- dimension = asset_kind：基于 `instruments.asset_kind` 聚合持仓市值
 
 # 2. 漂移
 drift(set, dim_value) = actual_pct − target_pct
@@ -1513,21 +1505,20 @@ contrib_total    = contrib_price + contrib_quantity + contrib_income + contrib_f
 对一条基准 `bench`（symbol b 在 `instruments` 中 `is_benchmark = true`）与业主净值 / 持仓总值在区间 [D1, D2]：
 
 ```
-bench_native(b, D) = price_of(b, D, in instruments[b].quote_currency)
-bench_display(b, D) = amount_in_currency(bench_native(b, D), instruments[b].quote_currency, display_ccy, D)
+bench_value(b, D) = price_of(b, D, in instruments[b].quote_currency)
 
 # 三种对比口径
-1. 绝对值：双 y 轴，左 = subject（业主指标），右 = bench_native（基准原币点位）
+1. 绝对值：双 y 轴，左 = subject（业主指标），右 = bench_value（基准自身点位 / 价格）
 2. 归一化（rebase=100）：
        subject_indexed(D) = subject(D)        / subject(D1)        × 100
-       bench_indexed(D)   = bench_display(D)  / bench_display(D1)  × 100
+       bench_indexed(D)   = bench_value(D)    / bench_value(D1)    × 100
 3. 超额收益：excess(D) = subject_indexed(D) − bench_indexed(D)
 ```
 
 口径说明：
 
-- subject 可选：净资产 / 持仓总市值 / 任一目标配置桶的市值
-- 基准价格统一通过 §6.3 跨币种折算到 display_ccy 后再做归一化，避免基准币种不同造成视觉错位
+- subject 可选：净资产 / 总资产 / 现金 / 持仓总市值；后续可扩展到任一目标配置桶的市值
+- 基准默认按自身点位 / 价格归一化，不强制折算到 `display_ccy`；`display_ccy` 只影响 subject 的金额口径
 - 对比起点 D1 必须是基准与 subject 都有数据的日期；任一缺失时把对比起点向右推到首个共同有数据的日
 
 ### 6.14 稀疏存储与查询插值
@@ -1567,7 +1558,7 @@ fx_rate_at(base, quote, on_date) =
 
 **每日曲线实现**：
 
-每日曲线在查询时实时计算，不预生成；典型实现是 SQL 的 `generate_series` + `LATERAL JOIN` 一条查询完成。即使引入每日价格与汇率后，5 年 × 数十账户 × 数十持仓的计算量在 PostgreSQL 上仍稳定在亚秒级，完全满足产品诉求。
+每日曲线在查询时实时调用估值引擎计算，不预生成；实现可用数据库日期序列或应用层日期迭代完成。即使引入每日价格与汇率后，5 年 × 数十账户 × 数十持仓的计算量仍应稳定在交互可接受范围内。
 
 如未来观察到性能瓶颈，可在不改动业务表结构的前提下引入物化视图；这是实施层选择，不影响产品语义。
 
@@ -1605,7 +1596,7 @@ for event in events_in_order:
     # 不修改 state.realized_pl
 
   elif event is corporate_action(rights):
-    # 按 extra 推断一条等价 buy 交易并走 buy 分支
+    # 按 extra 推断一条等价 buy 事件并走 buy 分支；不写入 transactions 表
     ...
 ```
 
@@ -1653,7 +1644,7 @@ total_pl(account, symbol, on_date)
 公司动作在 §6.15 的事件队列中按 `event_date` 与交易混排，按以下规则处理：
 
 - **split / merge**：调整 `quantity` 与 `weighted_buy_cost`，不修改 `realized_pl`，不修改历史 transactions 行
-- **rights**：按 `extra` 推断一条等价 buy（数量 = 当时持仓 × `base_share_ratio`，价格 = `rights_price`），追加到事件流；该 buy 的 source 标为 `corporate_action_<id>`
+- **rights**：按 `extra` 推断一条等价 buy 事件（数量 = 当时持仓 × `base_share_ratio`，价格 = `rights_price`），追加到回放事件流；该事件不物化为 `transactions` 行
 
 **幂等**：corporate_action 行存在即生效；删除该行则相当于回滚该次比例调整。
 
@@ -1732,8 +1723,8 @@ position_delta         = replay_quantity − snapshot_quantity
   - 资产配置（按真实计价币种 / 币种暴露）饼图 + 列表，见 §6.9
   - 资产配置（按机构）饼图 + 列表
 - 下部：净资产趋势折线图（默认最近 12 月，叠加默认基准与最近标注）
-- 下部：信用卡当月支出柱状图（最近 12 月）
-- 侧栏快捷入口：账户列表、持仓总览、目标配置、趋势分析、期间对比、多维聚合、自然语言、收益事件、持仓交易、公司动作、账户转账、现金对账、价格/汇率/基准维护、设置
+- 下部：信用卡近 12 月支出摘要 / 柱状图
+- 侧栏快捷入口：账户列表、持仓总览、目标配置、趋势分析、期间对比、多维聚合、自然语言、收益事件、持仓交易、公司动作、账户转账、现金对账、价格/汇率/基准维护、技能 / API、审计日志、设置
 
 ### 7.2 账户列表
 
@@ -1759,7 +1750,7 @@ position_delta         = replay_quantity − snapshot_quantity
 
 集中展示所有持仓型资产的当前状态，是业主做"持仓体检"的入口。
 
-- 顶部汇总卡：持仓总市值、持仓总成本、总浮动盈亏、**总已实现盈亏**、累计收益事件、**总盈亏**（=浮动+已实现+收益事件）、持仓占净资产比，全部按展示币种
+- 顶部汇总卡：持仓总市值、持仓总成本、总浮动盈亏、**本年已实现盈亏**、累计收益事件、**总盈亏**（=浮动+已实现+收益事件）、持仓占净资产比，全部按展示币种
 - 主表格：每行一条 `(账户, 标的)` 持仓
   - 列：账户、机构、标的、市场、真实计价币种、数量、加权买入成本、净持有成本、现价、持仓成本、持仓市值、浮动盈亏、浮动盈亏率、已实现盈亏、累计收益事件、总盈亏、持仓时长、仓位权重、资产权重、最近快照日期、最近交易日期、最近价格日期
   - 列可显示/隐藏、可排序
@@ -1784,15 +1775,15 @@ position_delta         = replay_quantity − snapshot_quantity
    - "保留上次"按钮（一键复制上次值）
    - "无变化"按钮（不录入新快照，跳过）
 3. **持仓型账户清单**：对每个有历史持仓的账户：
-   - 若该账户走交易流水模式：展示自上次盘点至今的所有交易回顾，提示业主补录遗漏的交易、把未结算交易置为已结算
+   - 若该账户走交易流水模式：展示自上次盘点至今的所有交易回顾，允许直接新增待提交交易、把未结算交易置为已结算
    - 若该账户走纯快照模式：列出"上次的持仓清单"，业主逐项确认数量与成本、增删标的
-4. **公司动作回顾**：列出本期间内任何已记录的 split / merge / rights 对持仓的影响概览；提示业主补录可能遗漏的公司动作
-5. **账户转账**：列出本期间内已录入的转账，提示业主补录遗漏（提示来源：现金对账差额排查）
+4. **公司动作回顾**：列出本期间内任何已记录的 split / merge / rights 对持仓的影响概览；允许直接新增待提交公司动作
+5. **账户转账**：列出本期间内已录入的转账，允许直接新增待提交转账（提示来源：现金对账差额排查）
 6. **信用卡账单**：对每张信用卡（或"信用卡合计"账户），提示是否录入本期账单
-7. **收益事件**：列出本期间（自上次盘点起至今）业主可能漏记的分红/利息提示（基于"持仓中含分红记录的标的"启发式提示，不强制），允许批量勾选录入
+7. **收益事件**：列出本期间（自上次盘点起至今）业主可能漏记的分红/利息提示（基于"持仓中含分红记录的标的"启发式提示，不强制），允许批量勾选或直接新增待提交收益事件
 8. **现金对账**：每个账户展示预期余额与最新快照差额，超阈值时提示补录或新建一条余额快照
 9. **目标配置漂移检视**：展示每套目标的当前漂移与再平衡建议金额（提醒为主，不阻塞）
-10. **预览**：所有待写入的快照、账单、收益事件、交易、转账一览
+10. **预览**：所有待写入的快照、账单、收益事件、交易、公司动作、转账一览
 11. **确认**：批量提交
 
 任意步骤可中断、保存草稿，下次接着填。
@@ -1856,7 +1847,7 @@ position_delta         = replay_quantity − snapshot_quantity
 
 - 系统判断意图：录入 vs 查询 vs 总结
 - 如为录入：解析成结构化操作的预览面板，业主确认后写入
-- 如为查询：执行并展示结果（数字 / 表 / 图）+ 折叠展示生成的 SQL
+- 如为查询：执行对应 read skill 并展示结果（数字 / 表 / 图）+ 折叠展示 skill 名、参数与口径说明
 - 如为总结：触发阶段性总结生成
 
 ### 7.14 目标配置
@@ -1873,9 +1864,9 @@ position_delta         = replay_quantity − snapshot_quantity
 
 独立页面，比仪表盘的趋势小图维度更全：
 
-- 顶部控件：subject 选择（净资产 / 持仓总市值 / 任一目标配置桶）、时间范围、时间粒度（每日/月/季/年）、展示币种、fx_mode
+- 顶部控件：subject 选择（净资产 / 总资产 / 现金 / 持仓总市值；后续可扩展到任一目标配置桶）、时间范围、时间粒度（每日/月/季/年）、展示币种、fx_mode
 - 主图：subject 折线 + 可叠加层
-  - 基准：在控件勾选要叠加的基准（来自 `benchmarks` 表 `default_visible = true` 默认勾选），三种对比口径切换（绝对值 / 归一化 / 超额收益，见 §6.13）
+  - 基准：在控件勾选要叠加的基准（来自 `instruments.is_benchmark = true` 的标的），三种对比口径切换（绝对值 / 归一化 / 超额收益，见 §6.13）
   - 标注：以竖线 + 角标显示，鼠标悬停展开 label 与 body
   - 收益事件标记：在事件日期打小图标，按事件类型着色
 - 下方副图：净资产按用途/币种/市场任选维度的堆叠面积图
@@ -1903,7 +1894,7 @@ position_delta         = replay_quantity − snapshot_quantity
 
 - **标的（instruments）**：左栏标的列表,右栏 = 元数据（`display_name` / `market` / `quote_currency` / `asset_kind` / `is_benchmark`,可编辑/归档,基准切换在此）+ **该标的的价格历史折线图 + 价格点位表（单条新增/编辑/删除）**。价格录入在此完成（「新增价格」按钮）。
 - **汇率（fx）**：左栏币种对列表,右栏 = 该币种对的**汇率历史折线图 + 点位表（单条 CRUD）**；反向汇率自动互换、缺失按 1:1 降级。
-- **基准（benchmarks）**：`is_benchmark=true` 的标的子集 + 显示名/默认叠加/排序设置 + 其**价格历史折线图**（基准价与普通持仓共用 `prices` 表）；同步在 §7.15 趋势分析的勾选器中可见。
+- **基准**：`is_benchmark=true` 的标的子集 + 显示名 / 资产类型 + 其**价格历史折线图**（基准价与普通持仓共用 `prices` 表）；同步在 §7.15 趋势分析的勾选器中可见，不设独立 `benchmarks` 表。
 
 说明：
 
@@ -1926,6 +1917,11 @@ position_delta         = replay_quantity − snapshot_quantity
 - LLM API key 状态（已配置 / 未配置）
 - 数据导出入口
 - 关于 finbrain（版本号、文档链接）
+
+### 7.21 技能 / API 与审计日志
+
+- **技能 / API**：展示 `GET /api/agent/skills` 返回的 skill 目录，包含名称、类型、输入 schema、权限、是否需要确认与行数上限；支持创建 / 撤销外部 API key，并展示 scope。
+- **审计日志**：展示 `agent_audit` 记录，可按来源（ui / agent / apikey）、skill、状态、时间筛选；用于核对人工 UI 写操作与 Agent skill 调用。
 
 ---
 
@@ -1968,7 +1964,7 @@ position_delta         = replay_quantity − snapshot_quantity
 | `transfer` | `transfers` | §4.8；跨币种时必须明确 from_amount 与 to_amount 两个数 |
 | `price` | `prices` | §4.10 |
 | `fx_rate` | `fx_rates` | §4.11 |
-| `allocation_target` | `allocation_targets` | §4.15；自然语言写入仅允许更新 target_pct，不允许新增维度 |
+| `allocation_target` | `allocation_targets` | §4.15；可创建或更新完整目标配置，写入前仍需通过 `Σ target_pct = 100%` 校验 |
 | `annotation` | `annotations` | §4.19；写入时 `source = llm` |
 
 **前置规则**：
@@ -2002,7 +1998,7 @@ position_delta         = replay_quantity − snapshot_quantity
 
 **LLM 任务**：
 
-1. 系统先在 SQL 层算好关键指标（总资产期初/期末、变化、按用途分布对比、持仓增减、信用卡支出）
+1. 系统先通过后端聚合层算好关键指标（总资产期初/期末、变化、按用途分布对比、持仓增减、信用卡支出）
 2. 把这些指标作为结构化数据输入 LLM
 3. LLM 生成 Markdown 文本总结
 4. 落库到 `summaries`
@@ -2030,6 +2026,8 @@ position_delta         = replay_quantity − snapshot_quantity
 **写(draft → 确认 → apply)**:draft skill 校验并返回"将要写入的实体 + 风险提示";业主确认后 `POST /api/agent/apply {skill, params, confirm:true}` 才落库,复用既有业务校验与事务。写 skill `requires_confirmation=true`,无 confirm 拒绝;只读 key 不能调写 skill。
 
 **NL 编排**:`POST /api/agent/plan {text}` 把自然语言映射为一次 read/draft skill 调用(function-calling),不自动执行写;写由前端确认后走 apply。
+
+**已覆盖的写入 skill 家族**:balance_snapshot、position_snapshot、credit_card_bill、income_event、transaction、corporate_action、transfer、price、fx_rate、allocation_target_set、annotation。每个写入家族至少提供 draft 与 apply 两步；批量盘点可把多个 draft 结果合并到一次确认提交。
 
 **外部接入 / API Key**:外部 agent 用 `Authorization: Bearer fbk_…` 调用;key 经 `POST /api/api-keys` 创建(密钥仅显示一次,库内只存 sha256),`scopes ∈ {read, read_write}`,可吊销。
 
@@ -2073,19 +2071,19 @@ position_delta         = replay_quantity − snapshot_quantity
 | 信用卡账单 | 能录入完整账单；能标记已还；未还账单计入负债 |
 | 价格 / 汇率 | 能录入；持仓市值与跨币种聚合在有数据时正确，无数据时降级且 UI 提示 |
 | 展示币种切换 | 任意视图切换币种立即生效，所有金额按规则重新折算 |
-| 资产总览 | 净资产、按用途/机构/币种/市场分布数字与 SQL 验证结果一致 |
+| 资产总览 | 净资产、按用途/机构/币种/市场分布数字与估值接口 / 只读校验结果一致 |
 | 趋势分析 | 每日/月度/季度/年度截面取值符合 §6.5 与 §6.14 规则；任意日期单点查询与曲线查询数值一致 |
 | 持仓分析 | 单持仓的成本、市值、浮动盈亏、盈亏率、仓位权重、资产权重均符合 §6.7 公式；汇总指标与按口径合并后的单条之和一致；缺价格/缺成本时按 §6.7 降级规则处理；两套成本口径（加权买入 / 净持有）切换正确 |
 | 收益事件 | 能录入 dividend / interest / rebate / other；不修改任何快照与余额；累计收益事件与总盈亏符合 §6.11；按账户 / 标的 / 时间窗汇总数字一致 |
 | 持仓交易 | 能录入 buy / sell；任何字段、任何状态均可 in-place 修改与删除；无 reversal 单；按 §6.15 回放结果与人工核对一致 |
 | 已实现盈亏 | 卖出按 (sell_price − 加权买入成本) × quantity 计算并累计；卖出不改变加权买入成本；卖出手续费扣减已实现盈亏；符合 §6.16 |
-| 公司动作 | split / merge 后 quantity 与加权买入成本按比例自动调整；**已实现盈亏不变**；rights 等价为系统生成的 buy 交易；符合 §6.17 |
+| 公司动作 | split / merge 后 quantity 与加权买入成本按比例自动调整；**已实现盈亏不变**；rights 在回放事件流中等价为 buy 事件且不物化交易行；符合 §6.17 |
 | 账户转账 | 同币种 / 跨币种均能录入；总净资产前后不变；预期余额按 §6.18 双向更新；不写 fx_rates |
 | 现金对账 | 任意账户的"预期余额 − 快照余额"差额与 §6.19 公式一致；超阈值时账户卡片高亮；"仅含已结算"切换正确 |
 | 持仓对账 | 有交易历史的 (账户, 标的) 同时存在快照时，§6.20 差额展示正确；提供"以快照为准 / 以交易为准"两种修复路径 |
 | 信用卡合并录入 | 业主可建一个"信用卡合计"账户聚合多卡账单；表结构与按卡录入完全一致 |
-| 目标配置 | 能创建多套目标配置（kind ∈ currency / quote_currency / market / institution / asset_kind）；Σ target_pct = 100% 校验通过；漂移与再平衡建议符合 §6.10；超阈值时仪表盘漂移卡正确高亮 |
-| 期间对比 | 任意两截面对比的期初 / 期末 / 变化 / 贡献占比与 SQL 验证一致；收益归因四桶（price / quantity / income / fx）符合 §6.12，且四桶之和等于期间净值变化 |
+| 目标配置 | 能创建多套目标配置（dimension ∈ kind / currency / quote_currency / market / institution / asset_kind）；Σ target_pct = 100% 校验通过；漂移与再平衡建议符合 §6.10；超阈值时仪表盘漂移卡正确高亮 |
+| 期间对比 | 任意两截面对比的期初 / 期末 / 变化 / 贡献占比与后端只读校验一致；收益归因四桶（price / quantity / income / fx）符合 §6.12，且四桶之和等于期间净值变化 |
 | 基准对比 | 三种对比口径（absolute / rebase=100 / excess）的曲线与 §6.13 公式一致；基准缺数据时自动右移起点并提示 |
 | 标注 | 4 种 anchor_kind（date / account / symbol / position）均可创建、编辑、删除；在趋势 / 账户 / 持仓视图按锚点正确呈现；LLM 生成的标注标记 source = llm |
 | 真实币种暴露 | 按真实计价币种聚合的暴露数字与 §6.9 公式一致；与按账户币种分布的差异在视图中可对照 |
@@ -2093,8 +2091,8 @@ position_delta         = replay_quantity − snapshot_quantity
 | 建账模板 | 模板可批量创建账户骨架；删除模板不影响已创建账户；模板字段与账户字段对齐 |
 | 多维聚合 | 任意 行 × 列 × 值 组合均能正确聚合 |
 | 自然语言录入 | 给定 §8.1 示例输入，LLM 解析并预览结构化操作；业主确认后落库 |
-| 自然语言查询 | §8.2 危险语句 100% 拒绝；正常查询返回结果与 SQL 一并展示 |
-| 阶段性总结 | 能生成 month/quarter/year 总结并存档；总结基于系统预算指标，不直接读库 |
+| 自然语言查询 | §8.2 危险 SQL / 表名 / join / where 请求 100% 拒绝或转为合法 skill；正常查询返回 skill 结果，并展示 skill 名、参数与口径说明 |
+| 阶段性总结 | 能生成 month/quarter/year 总结并存档；总结基于后端聚合指标，不直接读库 |
 | 数据导出 | 全量导出能完整还原所有快照、账单、价格、汇率 |
 | 备份恢复 | 能从最近一份 pg_dump 完整还原数据库 |
 | 单点登录 | 未通过 Authelia 的请求被拒绝；通过的请求识别业主身份 |

@@ -15,6 +15,7 @@ import { useToast } from '../shell/Toast'
 
 const DIMENSIONS = [
   { value: 'kind', label: '账户用途' },
+  { value: 'asset_kind', label: '资产类型' },
   { value: 'currency', label: '账户币种' },
   { value: 'quote_currency', label: '真实计价币种' },
   { value: 'market', label: '市场' },

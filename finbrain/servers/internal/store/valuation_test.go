@@ -88,6 +88,8 @@ func TestBuildSymbolPositionGroupsWeightedCost(t *testing.T) {
 			PriceCurrency:       &usd,
 			MarketValueDisplay:  stringPtr("1500.00"),
 			CostValueDisplay:    stringPtr("1000.00"),
+			NetCostValueDisplay: stringPtr("900.00"),
+			RealizedPLDisplay:   stringPtr("100.00"),
 			UnrealizedPLDisplay: stringPtr("500.00"),
 		},
 		{
@@ -103,6 +105,8 @@ func TestBuildSymbolPositionGroupsWeightedCost(t *testing.T) {
 			PriceCurrency:       &usd,
 			MarketValueDisplay:  stringPtr("900.00"),
 			CostValueDisplay:    stringPtr("1200.00"),
+			NetCostValueDisplay: stringPtr("1080.00"),
+			RealizedPLDisplay:   stringPtr("-20.00"),
 			UnrealizedPLDisplay: stringPtr("-300.00"),
 		},
 	}
@@ -117,11 +121,34 @@ func TestBuildSymbolPositionGroupsWeightedCost(t *testing.T) {
 	if g.AvgCost == nil || *g.AvgCost != "137.50" {
 		t.Fatalf("weighted avg cost=%v, want 137.50", g.AvgCost)
 	}
+	if g.NetCost == nil || *g.NetCost != "123.75" {
+		t.Fatalf("net avg cost=%v, want 123.75", g.NetCost)
+	}
+	if g.NetCostValueDisplay == nil || *g.NetCostValueDisplay != "1980.00" {
+		t.Fatalf("net cost value=%v, want 1980.00", g.NetCostValueDisplay)
+	}
+	if g.RealizedPLDisplay == nil || *g.RealizedPLDisplay != "80.00" {
+		t.Fatalf("realized pl=%v, want 80.00", g.RealizedPLDisplay)
+	}
 	if g.Weight == nil || *g.Weight != "100.00" {
 		t.Fatalf("position weight=%v, want 100.00", g.Weight)
 	}
 	if g.AssetWeight == nil || *g.AssetWeight != "50.00" {
 		t.Fatalf("asset weight=%v, want 50.00", g.AssetWeight)
+	}
+}
+
+func TestAllocationBuilderIncludesAssetKind(t *testing.T) {
+	alloc := newAllocationBuilder()
+	alloc.add("asset_kind", "equity", "equity", decimal.RequireFromString("75"))
+	alloc.add("asset_kind", "cash", "cash", decimal.RequireFromString("25"))
+
+	buckets := alloc.build(map[string]decimal.Decimal{"asset_kind": decimal.RequireFromString("100")})["asset_kind"]
+	if len(buckets) != 2 {
+		t.Fatalf("bucket count=%d, want 2", len(buckets))
+	}
+	if buckets[0].Key != "equity" || buckets[0].Percent != "75.00" {
+		t.Fatalf("first bucket=%+v, want equity 75.00", buckets[0])
 	}
 }
 
@@ -170,5 +197,28 @@ func TestQuoteCurrencyExposureDenominatorSumsAbsoluteNetBuckets(t *testing.T) {
 	}
 	if totalPct.StringFixed(2) != "100.00" {
 		t.Fatalf("absolute percent sum=%s, want 100.00", totalPct.StringFixed(2))
+	}
+}
+
+func TestCompleteTargetItemsForActualsAddsZeroTargets(t *testing.T) {
+	set := AllocationTargetSet{
+		Items: []AllocationTargetItem{
+			{DimensionValue: "equity", TargetPct: "70.00"},
+		},
+	}
+	completeTargetItemsForActuals(&set, map[string]string{
+		"cash":   "10.00",
+		"equity": "60.00",
+		"bond":   "30.00",
+	})
+
+	if len(set.Items) != 3 {
+		t.Fatalf("item count=%d, want 3", len(set.Items))
+	}
+	if set.Items[1].DimensionValue != "bond" || set.Items[1].TargetPct != "0.00" {
+		t.Fatalf("first missing item=%+v, want bond 0.00", set.Items[1])
+	}
+	if set.Items[2].DimensionValue != "cash" || set.Items[2].TargetPct != "0.00" {
+		t.Fatalf("second missing item=%+v, want cash 0.00", set.Items[2])
 	}
 }
