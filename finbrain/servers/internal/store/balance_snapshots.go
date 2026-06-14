@@ -23,29 +23,33 @@ type BalanceSnapshot struct {
 const balanceCols = `id, account_id, snapshot_date::text, balance::text, note, created_at, updated_at`
 
 // UpsertBalanceSnapshot inserts or overwrites by (account_id, snapshot_date) — idempotent (§3.2).
-func (s *Store) UpsertBalanceSnapshot(ctx context.Context, b BalanceSnapshot) (BalanceSnapshot, error) {
+func (s *Store) UpsertBalanceSnapshot(ctx context.Context, userID int64, b BalanceSnapshot) (BalanceSnapshot, error) {
 	var out BalanceSnapshot
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO balance_snapshots (account_id, snapshot_date, balance, note, updated_at)
-		VALUES ($1, $2::date, $3::numeric(20,2), $4, now())
+		INSERT INTO balance_snapshots (user_id, account_id, snapshot_date, balance, note, updated_at)
+		SELECT $1, $2, $3::date, $4::numeric(20,2), $5, now()
+		WHERE EXISTS (SELECT 1 FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */)
 		ON CONFLICT (account_id, snapshot_date) DO UPDATE SET
 			balance = EXCLUDED.balance, note = EXCLUDED.note, updated_at = now()
 		RETURNING `+balanceCols,
-		b.AccountID, b.SnapshotDate, b.Balance, b.Note).
+		userID, b.AccountID, b.SnapshotDate, b.Balance, b.Note).
 		Scan(&out.ID, &out.AccountID, &out.SnapshotDate, &out.Balance, &out.Note, &out.CreatedAt, &out.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BalanceSnapshot{}, ErrNotFound
+	}
 	return out, err
 }
 
 // UpdateBalanceSnapshot edits one existing balance snapshot by id. account_id is
 // immutable; changing snapshot_date may conflict with another row for the same account.
-func (s *Store) UpdateBalanceSnapshot(ctx context.Context, id int64, b BalanceSnapshot) (BalanceSnapshot, error) {
+func (s *Store) UpdateBalanceSnapshot(ctx context.Context, userID, id int64, b BalanceSnapshot) (BalanceSnapshot, error) {
 	var out BalanceSnapshot
 	err := s.pool.QueryRow(ctx, `
 		UPDATE balance_snapshots
 		SET snapshot_date=$2::date, balance=$3::numeric(20,2), note=$4, updated_at=now()
-		WHERE id=$1
+		WHERE id=$1 AND user_id=$5 /* OWNED balance_snapshots */
 		RETURNING `+balanceCols,
-		id, b.SnapshotDate, b.Balance, b.Note).
+		id, b.SnapshotDate, b.Balance, b.Note, userID).
 		Scan(&out.ID, &out.AccountID, &out.SnapshotDate, &out.Balance, &out.Note, &out.CreatedAt, &out.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BalanceSnapshot{}, ErrNotFound
@@ -54,8 +58,8 @@ func (s *Store) UpdateBalanceSnapshot(ctx context.Context, id int64, b BalanceSn
 }
 
 // ListBalanceSnapshots returns an account's balance snapshots, newest first.
-func (s *Store) ListBalanceSnapshots(ctx context.Context, accountID int64) ([]BalanceSnapshot, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+balanceCols+` FROM balance_snapshots WHERE account_id=$1 ORDER BY snapshot_date DESC`, accountID)
+func (s *Store) ListBalanceSnapshots(ctx context.Context, userID, accountID int64) ([]BalanceSnapshot, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+balanceCols+` FROM balance_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED balance_snapshots */ ORDER BY snapshot_date DESC`, userID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -72,8 +76,8 @@ func (s *Store) ListBalanceSnapshots(ctx context.Context, accountID int64) ([]Ba
 }
 
 // DeleteBalanceSnapshot removes one snapshot by id.
-func (s *Store) DeleteBalanceSnapshot(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM balance_snapshots WHERE id=$1`, id)
+func (s *Store) DeleteBalanceSnapshot(ctx context.Context, userID, id int64) error {
+	ct, err := s.pool.Exec(ctx, `DELETE FROM balance_snapshots WHERE user_id=$1 AND id=$2 /* OWNED balance_snapshots */`, userID, id)
 	if err != nil {
 		return err
 	}

@@ -41,7 +41,7 @@ func (s *Server) getAttribution(w http.ResponseWriter, r *http.Request) {
 	if fxMode != "current" && fxMode != "historical" {
 		fxMode = "current"
 	}
-	out, err := s.store.PeriodAttribution(r.Context(), from, to, displayCurrency, fxMode)
+	out, err := s.store.PeriodAttribution(r.Context(), userOf(r), from, to, displayCurrency, fxMode)
 	if err != nil {
 		writeInternal(w, r, err)
 		return

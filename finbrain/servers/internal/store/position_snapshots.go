@@ -34,7 +34,7 @@ func scanPosition(row interface{ Scan(...any) error }) (PositionSnapshot, error)
 
 // UpsertPositionSnapshot upserts by (account_id, symbol, snapshot_date), auto-creating
 // the instrument metadata row on first reference (PRD §5.2.2). Runs in one tx.
-func (s *Store) UpsertPositionSnapshot(ctx context.Context, p PositionSnapshot) (PositionSnapshot, error) {
+func (s *Store) UpsertPositionSnapshot(ctx context.Context, userID int64, p PositionSnapshot) (PositionSnapshot, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return PositionSnapshot{}, err
@@ -45,13 +45,17 @@ func (s *Store) UpsertPositionSnapshot(ctx context.Context, p PositionSnapshot) 
 		return PositionSnapshot{}, err
 	}
 	out, err := scanPosition(tx.QueryRow(ctx, `
-		INSERT INTO position_snapshots (account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date, note, updated_at)
-		VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::date, $7, now())
+		INSERT INTO position_snapshots (user_id, account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date, note, updated_at)
+		SELECT $1, $2, $3, $4::numeric, $5::numeric, $6, $7::date, $8, now()
+		WHERE EXISTS (SELECT 1 FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */)
 		ON CONFLICT (account_id, symbol, snapshot_date) DO UPDATE SET
 			quantity = EXCLUDED.quantity, avg_cost = EXCLUDED.avg_cost,
 			cost_currency = EXCLUDED.cost_currency, note = EXCLUDED.note, updated_at = now()
 		RETURNING `+positionCols,
-		p.AccountID, p.Symbol, p.Quantity, p.AvgCost, p.CostCurrency, p.SnapshotDate, p.Note))
+		userID, p.AccountID, p.Symbol, p.Quantity, p.AvgCost, p.CostCurrency, p.SnapshotDate, p.Note))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PositionSnapshot{}, ErrNotFound
+	}
 	if err != nil {
 		return PositionSnapshot{}, err
 	}
@@ -63,14 +67,14 @@ func (s *Store) UpsertPositionSnapshot(ctx context.Context, p PositionSnapshot) 
 
 // UpdatePositionSnapshot edits one existing position snapshot by id. account_id
 // and symbol are immutable; changing snapshot_date may conflict with another row.
-func (s *Store) UpdatePositionSnapshot(ctx context.Context, id int64, p PositionSnapshot) (PositionSnapshot, error) {
+func (s *Store) UpdatePositionSnapshot(ctx context.Context, userID, id int64, p PositionSnapshot) (PositionSnapshot, error) {
 	out, err := scanPosition(s.pool.QueryRow(ctx, `
 		UPDATE position_snapshots
 		SET snapshot_date=$2::date, quantity=$3::numeric, avg_cost=$4::numeric,
 		    cost_currency=$5, note=$6, updated_at=now()
-		WHERE id=$1
+		WHERE id=$1 AND user_id=$7 /* OWNED position_snapshots */
 		RETURNING `+positionCols,
-		id, p.SnapshotDate, p.Quantity, p.AvgCost, p.CostCurrency, p.Note))
+		id, p.SnapshotDate, p.Quantity, p.AvgCost, p.CostCurrency, p.Note, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PositionSnapshot{}, ErrNotFound
 	}
@@ -78,8 +82,8 @@ func (s *Store) UpdatePositionSnapshot(ctx context.Context, id int64, p Position
 }
 
 // ListPositionSnapshots returns an account's full position history (all symbols), newest first.
-func (s *Store) ListPositionSnapshots(ctx context.Context, accountID int64) ([]PositionSnapshot, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+positionCols+` FROM position_snapshots WHERE account_id=$1 ORDER BY symbol, snapshot_date DESC`, accountID)
+func (s *Store) ListPositionSnapshots(ctx context.Context, userID, accountID int64) ([]PositionSnapshot, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+positionCols+` FROM position_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED position_snapshots */ ORDER BY symbol, snapshot_date DESC`, userID, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -97,12 +101,12 @@ func (s *Store) ListPositionSnapshots(ctx context.Context, accountID int64) ([]P
 
 // ListAccountPositions returns the current holding per symbol (latest snapshot as of
 // `onDate`), via "取最近一条" (§6.14). Includes quantity=0 (cleared) rows; callers filter.
-func (s *Store) ListAccountPositions(ctx context.Context, accountID int64, onDate string) ([]PositionSnapshot, error) {
+func (s *Store) ListAccountPositions(ctx context.Context, userID, accountID int64, onDate string) ([]PositionSnapshot, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT ON (symbol) `+positionCols+`
 		FROM position_snapshots
-		WHERE account_id=$1 AND snapshot_date <= $2::date
-		ORDER BY symbol, snapshot_date DESC`, accountID, onDate)
+		WHERE user_id=$1 AND account_id=$2 AND snapshot_date <= $3::date /* OWNED position_snapshots */
+		ORDER BY symbol, snapshot_date DESC`, userID, accountID, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -119,8 +123,8 @@ func (s *Store) ListAccountPositions(ctx context.Context, accountID int64, onDat
 }
 
 // DeletePositionSnapshot removes one snapshot by id.
-func (s *Store) DeletePositionSnapshot(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM position_snapshots WHERE id=$1`, id)
+func (s *Store) DeletePositionSnapshot(ctx context.Context, userID, id int64) error {
+	ct, err := s.pool.Exec(ctx, `DELETE FROM position_snapshots WHERE user_id=$1 AND id=$2 /* OWNED position_snapshots */`, userID, id)
 	if err != nil {
 		return err
 	}

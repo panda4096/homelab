@@ -8,7 +8,7 @@
 
 - [x] argon2id 经 `golang.org/x/crypto/argon2`，**绝不**用 `sha256hex`（那是 API key/会话 token 用的）；密码哈希参数（time/memory/threads）写进常量并记于 §9。
 - [ ] store 方法**显式接收 `userID int64`**，SQL 追加 `AND user_id=$N`（漏传=编译错）；每条 owned 查询打 `/* OWNED */` 注释。
-- [ ] 全局行情表**不加** `user_id`、**不加**谓词：`instruments` / `prices` / `fx_rates` / `corporate_actions` / `account_templates`。
+- [x] 全局行情表**不加** `user_id`、**不加**谓词：`instruments` / `prices` / `fx_rates` / `corporate_actions` / `account_templates`。
 - [x] dev（`cfg.IsDev()`）无会话默认 `userID=1`，现有免登录开发流不中断；生产受保护路由无会话 → 401。
 - [x] 每阶段自验：`GOTOOLCHAIN=local go build ./... && go vet ./internal/... && go test ./internal/...` + `npx tsc -b` + 浏览器 preview → 提交 → 简报。
 - [ ] 顺序：P9.0 → P9.1（**网关表 accounts/institutions 先做先测**）→ P9.2（扇出）→ P9.3（agent/审计）→ P9.4（加固）。每阶段一提交。
@@ -27,33 +27,33 @@
 - [x] 插入 `user_identities(user_id=1, provider='password', identifier='owner', secret=<占位/部署时由 CLI 重置>, must_change_password=true)`
 
 **owned 表加 `user_id`（逐表勾，模式：`ADD COLUMN user_id bigint` → `UPDATE … SET user_id=1` → `ALTER … SET NOT NULL` → 加 FK）**
-- [ ] 根表：`accounts`
-- [ ] 根表：`institutions`
-- [ ] 根表：`allocation_target_sets`
-- [ ] 根表：`allocation_target_items`
-- [ ] 根表：`summaries`
-- [ ] 根表：`annotations`
+- [x] 根表：`accounts`
+- [x] 根表：`institutions`
+- [x] 根表：`allocation_target_sets`
+- [x] 根表：`allocation_target_items`
+- [x] 根表：`summaries`
+- [x] 根表：`annotations`
 - [ ] 根表：`api_keys`
 - [ ] 根表：`agent_audit`（历史行回填=1；或保留 NULL 作"pre-tenancy"——按 §9 取回填=1）
-- [ ] 子表（反范式）：`balance_snapshots`
-- [ ] 子表：`position_snapshots`
-- [ ] 子表：`transactions`
-- [ ] 子表：`transfers`
-- [ ] 子表：`income_events`
-- [ ] 子表：`credit_card_bills`
+- [x] 子表（反范式）：`balance_snapshots`
+- [x] 子表：`position_snapshots`
+- [x] 子表：`transactions`
+- [x] 子表：`transfers`
+- [x] 子表：`income_events`
+- [x] 子表：`credit_card_bills`
 
 **唯一约束改造（按用户）**
-- [ ] `institutions`：drop `name` UNIQUE → `UNIQUE(user_id, name)`
-- [ ] `accounts`：drop `(institution_id, name)` UNIQUE → `UNIQUE(user_id, institution_id, name)`
-- [ ] `allocation_target_sets`：drop `name` UNIQUE → `UNIQUE(user_id, name)`
+- [x] `institutions`：drop `name` UNIQUE → `UNIQUE(user_id, name)`
+- [x] `accounts`：drop `(institution_id, name)` UNIQUE → `UNIQUE(user_id, institution_id, name)`
+- [x] `allocation_target_sets`：drop `name` UNIQUE → `UNIQUE(user_id, name)`
 
 **user_preferences 单行 → 每用户**
 - [x] drop `id INT PRIMARY KEY CHECK(id=1)`；`ADD user_id bigint`；现有行 `SET user_id=1`；`ADD UNIQUE(user_id)`
 - [x] `ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'`
 
 **完整性触发器 & 索引**
-- [ ] `enforce_owner()` 触发器：在 `balance_snapshots/position_snapshots/transactions/transfers/income_events/credit_card_bills` 校验 `NEW.user_id = (SELECT user_id FROM accounts WHERE id=NEW.account_id)`；`transfers` 同时校验 `to_account_id`，`income_events/credit_card_bills` 校验 `payment_account_id`（或在 Go 侧 lookup 校验，二选一并记明）
-- [ ] 热索引把 `user_id` 提到首列（如 `idx_transactions_acct_date`、`idx_balance_snapshots_acct_date`、`idx_position_snapshots_acct_sym_date` 等逐个重建）
+- [x] `enforce_owner()` 触发器：在 `balance_snapshots/position_snapshots/transactions/transfers/income_events/credit_card_bills` 校验 `NEW.user_id = (SELECT user_id FROM accounts WHERE id=NEW.account_id)`；`transfers` 同时校验 `to_account_id`，`income_events/credit_card_bills` 校验 `payment_account_id`；`allocation_target_items` 校验 `set_id` 归属；Go 侧也在 handler/store 做前置校验。
+- [x] 热索引把 `user_id` 提到首列（如 `idx_transactions_acct_date`、`idx_balance_snapshots_acct_date`、`idx_position_snapshots_acct_sym_date` 等逐个重建）
 
 **回滚**
 - [ ] `-- +goose Down`：删触发器 → 还原索引/唯一约束 → 还原 `user_preferences` 单行 → 删各表 `user_id` → 删 `sessions`/`user_identities`/`users`
@@ -99,17 +99,17 @@
 
 ## 4. P9.2 · 扇出到其余 owned store
 
-- [ ] `balance_snapshots` / `position_snapshots` 读写加 `userID`
-- [ ] `transactions`（含 §6.15 回放查询）
-- [ ] `transfers`（双账户都校验同属当前用户）
-- [ ] `income_events`（`payment_account_id` 校验）
-- [ ] `credit_card_bills`（`payment_account_id` 校验）
-- [ ] `allocation_targets`（sets + items）
-- [ ] `annotations` / `summaries`
-- [ ] `valuation.go` 全部聚合 / `DISTINCT ON` / `LATERAL` 子查询按用户过滤（用子表反范式 `user_id`，热路径不加 join）
-- [ ] `review_batch.go`：批量写入**前**校验所有引用账户（含 transfer 双账户、payment_account_id）归属当前用户
-- [ ] `export.go`：导出限定当前用户
-- [ ] grep 审计：所有 owned 表 `SELECT/UPDATE/DELETE/INSERT` 均带 `user_id`（无 `/* OWNED */` 标记的 owned 查询=漏网）
+- [x] `balance_snapshots` / `position_snapshots` 读写加 `userID`
+- [x] `transactions`（含 §6.15 回放查询）
+- [x] `transfers`（双账户都校验同属当前用户）
+- [x] `income_events`（`payment_account_id` 校验）
+- [x] `credit_card_bills`（`payment_account_id` 校验）
+- [x] `allocation_targets`（sets + items）
+- [x] `annotations` / `summaries`
+- [x] `valuation.go` 全部聚合 / `DISTINCT ON` / `LATERAL` 子查询按用户过滤（用子表反范式 `user_id`，热路径不加 join）
+- [x] `review_batch.go`：批量写入**前**校验所有引用账户（含 transfer 双账户、payment_account_id）归属当前用户
+- [x] `export.go`：导出限定当前用户
+- [x] grep 审计：P9.2 owned 表 `SELECT/UPDATE/DELETE/INSERT` 均带 `user_id`；`instruments.go` 对 owned 表的无用户计数仅用于全局标的删除保护；`api_keys/agent_audit` 留到 P9.3。
 
 **DoD（P9.2）**：全站所有视图/录入/导出仅作用于当前用户数据；跨用户越权用例全绿。
 
@@ -151,3 +151,4 @@
 | 2026-06-15 | 设计 + 本清单 | 完成 | PRD §9 重写；本文件创建（未动实现代码） |
 | 2026-06-15 | P9.0 认证基座 | 完成 | 新增 argon2id 密码、users/user_identities/sessions、session middleware、auth API、admin set-password、登录页；NUC dev 01400 up 通过，curl 验证注册/登录/改密/重置/登出，浏览器验证 dev user 1 免登录 |
 | 2026-06-15 | P9.1 gateway 隔离 | 完成 | 新增 01410 gateway 迁移，将既有机构/账户回填到 user 1；accounts/institutions/preferences 入口按 user 隔离；接口验证 A/B 用户互查/互删/直传对方 account_id 均被拒，全局 instruments 仍共享；临时测试账户下空机构/账户已通过 API 清理 |
+| 2026-06-15 | P9.2 owned 业务数据隔离 | 完成 | 新增 01420 owned 数据迁移，保留既有行并按账户/目标集回填 owner；balance/position/transactions/transfers/income/credit-card/targets/annotations/summaries/valuation/replay/recon/attribution/export/review batch 全链路下传 userID；NUC dev 迁移到 1420，Go build/vet/test 通过；API A/B 越权验证覆盖读写删、列表、估值、批量盘点，临时 `p9test` 数据已清理为 0 |

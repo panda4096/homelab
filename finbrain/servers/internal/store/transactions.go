@@ -26,8 +26,8 @@ func transactionJoinSQL(where string) string {
 	return `
 		SELECT ` + transactionCols + `
 		FROM transactions t
-		JOIN accounts a ON a.id = t.account_id
-		JOIN institutions i ON i.id = a.institution_id
+		JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
 		JOIN instruments ins ON ins.symbol = t.symbol
 		` + where
 }
@@ -46,15 +46,16 @@ func collectTransactions(rows pgx.Rows) ([]Transaction, error) {
 
 // ListTransactions returns transactions, newest first, optionally filtered by
 // account and/or symbol. limit caps the row count (0 → default 5000).
-func (s *Store) ListTransactions(ctx context.Context, accountID int64, symbol string, limit int) ([]Transaction, bool, error) {
+func (s *Store) ListTransactions(ctx context.Context, userID, accountID int64, symbol string, limit int) ([]Transaction, bool, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
 	rows, err := s.pool.Query(ctx, transactionJoinSQL(`
-		WHERE ($1 = 0 OR t.account_id = $1)
-		  AND ($2 = '' OR t.symbol = $2)
+		WHERE t.user_id = $1 /* OWNED transactions */
+		  AND ($2 = 0 OR t.account_id = $2)
+		  AND ($3 = '' OR t.symbol = $3)
 		ORDER BY t.trade_date DESC, t.id DESC
-		LIMIT $3`), accountID, symbol, limit+1)
+		LIMIT $4`), userID, accountID, symbol, limit+1)
 	if err != nil {
 		return nil, false, err
 	}
@@ -70,15 +71,15 @@ func (s *Store) ListTransactions(ctx context.Context, accountID int64, symbol st
 	return items, truncated, nil
 }
 
-func (s *Store) GetTransaction(ctx context.Context, id int64) (Transaction, error) {
-	t, err := scanTransaction(s.pool.QueryRow(ctx, transactionJoinSQL(`WHERE t.id=$1`), id))
+func (s *Store) GetTransaction(ctx context.Context, userID, id int64) (Transaction, error) {
+	t, err := scanTransaction(s.pool.QueryRow(ctx, transactionJoinSQL(`WHERE t.user_id=$1 AND t.id=$2 /* OWNED transactions */`), userID, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Transaction{}, ErrNotFound
 	}
 	return t, err
 }
 
-func (s *Store) CreateTransaction(ctx context.Context, t Transaction) (Transaction, error) {
+func (s *Store) CreateTransaction(ctx context.Context, userID int64, t Transaction) (Transaction, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Transaction{}, err
@@ -90,33 +91,37 @@ func (s *Store) CreateTransaction(ctx context.Context, t Transaction) (Transacti
 	var id int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO transactions (
-			account_id, symbol, action, trade_date, settle_date, quantity, price,
+			user_id, account_id, symbol, action, trade_date, settle_date, quantity, price,
 			currency, fee, is_settled, notes, source, updated_at
 		)
-		VALUES ($1, $2, $3, $4::date, $5::date, $6::numeric, $7::numeric, $8,
-		        $9::numeric, $10, $11, $12, now())
+		SELECT $1, $2, $3, $4, $5::date, $6::date, $7::numeric, $8::numeric, $9,
+		       $10::numeric, $11, $12, $13, now()
+		WHERE EXISTS (SELECT 1 FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */)
 		RETURNING id`,
-		t.AccountID, t.Symbol, t.Action, t.TradeDate, t.SettleDate, t.Quantity, t.Price,
+		userID, t.AccountID, t.Symbol, t.Action, t.TradeDate, t.SettleDate, t.Quantity, t.Price,
 		t.Currency, t.Fee, t.IsSettled, t.Notes, nonEmptySource(t.Source),
 	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Transaction{}, ErrNotFound
+	}
 	if err != nil {
 		return Transaction{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Transaction{}, err
 	}
-	return s.GetTransaction(ctx, id)
+	return s.GetTransaction(ctx, userID, id)
 }
 
-func (s *Store) UpdateTransaction(ctx context.Context, id int64, t Transaction) (Transaction, error) {
+func (s *Store) UpdateTransaction(ctx context.Context, userID, id int64, t Transaction) (Transaction, error) {
 	ct, err := s.pool.Exec(ctx, `
 		UPDATE transactions
 		SET action=$2, trade_date=$3::date, settle_date=$4::date, quantity=$5::numeric,
 		    price=$6::numeric, currency=$7, fee=$8::numeric, is_settled=$9,
 		    notes=$10, updated_at=now()
-		WHERE id=$1`,
+		WHERE id=$1 AND user_id=$11 /* OWNED transactions */`,
 		id, t.Action, t.TradeDate, t.SettleDate, t.Quantity, t.Price, t.Currency,
-		t.Fee, t.IsSettled, t.Notes,
+		t.Fee, t.IsSettled, t.Notes, userID,
 	)
 	if err != nil {
 		return Transaction{}, err
@@ -124,11 +129,11 @@ func (s *Store) UpdateTransaction(ctx context.Context, id int64, t Transaction) 
 	if ct.RowsAffected() == 0 {
 		return Transaction{}, ErrNotFound
 	}
-	return s.GetTransaction(ctx, id)
+	return s.GetTransaction(ctx, userID, id)
 }
 
-func (s *Store) DeleteTransaction(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM transactions WHERE id=$1`, id)
+func (s *Store) DeleteTransaction(ctx context.Context, userID, id int64) error {
+	ct, err := s.pool.Exec(ctx, `DELETE FROM transactions WHERE user_id=$1 AND id=$2 /* OWNED transactions */`, userID, id)
 	if err != nil {
 		return err
 	}

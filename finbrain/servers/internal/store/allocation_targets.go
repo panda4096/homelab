@@ -8,11 +8,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *Store) ListAllocationTargetSets(ctx context.Context) ([]AllocationTargetSet, error) {
+func (s *Store) ListAllocationTargetSets(ctx context.Context, userID int64) ([]AllocationTargetSet, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, name, dimension, drift_threshold_pct::text, is_dashboard_visible, is_archived, note, created_at, updated_at
 		FROM allocation_target_sets
-		ORDER BY is_archived, name`)
+		WHERE user_id=$1 /* OWNED allocation_target_sets */
+		ORDER BY is_archived, name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +34,9 @@ func (s *Store) ListAllocationTargetSets(ctx context.Context) ([]AllocationTarge
 	}
 	itemRows, err := s.pool.Query(ctx, `
 		SELECT set_id, id, dimension_value, target_pct::text
-		FROM allocation_target_items ORDER BY set_id, dimension_value`)
+		FROM allocation_target_items
+		WHERE user_id=$1 /* OWNED allocation_target_items */
+		ORDER BY set_id, dimension_value`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,11 +54,11 @@ func (s *Store) ListAllocationTargetSets(ctx context.Context) ([]AllocationTarge
 	return out, itemRows.Err()
 }
 
-func (s *Store) GetAllocationTargetSet(ctx context.Context, id int64) (AllocationTargetSet, error) {
+func (s *Store) GetAllocationTargetSet(ctx context.Context, userID, id int64) (AllocationTargetSet, error) {
 	var set AllocationTargetSet
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, name, dimension, drift_threshold_pct::text, is_dashboard_visible, is_archived, note, created_at, updated_at
-		FROM allocation_target_sets WHERE id=$1`, id).Scan(
+		FROM allocation_target_sets WHERE user_id=$1 AND id=$2 /* OWNED allocation_target_sets */`, userID, id).Scan(
 		&set.ID, &set.Name, &set.Dimension, &set.DriftThresholdPct, &set.IsDashboardVisible, &set.IsArchived, &set.Note, &set.CreatedAt, &set.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AllocationTargetSet{}, ErrNotFound
@@ -64,7 +67,7 @@ func (s *Store) GetAllocationTargetSet(ctx context.Context, id int64) (Allocatio
 		return AllocationTargetSet{}, err
 	}
 	set.Items = []AllocationTargetItem{}
-	rows, err := s.pool.Query(ctx, `SELECT id, dimension_value, target_pct::text FROM allocation_target_items WHERE set_id=$1 ORDER BY dimension_value`, id)
+	rows, err := s.pool.Query(ctx, `SELECT id, dimension_value, target_pct::text FROM allocation_target_items WHERE user_id=$1 AND set_id=$2 /* OWNED allocation_target_items */ ORDER BY dimension_value`, userID, id)
 	if err != nil {
 		return AllocationTargetSet{}, err
 	}
@@ -81,7 +84,7 @@ func (s *Store) GetAllocationTargetSet(ctx context.Context, id int64) (Allocatio
 
 // SaveAllocationTargetSet inserts (id==0) or updates a set and replaces its items
 // in one transaction.
-func (s *Store) SaveAllocationTargetSet(ctx context.Context, set AllocationTargetSet) (AllocationTargetSet, error) {
+func (s *Store) SaveAllocationTargetSet(ctx context.Context, userID int64, set AllocationTargetSet) (AllocationTargetSet, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return AllocationTargetSet{}, err
@@ -91,43 +94,43 @@ func (s *Store) SaveAllocationTargetSet(ctx context.Context, set AllocationTarge
 	id := set.ID
 	if id == 0 {
 		err = tx.QueryRow(ctx, `
-			INSERT INTO allocation_target_sets (name, dimension, drift_threshold_pct, is_dashboard_visible, is_archived, note, updated_at)
-			VALUES ($1, $2, $3::numeric, $4, $5, $6, now()) RETURNING id`,
-			set.Name, set.Dimension, set.DriftThresholdPct, set.IsDashboardVisible, set.IsArchived, set.Note).Scan(&id)
+			INSERT INTO allocation_target_sets (user_id, name, dimension, drift_threshold_pct, is_dashboard_visible, is_archived, note, updated_at)
+			VALUES ($1, $2, $3, $4::numeric, $5, $6, $7, now()) RETURNING id`,
+			userID, set.Name, set.Dimension, set.DriftThresholdPct, set.IsDashboardVisible, set.IsArchived, set.Note).Scan(&id)
 		if err != nil {
 			return AllocationTargetSet{}, err
 		}
 	} else {
 		ct, err := tx.Exec(ctx, `
 			UPDATE allocation_target_sets
-			SET name=$2, dimension=$3, drift_threshold_pct=$4::numeric, is_dashboard_visible=$5, is_archived=$6, note=$7, updated_at=now()
-			WHERE id=$1`,
-			id, set.Name, set.Dimension, set.DriftThresholdPct, set.IsDashboardVisible, set.IsArchived, set.Note)
+			SET name=$3, dimension=$4, drift_threshold_pct=$5::numeric, is_dashboard_visible=$6, is_archived=$7, note=$8, updated_at=now()
+			WHERE user_id=$1 AND id=$2 /* OWNED allocation_target_sets */`,
+			userID, id, set.Name, set.Dimension, set.DriftThresholdPct, set.IsDashboardVisible, set.IsArchived, set.Note)
 		if err != nil {
 			return AllocationTargetSet{}, err
 		}
 		if ct.RowsAffected() == 0 {
 			return AllocationTargetSet{}, ErrNotFound
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM allocation_target_items WHERE set_id=$1`, id); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM allocation_target_items WHERE user_id=$1 AND set_id=$2 /* OWNED allocation_target_items */`, userID, id); err != nil {
 			return AllocationTargetSet{}, err
 		}
 	}
 	for _, it := range set.Items {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO allocation_target_items (set_id, dimension_value, target_pct, updated_at)
-			VALUES ($1, $2, $3::numeric, now())`, id, it.DimensionValue, it.TargetPct); err != nil {
+			INSERT INTO allocation_target_items (user_id, set_id, dimension_value, target_pct, updated_at)
+			VALUES ($1, $2, $3, $4::numeric, now())`, userID, id, it.DimensionValue, it.TargetPct); err != nil {
 			return AllocationTargetSet{}, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return AllocationTargetSet{}, err
 	}
-	return s.GetAllocationTargetSet(ctx, id)
+	return s.GetAllocationTargetSet(ctx, userID, id)
 }
 
-func (s *Store) DeleteAllocationTargetSet(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM allocation_target_sets WHERE id=$1`, id)
+func (s *Store) DeleteAllocationTargetSet(ctx context.Context, userID, id int64) error {
+	ct, err := s.pool.Exec(ctx, `DELETE FROM allocation_target_sets WHERE user_id=$1 AND id=$2 /* OWNED allocation_target_sets */`, userID, id)
 	if err != nil {
 		return err
 	}
@@ -160,12 +163,12 @@ func completeTargetItemsForActuals(set *AllocationTargetSet, actualByKey map[str
 // EvaluateDrift fills Actual/Drift/Rebalance/OverThreshold for each item by
 // comparing target percentages to the live allocation for the set's dimension
 // (§6.10), using net worth for the rebalance amount.
-func (s *Store) EvaluateDrift(ctx context.Context, id int64, onDate, displayCurrency, fxMode string) (AllocationTargetSet, error) {
-	set, err := s.GetAllocationTargetSet(ctx, id)
+func (s *Store) EvaluateDrift(ctx context.Context, userID, id int64, onDate, displayCurrency, fxMode string) (AllocationTargetSet, error) {
+	set, err := s.GetAllocationTargetSet(ctx, userID, id)
 	if err != nil {
 		return AllocationTargetSet{}, err
 	}
-	val, err := s.GetValuation(ctx, onDate, displayCurrency, fxMode, onDate)
+	val, err := s.GetValuation(ctx, userID, onDate, displayCurrency, fxMode, onDate)
 	if err != nil {
 		return AllocationTargetSet{}, err
 	}

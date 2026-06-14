@@ -7,11 +7,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *Store) ListSummaries(ctx context.Context) ([]Summary, error) {
+func (s *Store) ListSummaries(ctx context.Context, userID int64) ([]Summary, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, period_kind, period_start::text, period_end::text, display_currency, content,
 		       COALESCE(meta, 'null'::jsonb)::text, created_at
-		FROM summaries ORDER BY period_end DESC, id DESC`)
+		FROM summaries
+		WHERE user_id=$1 /* OWNED summaries */
+		ORDER BY period_end DESC, id DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -27,11 +29,11 @@ func (s *Store) ListSummaries(ctx context.Context) ([]Summary, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) GetSummary(ctx context.Context, id int64) (Summary, error) {
+func (s *Store) GetSummary(ctx context.Context, userID, id int64) (Summary, error) {
 	sm, err := scanSummary(s.pool.QueryRow(ctx, `
 		SELECT id, period_kind, period_start::text, period_end::text, display_currency, content,
 		       COALESCE(meta, 'null'::jsonb)::text, created_at
-		FROM summaries WHERE id=$1`, id))
+		FROM summaries WHERE user_id=$1 AND id=$2 /* OWNED summaries */`, userID, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Summary{}, ErrNotFound
 	}
@@ -50,22 +52,22 @@ func scanSummary(row rowScanner) (Summary, error) {
 	return s, nil
 }
 
-func (s *Store) CreateSummary(ctx context.Context, sm Summary) (Summary, error) {
+func (s *Store) CreateSummary(ctx context.Context, userID int64, sm Summary) (Summary, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO summaries (period_kind, period_start, period_end, display_currency, content, meta)
-		VALUES ($1, $2::date, $3::date, $4, $5, $6::jsonb)
+		INSERT INTO summaries (user_id, period_kind, period_start, period_end, display_currency, content, meta)
+		VALUES ($1, $2, $3::date, $4::date, $5, $6, $7::jsonb)
 		RETURNING id`,
-		sm.PeriodKind, sm.PeriodStart, sm.PeriodEnd, sm.DisplayCurrency, sm.Content, extraJSON(sm.Meta),
+		userID, sm.PeriodKind, sm.PeriodStart, sm.PeriodEnd, sm.DisplayCurrency, sm.Content, extraJSON(sm.Meta),
 	).Scan(&id)
 	if err != nil {
 		return Summary{}, err
 	}
-	return s.GetSummary(ctx, id)
+	return s.GetSummary(ctx, userID, id)
 }
 
-func (s *Store) DeleteSummary(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM summaries WHERE id=$1`, id)
+func (s *Store) DeleteSummary(ctx context.Context, userID, id int64) error {
+	ct, err := s.pool.Exec(ctx, `DELETE FROM summaries WHERE user_id=$1 AND id=$2 /* OWNED summaries */`, userID, id)
 	if err != nil {
 		return err
 	}
@@ -85,16 +87,16 @@ type SummaryData struct {
 	IncomeYtd   string            `json:"income_ytd"`
 }
 
-func (s *Store) GatherSummaryData(ctx context.Context, start, end, displayCurrency, fxMode string) (SummaryData, error) {
-	startPt, err := s.netWorthAt(ctx, start, displayCurrency, fxMode)
+func (s *Store) GatherSummaryData(ctx context.Context, userID int64, start, end, displayCurrency, fxMode string) (SummaryData, error) {
+	startPt, err := s.netWorthAt(ctx, userID, start, displayCurrency, fxMode)
 	if err != nil {
 		return SummaryData{}, err
 	}
-	endPt, err := s.netWorthAt(ctx, end, displayCurrency, fxMode)
+	endPt, err := s.netWorthAt(ctx, userID, end, displayCurrency, fxMode)
 	if err != nil {
 		return SummaryData{}, err
 	}
-	val, err := s.GetValuation(ctx, end, displayCurrency, fxMode, end)
+	val, err := s.GetValuation(ctx, userID, end, displayCurrency, fxMode, end)
 	if err != nil {
 		return SummaryData{}, err
 	}

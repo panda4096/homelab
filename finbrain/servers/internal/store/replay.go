@@ -34,9 +34,9 @@ type replayEvent struct {
 }
 
 type rightsExtra struct {
-	RightsPrice     string `json:"rights_price"`
-	BaseShareRatio  string `json:"base_share_ratio"`
-	RightsCurrency  string `json:"rights_currency"`
+	RightsPrice    string `json:"rights_price"`
+	BaseShareRatio string `json:"base_share_ratio"`
+	RightsCurrency string `json:"rights_currency"`
 }
 
 // replayHolding folds the ordered event stream onto a seed state. Pure function
@@ -100,12 +100,12 @@ func replayHolding(seed HoldingState, events []replayEvent, buyFeeInCost bool) H
 // ReplayHolding derives the (account, symbol) state as of onDate from transactions
 // + corporate actions, seeded by the latest snapshot before the first trade.
 // HasHistory is false when there are no transactions (caller falls back to §6.7).
-func (s *Store) ReplayHolding(ctx context.Context, accountID int64, symbol, onDate string, buyFeeInCost bool) (HoldingState, error) {
+func (s *Store) ReplayHolding(ctx context.Context, userID, accountID int64, symbol, onDate string, buyFeeInCost bool) (HoldingState, error) {
 	txnRows, err := s.pool.Query(ctx, `
 		SELECT trade_date::text, id, action, quantity::text, price::text, COALESCE(fee, 0)::text, currency
 		FROM transactions
-		WHERE account_id=$1 AND symbol=$2 AND trade_date <= $3::date
-		ORDER BY trade_date, id`, accountID, symbol, onDate)
+		WHERE user_id=$1 AND account_id=$2 AND symbol=$3 AND trade_date <= $4::date /* OWNED transactions */
+		ORDER BY trade_date, id`, userID, accountID, symbol, onDate)
 	if err != nil {
 		return HoldingState{}, err
 	}
@@ -173,8 +173,8 @@ func (s *Store) ReplayHolding(ctx context.Context, accountID int64, symbol, onDa
 	err = s.pool.QueryRow(ctx, `
 		SELECT quantity::text, avg_cost::text
 		FROM position_snapshots
-		WHERE account_id=$1 AND symbol=$2 AND snapshot_date < $3::date
-		ORDER BY snapshot_date DESC LIMIT 1`, accountID, symbol, firstTxnDate).Scan(&seedQty, &seedCost)
+		WHERE user_id=$1 AND account_id=$2 AND symbol=$3 AND snapshot_date < $4::date /* OWNED position_snapshots */
+		ORDER BY snapshot_date DESC LIMIT 1`, userID, accountID, symbol, firstTxnDate).Scan(&seedQty, &seedCost)
 	if err == nil {
 		if seedQty != nil {
 			seed.Quantity = mustDec(*seedQty)

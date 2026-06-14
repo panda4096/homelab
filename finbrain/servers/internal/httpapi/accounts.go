@@ -236,7 +236,7 @@ func (s *Server) listAccountBalanceSnapshots(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	items, err := s.store.ListBalanceSnapshots(r.Context(), id)
+	items, err := s.store.ListBalanceSnapshots(r.Context(), userOf(r), id)
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -250,7 +250,7 @@ func (s *Server) listAccountPositionSnapshots(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	items, err := s.store.ListPositionSnapshots(r.Context(), id)
+	items, err := s.store.ListPositionSnapshots(r.Context(), userOf(r), id)
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -264,7 +264,7 @@ func (s *Server) listAccountPositions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	items, err := s.store.ListAccountPositions(r.Context(), id, s.today())
+	items, err := s.store.ListAccountPositions(r.Context(), userOf(r), id, s.today())
 	if err != nil {
 		writeInternal(w, r, err)
 		return

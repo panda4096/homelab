@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) listAllocationTargets(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListAllocationTargetSets(r.Context())
+	items, err := s.store.ListAllocationTargetSets(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -29,7 +29,7 @@ func (s *Server) createAllocationTarget(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.SaveAllocationTargetSet(r.Context(), set)
+	out, err := s.store.SaveAllocationTargetSet(r.Context(), userOf(r), set)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "conflict", "目标配置名称已存在")
 		return
@@ -56,7 +56,7 @@ func (s *Server) patchAllocationTarget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.SaveAllocationTargetSet(r.Context(), set)
+	out, err := s.store.SaveAllocationTargetSet(r.Context(), userOf(r), set)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "目标配置不存在")
 		return
@@ -78,7 +78,7 @@ func (s *Server) deleteAllocationTarget(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeleteAllocationTargetSet(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteAllocationTargetSet(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "目标配置不存在")
 		return
 	} else if err != nil {
@@ -114,7 +114,7 @@ func (s *Server) getAllocationTargetDrift(w http.ResponseWriter, r *http.Request
 	if fxMode != "current" && fxMode != "historical" {
 		fxMode = "current"
 	}
-	out, err := s.store.EvaluateDrift(r.Context(), id, s.today(), displayCurrency, fxMode)
+	out, err := s.store.EvaluateDrift(r.Context(), userOf(r), id, s.today(), displayCurrency, fxMode)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "目标配置不存在")
 		return

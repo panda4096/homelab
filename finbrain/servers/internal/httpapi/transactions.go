@@ -11,7 +11,7 @@ import (
 
 func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 	symbol := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("symbol")))
-	items, truncated, err := s.store.ListTransactions(r.Context(), queryInt64(r, "account_id"), symbol, queryLimit(r))
+	items, truncated, err := s.store.ListTransactions(r.Context(), userOf(r), queryInt64(r, "account_id"), symbol, queryLimit(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -28,7 +28,7 @@ func (s *Server) createTransaction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.CreateTransaction(r.Context(), t)
+	out, err := s.store.CreateTransaction(r.Context(), userOf(r), t)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return
@@ -42,7 +42,7 @@ func (s *Server) patchTransaction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	current, err := s.store.GetTransaction(r.Context(), id)
+	current, err := s.store.GetTransaction(r.Context(), userOf(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "交易不存在")
 		return
@@ -62,7 +62,7 @@ func (s *Server) patchTransaction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.UpdateTransaction(r.Context(), id, t)
+	out, err := s.store.UpdateTransaction(r.Context(), userOf(r), id, t)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "交易不存在")
 		return
@@ -80,7 +80,7 @@ func (s *Server) deleteTransaction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeleteTransaction(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteTransaction(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "交易不存在")
 		return
 	} else if err != nil {

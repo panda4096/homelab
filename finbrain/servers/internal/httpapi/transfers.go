@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) listTransfers(w http.ResponseWriter, r *http.Request) {
-	items, truncated, err := s.store.ListTransfers(r.Context(), queryInt64(r, "account_id"), queryLimit(r))
+	items, truncated, err := s.store.ListTransfers(r.Context(), userOf(r), queryInt64(r, "account_id"), queryLimit(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -27,7 +27,7 @@ func (s *Server) createTransfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.CreateTransfer(r.Context(), t)
+	out, err := s.store.CreateTransfer(r.Context(), userOf(r), t)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return
@@ -41,7 +41,7 @@ func (s *Server) patchTransfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if _, err := s.store.GetTransfer(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if _, err := s.store.GetTransfer(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "转账不存在")
 		return
 	} else if err != nil {
@@ -56,7 +56,7 @@ func (s *Server) patchTransfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.UpdateTransfer(r.Context(), id, t)
+	out, err := s.store.UpdateTransfer(r.Context(), userOf(r), id, t)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "转账不存在")
 		return
@@ -74,7 +74,7 @@ func (s *Server) deleteTransfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeleteTransfer(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteTransfer(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "转账不存在")
 		return
 	} else if err != nil {

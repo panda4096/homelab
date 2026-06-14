@@ -59,7 +59,7 @@ func (s *Server) getTrend(w http.ResponseWriter, r *http.Request) {
 		fxMode = "current"
 	}
 
-	series, err := s.store.NetWorthTrend(r.Context(), from, to, gran, displayCurrency, fxMode)
+	series, err := s.store.NetWorthTrend(r.Context(), userOf(r), from, to, gran, displayCurrency, fxMode)
 	if err != nil {
 		writeInternal(w, r, err)
 		return

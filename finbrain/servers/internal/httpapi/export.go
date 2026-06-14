@@ -18,12 +18,31 @@ var exportTables = []string{
 	"allocation_target_sets", "allocation_target_items", "annotations", "summaries",
 }
 
+var ownedExportTables = map[string]bool{
+	"institutions":            true,
+	"accounts":                true,
+	"balance_snapshots":       true,
+	"position_snapshots":      true,
+	"credit_card_bills":       true,
+	"transactions":            true,
+	"transfers":               true,
+	"income_events":           true,
+	"allocation_target_sets":  true,
+	"allocation_target_items": true,
+	"annotations":             true,
+	"summaries":               true,
+}
+
 func (s *Server) exportData(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
 	for _, table := range exportTables {
-		res, err := s.store.RunReadOnlyQuery(r.Context(), "SELECT * FROM "+table+" ORDER BY 1", 1_000_000)
+		query := "SELECT * FROM " + table + " ORDER BY 1"
+		if ownedExportTables[table] {
+			query = fmt.Sprintf("SELECT * FROM %s WHERE user_id = %d /* OWNED export */ ORDER BY 1", table, userOf(r))
+		}
+		res, err := s.store.RunReadOnlyQuery(r.Context(), query, 1_000_000)
 		if err != nil {
 			_ = zw.Close()
 			writeStorageError(w, r, err)

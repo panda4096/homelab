@@ -255,7 +255,7 @@ func (s *Server) getValuation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "fx_mode must be current|historical")
 		return
 	}
-	out, err := s.store.GetValuation(r.Context(), onDate, displayCurrency, fxMode, s.today())
+	out, err := s.store.GetValuation(r.Context(), userOf(r), onDate, displayCurrency, fxMode, s.today())
 	if err != nil {
 		writeStorageError(w, r, err)
 		return

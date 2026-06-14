@@ -13,7 +13,7 @@ import (
 var summaryPeriodKinds = map[string]bool{"month": true, "quarter": true, "year": true}
 
 func (s *Server) listSummaries(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListSummaries(r.Context())
+	items, err := s.store.ListSummaries(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -27,7 +27,7 @@ func (s *Server) getSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	sm, err := s.store.GetSummary(r.Context(), id)
+	sm, err := s.store.GetSummary(r.Context(), userOf(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "总结不存在")
 		return
@@ -45,7 +45,7 @@ func (s *Server) deleteSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeleteSummary(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteSummary(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "总结不存在")
 		return
 	} else if err != nil {
@@ -105,7 +105,7 @@ func (s *Server) generateSummary(w http.ResponseWriter, r *http.Request) {
 		fxMode = "current"
 	}
 
-	data, err := s.store.GatherSummaryData(r.Context(), body.PeriodStart, body.PeriodEnd, ccy, fxMode)
+	data, err := s.store.GatherSummaryData(r.Context(), userOf(r), body.PeriodStart, body.PeriodEnd, ccy, fxMode)
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -120,7 +120,7 @@ func (s *Server) generateSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := s.store.CreateSummary(r.Context(), store.Summary{
+	out, err := s.store.CreateSummary(r.Context(), userOf(r), store.Summary{
 		PeriodKind: body.PeriodKind, PeriodStart: body.PeriodStart, PeriodEnd: body.PeriodEnd,
 		DisplayCurrency: ccy, Content: strings.TrimSpace(content), Meta: dataJSON,
 	})

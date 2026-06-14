@@ -14,7 +14,7 @@ var incomeKinds = map[string]bool{"dividend": true, "interest": true, "rebate": 
 func (s *Server) listIncomeEvents(w http.ResponseWriter, r *http.Request) {
 	symbol := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("symbol")))
 	kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("event_kind")))
-	items, truncated, err := s.store.ListIncomeEvents(r.Context(), queryInt64(r, "account_id"), symbol, kind, queryLimit(r))
+	items, truncated, err := s.store.ListIncomeEvents(r.Context(), userOf(r), queryInt64(r, "account_id"), symbol, kind, queryLimit(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -31,7 +31,7 @@ func (s *Server) createIncomeEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.CreateIncomeEvent(r.Context(), e)
+	out, err := s.store.CreateIncomeEvent(r.Context(), userOf(r), e)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return
@@ -45,7 +45,7 @@ func (s *Server) patchIncomeEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if _, err := s.store.GetIncomeEvent(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if _, err := s.store.GetIncomeEvent(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "收益事件不存在")
 		return
 	} else if err != nil {
@@ -60,7 +60,7 @@ func (s *Server) patchIncomeEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.UpdateIncomeEvent(r.Context(), id, e)
+	out, err := s.store.UpdateIncomeEvent(r.Context(), userOf(r), id, e)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "收益事件不存在")
 		return
@@ -78,7 +78,7 @@ func (s *Server) deleteIncomeEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeleteIncomeEvent(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteIncomeEvent(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "收益事件不存在")
 		return
 	} else if err != nil {

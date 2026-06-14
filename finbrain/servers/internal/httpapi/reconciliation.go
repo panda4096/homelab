@@ -24,7 +24,7 @@ func (s *Server) getAccountReconciliation(w http.ResponseWriter, r *http.Request
 	}
 	settledOnly := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("settled_only")), "true")
 
-	out, err := s.store.ReconcileAccount(r.Context(), id, onDate, settledOnly)
+	out, err := s.store.ReconcileAccount(r.Context(), userOf(r), id, onDate, settledOnly)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "账户不存在")
 		return

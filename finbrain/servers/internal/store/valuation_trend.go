@@ -28,8 +28,8 @@ type TrendSeries struct {
 // netWorthAt computes the §6.1–6.4 cross-section totals at onDate using the
 // same valuation engine as the current dashboard so transaction replay, pricing,
 // liabilities, and FX handling stay consistent across current and trend views.
-func (s *Store) netWorthAt(ctx context.Context, onDate, displayCurrency, fxMode string) (TrendPoint, error) {
-	val, err := s.GetValuation(ctx, onDate, displayCurrency, fxMode, onDate)
+func (s *Store) netWorthAt(ctx context.Context, userID int64, onDate, displayCurrency, fxMode string) (TrendPoint, error) {
+	val, err := s.GetValuation(ctx, userID, onDate, displayCurrency, fxMode, onDate)
 	if err != nil {
 		return TrendPoint{}, err
 	}
@@ -45,7 +45,7 @@ func (s *Store) netWorthAt(ctx context.Context, onDate, displayCurrency, fxMode 
 
 // NetWorthTrend computes a net-worth cross-section at each section date in
 // [from, to] for the granularity (day|month|quarter|year), per §6.5.
-func (s *Store) NetWorthTrend(ctx context.Context, from, to, granularity, displayCurrency, fxMode string) (TrendSeries, error) {
+func (s *Store) NetWorthTrend(ctx context.Context, userID int64, from, to, granularity, displayCurrency, fxMode string) (TrendSeries, error) {
 	loc := time.UTC
 	fromT, err := time.ParseInLocation("2006-01-02", from, loc)
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *Store) NetWorthTrend(ctx context.Context, from, to, granularity, displa
 	dates := sectionDates(fromT, toT, granularity)
 	out := TrendSeries{From: from, To: to, Granularity: granularity, DisplayCurrency: displayCurrency, FxMode: fxMode, Points: []TrendPoint{}}
 	for _, d := range dates {
-		pt, err := s.netWorthAt(ctx, d.Format("2006-01-02"), displayCurrency, fxMode)
+		pt, err := s.netWorthAt(ctx, userID, d.Format("2006-01-02"), displayCurrency, fxMode)
 		if err != nil {
 			return TrendSeries{}, err
 		}

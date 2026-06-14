@@ -123,7 +123,7 @@ func readSkills() []Skill {
 					return nil, 0, nil, err
 				}
 				d, fx := s.resolveDisplay(ctx, a)
-				v, err := s.store.GetValuation(ctx, onDate, d, fx, s.today())
+				v, err := s.store.GetValuation(ctx, userIDFromContext(ctx), onDate, d, fx, s.today())
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -140,7 +140,7 @@ func readSkills() []Skill {
 					return nil, 0, nil, err
 				}
 				d, fx := s.resolveDisplay(ctx, a)
-				v, err := s.store.GetValuation(ctx, onDate, d, fx, s.today())
+				v, err := s.store.GetValuation(ctx, userIDFromContext(ctx), onDate, d, fx, s.today())
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -160,7 +160,7 @@ func readSkills() []Skill {
 				if id == 0 {
 					return nil, 0, nil, errSkillInput{"account_id is required"}
 				}
-				rows, err := s.store.ListAccountPositions(ctx, id, onDate)
+				rows, err := s.store.ListAccountPositions(ctx, userIDFromContext(ctx), id, onDate)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -246,7 +246,7 @@ func readSkills() []Skill {
 				if id == 0 {
 					return nil, 0, nil, errSkillInput{"account_id is required"}
 				}
-				res, err := s.store.ReconcileAccount(ctx, id, onDate, argBool(a, "settled_only"))
+				res, err := s.store.ReconcileAccount(ctx, userIDFromContext(ctx), id, onDate, argBool(a, "settled_only"))
 				if errors.Is(err, store.ErrNotFound) {
 					return nil, 0, nil, errSkillInput{"account not found"}
 				}
@@ -266,7 +266,7 @@ func readSkills() []Skill {
 					return nil, 0, nil, errSkillInput{"to must be YYYY-MM-DD"}
 				}
 				d, fx := s.resolveDisplay(ctx, a)
-				res, err := s.store.PeriodAttribution(ctx, from, to, d, fx)
+				res, err := s.store.PeriodAttribution(ctx, userIDFromContext(ctx), from, to, d, fx)
 				return res, 1, nil, err
 			},
 		},
@@ -281,19 +281,19 @@ func readSkills() []Skill {
 				}
 				d, fx := s.resolveDisplay(ctx, a)
 				if id := argInt(a, "set_id"); id != 0 {
-					set, err := s.store.EvaluateDrift(ctx, id, onDate, d, fx)
+					set, err := s.store.EvaluateDrift(ctx, userIDFromContext(ctx), id, onDate, d, fx)
 					if errors.Is(err, store.ErrNotFound) {
 						return nil, 0, nil, errSkillInput{"target set not found"}
 					}
 					return set, 1, nil, err
 				}
-				sets, err := s.store.ListAllocationTargetSets(ctx)
+				sets, err := s.store.ListAllocationTargetSets(ctx, userIDFromContext(ctx))
 				if err != nil {
 					return nil, 0, nil, err
 				}
 				out := make([]any, 0, len(sets))
 				for _, set := range sets {
-					ev, err := s.store.EvaluateDrift(ctx, set.ID, onDate, d, fx)
+					ev, err := s.store.EvaluateDrift(ctx, userIDFromContext(ctx), set.ID, onDate, d, fx)
 					if err != nil {
 						return nil, 0, nil, err
 					}

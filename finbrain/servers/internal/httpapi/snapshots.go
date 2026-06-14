@@ -141,7 +141,7 @@ func (s *Server) upsertBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "该账户类型不支持录入余额")
 		return
 	}
-	out, err := s.store.UpsertBalanceSnapshot(r.Context(), b)
+	out, err := s.store.UpsertBalanceSnapshot(r.Context(), userOf(r), b)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return
@@ -155,7 +155,7 @@ func (s *Server) deleteBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeleteBalanceSnapshot(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteBalanceSnapshot(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "snapshot not found")
 		return
 	} else if err != nil {
@@ -187,7 +187,7 @@ func (s *Server) patchBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
-	out, err := s.store.UpdateBalanceSnapshot(r.Context(), id, b)
+	out, err := s.store.UpdateBalanceSnapshot(r.Context(), userOf(r), id, b)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "snapshot not found")
 		return
@@ -251,7 +251,7 @@ func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "该账户类型不支持录入持仓")
 		return
 	}
-	out, err := s.store.UpsertPositionSnapshot(r.Context(), p)
+	out, err := s.store.UpsertPositionSnapshot(r.Context(), userOf(r), p)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return
@@ -265,7 +265,7 @@ func (s *Server) deletePositionSnapshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeletePositionSnapshot(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeletePositionSnapshot(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "snapshot not found")
 		return
 	} else if err != nil {
@@ -305,7 +305,7 @@ func (s *Server) patchPositionSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
-	out, err := s.store.UpdatePositionSnapshot(r.Context(), id, p)
+	out, err := s.store.UpdatePositionSnapshot(r.Context(), userOf(r), id, p)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "snapshot not found")
 		return

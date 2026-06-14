@@ -37,7 +37,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.UpsertBalanceSnapshot(ctx, b)
+				out, err := s.store.UpsertBalanceSnapshot(ctx, userIDFromContext(ctx), b)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -65,7 +65,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.CreateTransaction(ctx, t)
+				out, err := s.store.CreateTransaction(ctx, userIDFromContext(ctx), t)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -93,7 +93,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.CreateCreditCardBill(ctx, b)
+				out, err := s.store.CreateCreditCardBill(ctx, userIDFromContext(ctx), b)
 				if isUniqueViolation(err) {
 					return nil, 0, nil, errSkillInput{"该出账日已存在账单"}
 				}
@@ -124,7 +124,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.UpsertPositionSnapshot(ctx, p)
+				out, err := s.store.UpsertPositionSnapshot(ctx, userIDFromContext(ctx), p)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -152,7 +152,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.CreateTransfer(ctx, t)
+				out, err := s.store.CreateTransfer(ctx, userIDFromContext(ctx), t)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -180,7 +180,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.CreateIncomeEvent(ctx, e)
+				out, err := s.store.CreateIncomeEvent(ctx, userIDFromContext(ctx), e)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -292,7 +292,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.SaveAllocationTargetSet(ctx, set)
+				out, err := s.store.SaveAllocationTargetSet(ctx, userIDFromContext(ctx), set)
 				if err != nil {
 					return nil, 0, nil, err
 				}
@@ -320,7 +320,7 @@ func writeSkills() []Skill {
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
-				out, err := s.store.CreateAnnotation(ctx, ann)
+				out, err := s.store.CreateAnnotation(ctx, userIDFromContext(ctx), ann)
 				if err != nil {
 					return nil, 0, nil, err
 				}

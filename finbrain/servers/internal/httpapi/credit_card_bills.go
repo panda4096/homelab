@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) listCreditCardBills(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListCreditCardBills(r.Context())
+	items, err := s.store.ListCreditCardBills(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -24,7 +24,7 @@ func (s *Server) listAccountCreditCardBills(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid account id")
 		return
 	}
-	items, err := s.store.ListAccountCreditCardBills(r.Context(), id)
+	items, err := s.store.ListAccountCreditCardBills(r.Context(), userOf(r), id)
 	if err != nil {
 		writeInternal(w, r, err)
 		return
@@ -41,7 +41,7 @@ func (s *Server) upsertCreditCardBill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.CreateCreditCardBill(r.Context(), b)
+	out, err := s.store.CreateCreditCardBill(r.Context(), userOf(r), b)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "conflict", "该出账日已存在账单")
 		return
@@ -59,7 +59,7 @@ func (s *Server) patchCreditCardBill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	current, err := s.store.GetCreditCardBill(r.Context(), id)
+	current, err := s.store.GetCreditCardBill(r.Context(), userOf(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "账单不存在")
 		return
@@ -77,7 +77,7 @@ func (s *Server) patchCreditCardBill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	out, err := s.store.UpdateCreditCardBill(r.Context(), id, b)
+	out, err := s.store.UpdateCreditCardBill(r.Context(), userOf(r), id, b)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "账单不存在")
 		return
@@ -99,7 +99,7 @@ func (s *Server) deleteCreditCardBill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
 		return
 	}
-	if err := s.store.DeleteCreditCardBill(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteCreditCardBill(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "账单不存在")
 		return
 	} else if err != nil {
@@ -127,7 +127,7 @@ func (s *Server) submitReviewBatch(w http.ResponseWriter, r *http.Request) {
 		writeErrorDetails(w, http.StatusUnprocessableEntity, "business_rule_violated", "盘点批量提交存在无效行", errs)
 		return
 	}
-	out, err := s.store.ApplyReviewBatch(r.Context(), batch)
+	out, err := s.store.ApplyReviewBatch(r.Context(), userOf(r), batch)
 	if err != nil {
 		writeStorageError(w, r, err)
 		return

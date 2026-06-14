@@ -32,14 +32,14 @@ type cashUnit struct {
 	currency string
 }
 
-func (s *Store) positionUnits(ctx context.Context, onDate string) (map[string]posUnit, error) {
-	rows, err := s.currentPositionRows(ctx, onDate)
+func (s *Store) positionUnits(ctx context.Context, userID int64, onDate string) (map[string]posUnit, error) {
+	rows, err := s.currentPositionRows(ctx, userID, onDate)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]posUnit{}
 	for _, p := range rows {
-		if _, _, err := s.applyReplayToPositionRow(ctx, &p, onDate); err != nil {
+		if _, _, err := s.applyReplayToPositionRow(ctx, userID, &p, onDate); err != nil {
 			return nil, err
 		}
 		qty, err := decimalFromString(p.Quantity)
@@ -60,8 +60,8 @@ func (s *Store) positionUnits(ctx context.Context, onDate string) (map[string]po
 	return out, nil
 }
 
-func (s *Store) cashUnits(ctx context.Context, onDate string) (map[int64]cashUnit, error) {
-	rows, err := s.currentCashRows(ctx, onDate)
+func (s *Store) cashUnits(ctx context.Context, userID int64, onDate string) (map[int64]cashUnit, error) {
+	rows, err := s.currentCashRows(ctx, userID, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +91,8 @@ func cashDisplayValue(c cashUnit, fx *fxResolver, display string) (decimal.Decim
 	return c.amount.Mul(res.Rate), nil
 }
 
-func (s *Store) incomeInWindow(ctx context.Context, from, to, display string, fx *fxResolver) (decimal.Decimal, error) {
-	rows, err := s.pool.Query(ctx, `SELECT amount::text, currency FROM income_events WHERE event_date > $1::date AND event_date <= $2::date`, from, to)
+func (s *Store) incomeInWindow(ctx context.Context, userID int64, from, to, display string, fx *fxResolver) (decimal.Decimal, error) {
+	rows, err := s.pool.Query(ctx, `SELECT amount::text, currency FROM income_events WHERE user_id=$1 AND event_date > $2::date AND event_date <= $3::date /* OWNED income_events */`, userID, from, to)
 	if err != nil {
 		return decZero, err
 	}
@@ -115,25 +115,25 @@ func (s *Store) incomeInWindow(ctx context.Context, from, to, display string, fx
 // PeriodAttribution decomposes net-worth change in (from, to] (§6.12).
 // Historical mode separates beginning-position/cash FX movement before adding
 // the residual to fx_effect so the four buckets still sum to net_change.
-func (s *Store) PeriodAttribution(ctx context.Context, from, to, display, fxMode string) (AttributionResult, error) {
+func (s *Store) PeriodAttribution(ctx context.Context, userID int64, from, to, display, fxMode string) (AttributionResult, error) {
 	fxFrom := &fxResolver{store: s, ctx: ctx, mode: fxMode, onDate: from, cache: map[string]fxResult{}}
 	fxTo := &fxResolver{store: s, ctx: ctx, mode: fxMode, onDate: to, cache: map[string]fxResult{}}
 
-	nwFrom, err := s.netWorthAt(ctx, from, display, fxMode)
+	nwFrom, err := s.netWorthAt(ctx, userID, from, display, fxMode)
 	if err != nil {
 		return AttributionResult{}, err
 	}
-	nwTo, err := s.netWorthAt(ctx, to, display, fxMode)
+	nwTo, err := s.netWorthAt(ctx, userID, to, display, fxMode)
 	if err != nil {
 		return AttributionResult{}, err
 	}
 	netChange := mustDec(nwTo.NetWorth).Sub(mustDec(nwFrom.NetWorth))
 
-	fromPos, err := s.positionUnits(ctx, from)
+	fromPos, err := s.positionUnits(ctx, userID, from)
 	if err != nil {
 		return AttributionResult{}, err
 	}
-	toPos, err := s.positionUnits(ctx, to)
+	toPos, err := s.positionUnits(ctx, userID, to)
 	if err != nil {
 		return AttributionResult{}, err
 	}
@@ -183,11 +183,11 @@ func (s *Store) PeriodAttribution(ctx context.Context, from, to, display, fxMode
 		}
 	}
 
-	fromCash, err := s.cashUnits(ctx, from)
+	fromCash, err := s.cashUnits(ctx, userID, from)
 	if err != nil {
 		return AttributionResult{}, err
 	}
-	toCash, err := s.cashUnits(ctx, to)
+	toCash, err := s.cashUnits(ctx, userID, to)
 	if err != nil {
 		return AttributionResult{}, err
 	}
@@ -230,7 +230,7 @@ func (s *Store) PeriodAttribution(ctx context.Context, from, to, display, fxMode
 		}
 	}
 
-	income, err := s.incomeInWindow(ctx, from, to, display, fxTo)
+	income, err := s.incomeInWindow(ctx, userID, from, to, display, fxTo)
 	if err != nil {
 		return AttributionResult{}, err
 	}

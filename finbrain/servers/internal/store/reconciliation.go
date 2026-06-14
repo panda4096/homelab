@@ -43,9 +43,9 @@ type AccountReconciliation struct {
 
 // ReconcileAccount computes §6.19 expected cash balance vs the latest snapshot and
 // the §6.20 replay-vs-snapshot position deltas for one account, in native currency.
-func (s *Store) ReconcileAccount(ctx context.Context, accountID int64, onDate string, settledOnly bool) (AccountReconciliation, error) {
+func (s *Store) ReconcileAccount(ctx context.Context, userID, accountID int64, onDate string, settledOnly bool) (AccountReconciliation, error) {
 	var name, currency string
-	err := s.pool.QueryRow(ctx, `SELECT name, currency FROM accounts WHERE id=$1`, accountID).Scan(&name, &currency)
+	err := s.pool.QueryRow(ctx, `SELECT name, currency FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */`, userID, accountID).Scan(&name, &currency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AccountReconciliation{}, ErrNotFound
 	}
@@ -64,8 +64,8 @@ func (s *Store) ReconcileAccount(ctx context.Context, accountID int64, onDate st
 	var snapDate, snapBal *string
 	err = s.pool.QueryRow(ctx, `
 		SELECT snapshot_date::text, balance::text FROM balance_snapshots
-		WHERE account_id=$1 AND snapshot_date <= $2::date
-		ORDER BY snapshot_date DESC LIMIT 1`, accountID, onDate).Scan(&snapDate, &snapBal)
+		WHERE user_id=$1 AND account_id=$2 AND snapshot_date <= $3::date /* OWNED balance_snapshots */
+		ORDER BY snapshot_date DESC LIMIT 1`, userID, accountID, onDate).Scan(&snapDate, &snapBal)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return AccountReconciliation{}, err
 	}
@@ -77,7 +77,7 @@ func (s *Store) ReconcileAccount(ctx context.Context, accountID int64, onDate st
 	}
 	out.SnapshotBalance = formatMoneyDecimal(base)
 
-	events, err := s.reconCashEvents(ctx, accountID, windowStart, onDate, settledOnly)
+	events, err := s.reconCashEvents(ctx, userID, accountID, windowStart, onDate, settledOnly)
 	if err != nil {
 		return AccountReconciliation{}, err
 	}
@@ -102,7 +102,7 @@ func (s *Store) ReconcileAccount(ctx context.Context, accountID int64, onDate st
 		out.OverThreshold = !delta.IsZero()
 	}
 
-	deltas, err := s.positionDeltas(ctx, accountID, onDate)
+	deltas, err := s.positionDeltas(ctx, userID, accountID, onDate)
 	if err != nil {
 		return AccountReconciliation{}, err
 	}
@@ -117,17 +117,17 @@ type reconCashEvent struct {
 	amount decimal.Decimal
 }
 
-func (s *Store) reconCashEvents(ctx context.Context, accountID int64, windowStart, onDate string, settledOnly bool) ([]reconCashEvent, error) {
+func (s *Store) reconCashEvents(ctx context.Context, userID, accountID int64, windowStart, onDate string, settledOnly bool) ([]reconCashEvent, error) {
 	var out []reconCashEvent
 
 	// Transactions: cash effect on settle (fallback trade) date (§6.19).
 	txnRows, err := s.pool.Query(ctx, `
 		SELECT COALESCE(settle_date, trade_date)::text, symbol, action, quantity::text, price::text, COALESCE(fee,0)::text
 		FROM transactions
-		WHERE account_id=$1
-		  AND COALESCE(settle_date, trade_date) > $2::date
-		  AND COALESCE(settle_date, trade_date) <= $3::date
-		  AND ($4 = false OR is_settled = true)`, accountID, windowStart, onDate, settledOnly)
+		WHERE user_id=$1 AND account_id=$2 /* OWNED transactions */
+		  AND COALESCE(settle_date, trade_date) > $3::date
+		  AND COALESCE(settle_date, trade_date) <= $4::date
+		  AND ($5 = false OR is_settled = true)`, userID, accountID, windowStart, onDate, settledOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -155,8 +155,8 @@ func (s *Store) reconCashEvents(ctx context.Context, accountID int64, windowStar
 	trRows, err := s.pool.Query(ctx, `
 		SELECT transfer_date::text, from_account_id, to_account_id, from_amount::text, to_amount::text
 		FROM transfers
-		WHERE (from_account_id=$1 OR to_account_id=$1)
-		  AND transfer_date > $2::date AND transfer_date <= $3::date`, accountID, windowStart, onDate)
+		WHERE user_id=$1 AND (from_account_id=$2 OR to_account_id=$2) /* OWNED transfers */
+		  AND transfer_date > $3::date AND transfer_date <= $4::date`, userID, accountID, windowStart, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (s *Store) reconCashEvents(ctx context.Context, accountID int64, windowStar
 	inRows, err := s.pool.Query(ctx, `
 		SELECT event_date::text, event_kind, amount::text
 		FROM income_events
-		WHERE payment_account_id=$1 AND event_date > $2::date AND event_date <= $3::date`, accountID, windowStart, onDate)
+		WHERE user_id=$1 AND payment_account_id=$2 AND event_date > $3::date AND event_date <= $4::date /* OWNED income_events */`, userID, accountID, windowStart, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -203,8 +203,8 @@ func (s *Store) reconCashEvents(ctx context.Context, accountID int64, windowStar
 	ccRows, err := s.pool.Query(ctx, `
 		SELECT paid_at::text, amount_total::text
 		FROM credit_card_bills
-		WHERE payment_account_id=$1 AND paid_at IS NOT NULL
-		  AND paid_at > $2::date AND paid_at <= $3::date`, accountID, windowStart, onDate)
+		WHERE user_id=$1 AND payment_account_id=$2 AND paid_at IS NOT NULL /* OWNED credit_card_bills */
+		  AND paid_at > $3::date AND paid_at <= $4::date`, userID, accountID, windowStart, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -221,9 +221,9 @@ func (s *Store) reconCashEvents(ctx context.Context, accountID int64, windowStar
 
 // positionDeltas compares replay-derived quantity to the latest snapshot quantity
 // for every (account, symbol) that has transactions (§6.20).
-func (s *Store) positionDeltas(ctx context.Context, accountID int64, onDate string) ([]PositionDelta, error) {
+func (s *Store) positionDeltas(ctx context.Context, userID, accountID int64, onDate string) ([]PositionDelta, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT symbol FROM transactions WHERE account_id=$1 AND trade_date <= $2::date ORDER BY symbol`, accountID, onDate)
+		SELECT DISTINCT symbol FROM transactions WHERE user_id=$1 AND account_id=$2 AND trade_date <= $3::date /* OWNED transactions */ ORDER BY symbol`, userID, accountID, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (s *Store) positionDeltas(ctx context.Context, accountID int64, onDate stri
 
 	out := []PositionDelta{}
 	for _, sym := range symbols {
-		st, err := s.ReplayHolding(ctx, accountID, sym, onDate, false)
+		st, err := s.ReplayHolding(ctx, userID, accountID, sym, onDate, false)
 		if err != nil {
 			return nil, err
 		}
@@ -251,8 +251,8 @@ func (s *Store) positionDeltas(ctx context.Context, accountID int64, onDate stri
 		var snap *string
 		if err := s.pool.QueryRow(ctx, `
 			SELECT quantity::text FROM position_snapshots
-			WHERE account_id=$1 AND symbol=$2 AND snapshot_date <= $3::date
-			ORDER BY snapshot_date DESC LIMIT 1`, accountID, sym, onDate).Scan(&snap); err == nil && snap != nil {
+			WHERE user_id=$1 AND account_id=$2 AND symbol=$3 AND snapshot_date <= $4::date /* OWNED position_snapshots */
+			ORDER BY snapshot_date DESC LIMIT 1`, userID, accountID, sym, onDate).Scan(&snap); err == nil && snap != nil {
 			snapQty = mustDec(*snap)
 		}
 		delta := st.Quantity.Sub(snapQty)

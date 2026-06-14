@@ -82,7 +82,7 @@ type fxResolver struct {
 // GetValuation computes the current P2 valuation as of onDate. currentRateDate
 // is kept for API compatibility; current FX mode intentionally uses the latest
 // available rate with no date upper bound.
-func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMode, currentRateDate string) (Valuation, error) {
+func (s *Store) GetValuation(ctx context.Context, userID int64, onDate, displayCurrency, fxMode, currentRateDate string) (Valuation, error) {
 	_ = currentRateDate
 	val := Valuation{
 		AsOf:            onDate,
@@ -107,7 +107,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	alloc := newAllocationBuilder()
 	fx := &fxResolver{store: s, ctx: ctx, mode: fxMode, onDate: onDate, cache: map[string]fxResult{}}
 
-	cashRows, err := s.currentCashRows(ctx, onDate)
+	cashRows, err := s.currentCashRows(ctx, userID, onDate)
 	if err != nil {
 		return Valuation{}, err
 	}
@@ -152,7 +152,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		alloc.add("quote_currency", c.AccountCurrency, c.AccountCurrency, displayValue)
 	}
 
-	positionRows, err := s.currentPositionRows(ctx, onDate)
+	positionRows, err := s.currentPositionRows(ctx, userID, onDate)
 	if err != nil {
 		return Valuation{}, err
 	}
@@ -164,7 +164,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	costForPL := decZero
 
 	for _, p := range positionRows {
-		replay, hasReplay, err := s.applyReplayToPositionRow(ctx, &p, onDate)
+		replay, hasReplay, err := s.applyReplayToPositionRow(ctx, userID, &p, onDate)
 		if err != nil {
 			return Valuation{}, err
 		}
@@ -304,7 +304,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		val.Positions = append(val.Positions, pos)
 	}
 
-	liabilityRows, err := s.currentLiabilityRows(ctx, onDate)
+	liabilityRows, err := s.currentLiabilityRows(ctx, userID, onDate)
 	if err != nil {
 		return Valuation{}, err
 	}
@@ -368,7 +368,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 	})
 	val.PositionGroups = buildSymbolPositionGroups(val.Positions, positionValue, netWorth, displayCurrency)
 
-	realizedYtd, incomeYtd, err := s.tradeKPIs(ctx, onDate, displayCurrency, fx)
+	realizedYtd, incomeYtd, err := s.tradeKPIs(ctx, userID, onDate, displayCurrency, fx)
 	if err != nil {
 		return Valuation{}, err
 	}
@@ -381,7 +381,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 // tradeKPIs computes year-to-date realized P&L (§6.16) and cumulative income
 // (§6.11) as of onDate, converted to displayCurrency via the shared resolver.
 // Realized YTD = realized(onDate) − realized(prev year-end) per holding.
-func (s *Store) tradeKPIs(ctx context.Context, onDate, displayCurrency string, fx *fxResolver) (decimal.Decimal, decimal.Decimal, error) {
+func (s *Store) tradeKPIs(ctx context.Context, userID int64, onDate, displayCurrency string, fx *fxResolver) (decimal.Decimal, decimal.Decimal, error) {
 	realizedYtd := decZero
 	incomeYtd := decZero
 	if len(onDate) < 4 {
@@ -390,7 +390,7 @@ func (s *Store) tradeKPIs(ctx context.Context, onDate, displayCurrency string, f
 	yearStart := onDate[:4] + "-01-01"
 	prevYearEnd := prevYearEndDate(onDate[:4])
 
-	rows, err := s.pool.Query(ctx, `SELECT DISTINCT account_id, symbol FROM transactions WHERE trade_date <= $1::date`, onDate)
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT account_id, symbol FROM transactions WHERE user_id=$1 AND trade_date <= $2::date /* OWNED transactions */`, userID, onDate)
 	if err != nil {
 		return decZero, decZero, err
 	}
@@ -413,11 +413,11 @@ func (s *Store) tradeKPIs(ctx context.Context, onDate, displayCurrency string, f
 	}
 
 	for _, h := range holdings {
-		now, err := s.ReplayHolding(ctx, h.acct, h.sym, onDate, false)
+		now, err := s.ReplayHolding(ctx, userID, h.acct, h.sym, onDate, false)
 		if err != nil {
 			return decZero, decZero, err
 		}
-		prev, err := s.ReplayHolding(ctx, h.acct, h.sym, prevYearEnd, false)
+		prev, err := s.ReplayHolding(ctx, userID, h.acct, h.sym, prevYearEnd, false)
 		if err != nil {
 			return decZero, decZero, err
 		}
@@ -436,7 +436,7 @@ func (s *Store) tradeKPIs(ctx context.Context, onDate, displayCurrency string, f
 		realizedYtd = realizedYtd.Add(ytdNative.Mul(res.Rate))
 	}
 
-	inRows, err := s.pool.Query(ctx, `SELECT amount::text, currency FROM income_events WHERE event_date >= $1::date AND event_date <= $2::date`, yearStart, onDate)
+	inRows, err := s.pool.Query(ctx, `SELECT amount::text, currency FROM income_events WHERE user_id=$1 AND event_date >= $2::date AND event_date <= $3::date /* OWNED income_events */`, userID, yearStart, onDate)
 	if err != nil {
 		return decZero, decZero, err
 	}
@@ -463,8 +463,8 @@ func prevYearEndDate(year string) string {
 	return fmt.Sprintf("%04d-12-31", y-1)
 }
 
-func (s *Store) applyReplayToPositionRow(ctx context.Context, p *valuationPositionRow, onDate string) (HoldingState, bool, error) {
-	rep, err := s.ReplayHolding(ctx, p.AccountID, p.Symbol, onDate, false)
+func (s *Store) applyReplayToPositionRow(ctx context.Context, userID int64, p *valuationPositionRow, onDate string) (HoldingState, bool, error) {
+	rep, err := s.ReplayHolding(ctx, userID, p.AccountID, p.Symbol, onDate, false)
 	if err != nil {
 		return HoldingState{}, false, err
 	}
@@ -504,20 +504,20 @@ func holdingDaysBetween(start, end string) *int {
 	return &days
 }
 
-func (s *Store) currentCashRows(ctx context.Context, onDate string) ([]valuationCashRow, error) {
+func (s *Store) currentCashRows(ctx context.Context, userID int64, onDate string) ([]valuationCashRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_balance AS (
 			SELECT DISTINCT ON (account_id) account_id, snapshot_date, balance
 			FROM balance_snapshots
-			WHERE snapshot_date <= $1::date
+			WHERE user_id=$1 AND snapshot_date <= $2::date /* OWNED balance_snapshots */
 			ORDER BY account_id, snapshot_date DESC
 		)
 		SELECT a.id, a.name, a.currency, a.kind, i.name, lb.snapshot_date::text, lb.balance::text
 		FROM latest_balance lb
-		JOIN accounts a ON a.id = lb.account_id
-		JOIN institutions i ON i.id = a.institution_id
+		JOIN accounts a ON a.id = lb.account_id AND a.user_id = $1
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
 		WHERE NOT a.is_archived AND a.kind IN ('cash', 'time_deposit', 'wealth_product')
-		ORDER BY i.display_order, i.name, a.display_order, a.name`, onDate)
+		ORDER BY i.display_order, i.name, a.display_order, a.name`, userID, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -533,13 +533,13 @@ func (s *Store) currentCashRows(ctx context.Context, onDate string) ([]valuation
 	return out, rows.Err()
 }
 
-func (s *Store) currentPositionRows(ctx context.Context, onDate string) ([]valuationPositionRow, error) {
+func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate string) ([]valuationPositionRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_position AS (
 			SELECT DISTINCT ON (account_id, symbol)
 				account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date
 			FROM position_snapshots
-			WHERE snapshot_date <= $1::date
+			WHERE user_id=$1 AND snapshot_date <= $2::date /* OWNED position_snapshots */
 			ORDER BY account_id, symbol, snapshot_date DESC
 		),
 		position_keys AS (
@@ -549,23 +549,23 @@ func (s *Store) currentPositionRows(ctx context.Context, onDate string) ([]valua
 			UNION
 			SELECT DISTINCT account_id, symbol
 			FROM transactions
-			WHERE trade_date <= $1::date
+			WHERE user_id=$1 AND trade_date <= $2::date /* OWNED transactions */
 		)
 		SELECT a.id, a.name, a.currency, a.kind, inst.name, pk.symbol,
 		       ins.display_name, ins.market, ins.quote_currency, ins.asset_kind,
 		       COALESCE(lp.quantity, 0)::text, lp.avg_cost::text, lp.cost_currency,
 		       COALESCE(lp.snapshot_date::text, first_txn.first_trade_date::text, ''),
 		       pr.price_date::text, pr.price::text, pr.currency,
-		       hs.holding_start_date::text, ($1::date - hs.holding_start_date)::int
+		       hs.holding_start_date::text, ($2::date - hs.holding_start_date)::int
 		FROM position_keys pk
-		JOIN accounts a ON a.id = pk.account_id
-		JOIN institutions inst ON inst.id = a.institution_id
+		JOIN accounts a ON a.id = pk.account_id AND a.user_id = $1
+		JOIN institutions inst ON inst.id = a.institution_id AND inst.user_id = a.user_id
 		LEFT JOIN latest_position lp ON lp.account_id = pk.account_id AND lp.symbol = pk.symbol
 		LEFT JOIN instruments ins ON ins.symbol = pk.symbol
 		LEFT JOIN LATERAL (
 			SELECT price_date, price, currency
 			FROM prices p
-			WHERE p.symbol = pk.symbol AND p.price_date <= $1::date
+			WHERE p.symbol = pk.symbol AND p.price_date <= $2::date
 			ORDER BY p.price_date DESC, (p.currency = COALESCE(ins.quote_currency, '')) DESC, p.id DESC
 			LIMIT 1
 		) pr ON true
@@ -574,26 +574,29 @@ func (s *Store) currentPositionRows(ctx context.Context, onDate string) ([]valua
 			FROM transactions t
 			WHERE t.account_id = pk.account_id
 			  AND t.symbol = pk.symbol
-			  AND t.trade_date <= $1::date
+			  AND t.user_id = $1
+			  AND t.trade_date <= $2::date
 		) first_txn ON true
 		LEFT JOIN LATERAL (
 			SELECT MIN(ps.snapshot_date) AS holding_start_date
 			FROM position_snapshots ps
 			WHERE ps.account_id = pk.account_id
 			  AND ps.symbol = pk.symbol
-			  AND ps.snapshot_date <= $1::date
+			  AND ps.user_id = $1
+			  AND ps.snapshot_date <= $2::date
 			  AND ps.quantity > 0
 			  AND ps.snapshot_date > COALESCE((
 			      SELECT MAX(z.snapshot_date)
 			      FROM position_snapshots z
 			      WHERE z.account_id = pk.account_id
 			        AND z.symbol = pk.symbol
-			        AND z.snapshot_date <= $1::date
+			        AND z.user_id = $1
+			        AND z.snapshot_date <= $2::date
 			        AND z.quantity = 0
 			  ), '-infinity'::date)
 		) hs ON true
 		WHERE NOT a.is_archived
-		ORDER BY inst.display_order, inst.name, a.display_order, a.name, pk.symbol`, onDate)
+		ORDER BY inst.display_order, inst.name, a.display_order, a.name, pk.symbol`, userID, onDate)
 	if err != nil {
 		return nil, err
 	}
@@ -614,18 +617,19 @@ func (s *Store) currentPositionRows(ctx context.Context, onDate string) ([]valua
 	return out, rows.Err()
 }
 
-func (s *Store) currentLiabilityRows(ctx context.Context, onDate string) ([]valuationLiabilityRow, error) {
+func (s *Store) currentLiabilityRows(ctx context.Context, userID int64, onDate string) ([]valuationLiabilityRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT a.id, a.name, a.currency, a.kind, i.name,
 		       b.statement_date::text, b.amount_total::text, b.currency, b.paid_at::text
 		FROM credit_card_bills b
-		JOIN accounts a ON a.id = b.account_id
-		JOIN institutions i ON i.id = a.institution_id
+		JOIN accounts a ON a.id = b.account_id AND a.user_id = b.user_id
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
 		WHERE NOT a.is_archived
+		  AND b.user_id = $1 /* OWNED credit_card_bills */
 		  AND a.kind = 'credit_card'
-		  AND b.statement_date <= $1::date
-		  AND (b.paid_at IS NULL OR b.paid_at > $1::date)
-		ORDER BY b.statement_date DESC, i.display_order, i.name, a.display_order, a.name`, onDate)
+		  AND b.statement_date <= $2::date
+		  AND (b.paid_at IS NULL OR b.paid_at > $2::date)
+		ORDER BY b.statement_date DESC, i.display_order, i.name, a.display_order, a.name`, userID, onDate)
 	if err != nil {
 		return nil, err
 	}

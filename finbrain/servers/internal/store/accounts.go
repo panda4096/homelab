@@ -34,7 +34,7 @@ const accountFull = `
 	SELECT a.id, a.name, a.institution_id, i.name, i.kind, a.currency, a.kind, a.display_order, a.is_archived, a.note, a.created_at, a.updated_at,
 	  COALESCE(
 	    (SELECT bs.balance::text FROM balance_snapshots bs
-	       WHERE bs.account_id = a.id AND bs.snapshot_date <= $1::date
+	       WHERE bs.user_id = a.user_id AND bs.account_id = a.id AND bs.snapshot_date <= $1::date /* OWNED balance_snapshots */
 	       ORDER BY bs.snapshot_date DESC LIMIT 1),
 	    (SELECT ROUND(SUM(lp.quantity * lp.avg_cost), 2)::text
 	       FROM (
@@ -43,15 +43,15 @@ const accountFull = `
 	                COALESCE(ps.cost_currency, ins.quote_currency, a.currency) value_currency
 	           FROM position_snapshots ps
 	           LEFT JOIN instruments ins ON ins.symbol = ps.symbol
-	          WHERE ps.account_id = a.id AND ps.snapshot_date <= $1::date
+	          WHERE ps.user_id = a.user_id AND ps.account_id = a.id AND ps.snapshot_date <= $1::date /* OWNED position_snapshots */
 	          ORDER BY ps.symbol, ps.snapshot_date DESC
 	       ) lp
 	      WHERE lp.quantity > 0 AND lp.avg_cost IS NOT NULL AND lp.value_currency = a.currency)
 	  ),
 	  (SELECT max(d)::text FROM (
-	     SELECT max(snapshot_date) d FROM balance_snapshots WHERE account_id = a.id
+	     SELECT max(snapshot_date) d FROM balance_snapshots WHERE user_id = a.user_id AND account_id = a.id /* OWNED balance_snapshots */
 	     UNION ALL
-	     SELECT max(snapshot_date)   FROM position_snapshots WHERE account_id = a.id) t)
+	     SELECT max(snapshot_date)   FROM position_snapshots WHERE user_id = a.user_id AND account_id = a.id /* OWNED position_snapshots */) t)
 	FROM accounts a JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id`
 
 // accountMeta selects account + joined institution, no computed fields (NULLs).
@@ -139,12 +139,12 @@ func (s *Store) AccountHasData(ctx context.Context, userID, id int64) (bool, err
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.user_id=$1 AND a.id=$2 /* OWNED accounts */)
 		   AND (
-		       EXISTS(SELECT 1 FROM balance_snapshots WHERE account_id=$2)
-		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE account_id=$2)
-		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$2 OR payment_account_id=$2)
-		    OR EXISTS(SELECT 1 FROM transactions WHERE account_id=$2)
-		    OR EXISTS(SELECT 1 FROM transfers WHERE from_account_id=$2 OR to_account_id=$2)
-		    OR EXISTS(SELECT 1 FROM income_events WHERE account_id=$2 OR payment_account_id=$2)
+		       EXISTS(SELECT 1 FROM balance_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED balance_snapshots */)
+		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED position_snapshots */)
+		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED credit_card_bills */)
+		    OR EXISTS(SELECT 1 FROM transactions WHERE user_id=$1 AND account_id=$2 /* OWNED transactions */)
+		    OR EXISTS(SELECT 1 FROM transfers WHERE user_id=$1 AND (from_account_id=$2 OR to_account_id=$2) /* OWNED transfers */)
+		    OR EXISTS(SELECT 1 FROM income_events WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED income_events */)
 		   )`, userID, id).Scan(&exists)
 	return exists, err
 }
@@ -179,12 +179,12 @@ func (s *Store) DeleteAccountIfEmpty(ctx context.Context, userID, id int64) erro
 
 	var hasData bool
 	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$1 OR payment_account_id=$1)
-		    OR EXISTS(SELECT 1 FROM transactions WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM transfers WHERE from_account_id=$1 OR to_account_id=$1)
-		    OR EXISTS(SELECT 1 FROM income_events WHERE account_id=$1 OR payment_account_id=$1)`, id).Scan(&hasData); err != nil {
+		SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED balance_snapshots */)
+		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED position_snapshots */)
+		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED credit_card_bills */)
+		    OR EXISTS(SELECT 1 FROM transactions WHERE user_id=$1 AND account_id=$2 /* OWNED transactions */)
+		    OR EXISTS(SELECT 1 FROM transfers WHERE user_id=$1 AND (from_account_id=$2 OR to_account_id=$2) /* OWNED transfers */)
+		    OR EXISTS(SELECT 1 FROM income_events WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED income_events */)`, userID, id).Scan(&hasData); err != nil {
 		return err
 	}
 	if hasData {
