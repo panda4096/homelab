@@ -516,7 +516,7 @@ func (s *Store) currentCashRows(ctx context.Context, onDate string) ([]valuation
 		FROM latest_balance lb
 		JOIN accounts a ON a.id = lb.account_id
 		JOIN institutions i ON i.id = a.institution_id
-		WHERE NOT a.is_archived AND a.kind <> 'credit_card'
+		WHERE NOT a.is_archived AND a.kind IN ('cash', 'time_deposit', 'wealth_product')
 		ORDER BY i.display_order, i.name, a.display_order, a.name`, onDate)
 	if err != nil {
 		return nil, err

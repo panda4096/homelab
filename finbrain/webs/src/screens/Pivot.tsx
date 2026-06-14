@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button, Icon, Segmented } from '../ds'
 import { getValuation } from '../api'
@@ -7,6 +7,7 @@ import { Donut, num, shortMoney, type DonutItem, VIZ } from '../lib/finance'
 import { usePrefStore } from '../store'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
+import { AssetFlowPanel } from './AssetFlow'
 
 const DIMENSIONS = [
   { value: 'kind', label: '账户用途' },
@@ -36,6 +37,7 @@ export function Pivot() {
   const displayCurrency = usePrefStore((s) => s.displayCurrency)
   const fxMode = usePrefStore((s) => s.fxMode)
   const [dim, setDim] = useState('kind')
+  const [view, setView] = useState<'pivot' | 'flow'>('pivot')
   const [shareOpen, setShareOpen] = useState(false)
   const val = useQuery({
     queryKey: ['valuation', displayCurrency, fxMode],
@@ -69,63 +71,81 @@ export function Pivot() {
   return (
     <Page>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Segmented size="sm" value={dim} onChange={setDim} options={DIMENSIONS} />
-        <Button
+        <Segmented
           size="sm"
-          variant="secondary"
-          iconLeft={<Icon name="share-2" size={14} />}
-          disabled={!rows.length}
-          onClick={() => setShareOpen(true)}
-        >
-          分享图片
-        </Button>
+          value={view}
+          onChange={(v) => setView(v as 'pivot' | 'flow')}
+          options={[{ value: 'pivot', label: '多维透视' }, { value: 'flow', label: '资产流向' }]}
+        />
+        {view === 'pivot' ? (
+          <>
+            <Segmented size="sm" value={dim} onChange={setDim} options={DIMENSIONS} />
+            <Button
+              size="sm"
+              variant="secondary"
+              iconLeft={<Icon name="share-2" size={14} />}
+              disabled={!rows.length}
+              onClick={() => setShareOpen(true)}
+            >
+              分享图片
+            </Button>
+          </>
+        ) : null}
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-tertiary)' }}>
-          {basisLabel} · {displayCurrency}
+          {view === 'pivot' ? `${basisLabel} · ${displayCurrency}` : `资产结构流向 · ${displayCurrency}`}
         </span>
       </div>
 
-      <div className="fb-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 12px' }}>
-          {donutItems.length ? (
-            <div style={{ width: 'min(100%, 760px)' }}>
-              <Donut items={donutItems} size={220} thickness={24} centerLabel={shortMoney(total, displayCurrency)} centerSub="合计" legendPlacement="side" />
+      {view === 'flow' ? (
+        <AssetFlowPanel valuation={val.data} displayCurrency={displayCurrency} loading={val.isLoading} error={val.isError} />
+      ) : (
+        <>
+          <div className="fb-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 12px' }}>
+              {donutItems.length ? (
+                <div style={{ width: 'min(100%, 760px)' }}>
+                  <Donut items={donutItems} size={220} thickness={24} centerLabel={shortMoney(total, displayCurrency)} centerSub="合计" legendPlacement="side" />
+                </div>
+              ) : (
+                <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>暂无数据</div>
+              )}
             </div>
-          ) : (
-            <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>暂无数据</div>
-          )}
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: dim === 'symbol' ? 760 : 560, borderCollapse: 'collapse' }}>
-            <thead><tr>
-              <th style={th}>{DIMENSIONS.find((d) => d.value === dim)?.label}</th>
-              <th style={thR}>金额</th><th style={thR}>占比</th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.key} style={{ borderTop: '1px solid var(--divider)' }}>
-                  <td style={tdName}>{r.name}</td>
-                  <td style={tdR}>{native(String(r.value), displayCurrency)}</td>
-                  <td style={tdR}>{r.percent}%</td>
-                </tr>
-              ))}
-              {rows.length ? (
-                <tr style={{ borderTop: '1px solid var(--border-strong)' }}>
-                  <td style={{ ...tdName, color: 'var(--text-strong)' }}>合计</td>
-                  <td style={{ ...tdR, color: 'var(--text-strong)' }}>{native(String(total), displayCurrency)}</td>
-                  <td style={tdR}>—</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>多维聚合按当前估值截面展开;时间维度与行×列双维透视将在后续迭代补充。</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', minWidth: dim === 'symbol' ? 760 : 560, borderCollapse: 'collapse' }}>
+                <thead><tr>
+                  <th style={th}>{DIMENSIONS.find((d) => d.value === dim)?.label}</th>
+                  <th style={thR}>金额</th><th style={thR}>占比</th>
+                </tr></thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.key} style={{ borderTop: '1px solid var(--divider)' }}>
+                      <td style={tdName}>{r.name}</td>
+                      <td style={tdR}>{native(String(r.value), displayCurrency)}</td>
+                      <td style={tdR}>{r.percent}%</td>
+                    </tr>
+                  ))}
+                  {rows.length ? (
+                    <tr style={{ borderTop: '1px solid var(--border-strong)' }}>
+                      <td style={{ ...tdName, color: 'var(--text-strong)' }}>合计</td>
+                      <td style={{ ...tdR, color: 'var(--text-strong)' }}>{native(String(total), displayCurrency)}</td>
+                      <td style={tdR}>—</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>多维聚合按当前估值截面展开;「资产流向」视图提供机构 → 账户用途 → 标的的多级透视。</div>
+        </>
+      )}
       {shareOpen ? (
         <ShareImageModal
           dim={dim}
           dimLabel={dimLabel}
           basisLabel={basisLabel}
           chartRows={chartRows}
+          total={total}
+          currency={displayCurrency}
           onClose={() => setShareOpen(false)}
         />
       ) : null}
@@ -171,23 +191,31 @@ function ShareImageModal({
   dimLabel,
   basisLabel,
   chartRows,
+  total,
+  currency,
   onClose,
 }: {
   dim: string
   dimLabel: string
   basisLabel: string
   chartRows: PivotRow[]
+  total: number
+  currency: string
   onClose: () => void
 }) {
   const toast = useToast()
   const [previewUrl, setPreviewUrl] = useState('')
   const [generating, setGenerating] = useState(false)
   const [working, setWorking] = useState<'copy' | 'download' | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => () => {
+    mounted.current = false
+  }, [])
 
   useEffect(() => {
     let cancelled = false
     setGenerating(true)
-    renderPivotShareImage({ dimLabel, basisLabel, chartRows })
+    renderPivotShareImage({ dimLabel, basisLabel, chartRows, total, currency })
       .then((blob) => {
         if (cancelled) return
         setPreviewUrl(URL.createObjectURL(blob))
@@ -199,7 +227,7 @@ function ShareImageModal({
     return () => {
       cancelled = true
     }
-  }, [basisLabel, chartRows, dimLabel, toast])
+  }, [basisLabel, chartRows, currency, dimLabel, toast, total])
 
   useEffect(() => {
     return () => {
@@ -207,7 +235,7 @@ function ShareImageModal({
     }
   }, [previewUrl])
 
-  const makeBlob = () => renderPivotShareImage({ dimLabel, basisLabel, chartRows })
+  const makeBlob = () => renderPivotShareImage({ dimLabel, basisLabel, chartRows, total, currency })
 
   async function copyImage() {
     const clipboard = navigator.clipboard as Clipboard & { write?: (items: unknown[]) => Promise<void> }
@@ -224,7 +252,7 @@ function ShareImageModal({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '复制图片失败')
     } finally {
-      setWorking(null)
+      if (mounted.current) setWorking(null)
     }
   }
 
@@ -244,7 +272,7 @@ function ShareImageModal({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '下载图片失败')
     } finally {
-      setWorking(null)
+      if (mounted.current) setWorking(null)
     }
   }
 
@@ -291,10 +319,14 @@ async function renderPivotShareImage({
   dimLabel,
   basisLabel,
   chartRows,
+  total,
+  currency,
 }: {
   dimLabel: string
   basisLabel: string
   chartRows: PivotRow[]
+  total: number
+  currency: string
 }): Promise<Blob> {
   const width = 640
   const pad = 32
@@ -308,7 +340,7 @@ async function renderPivotShareImage({
   const pctWidth = 46
   const rowGap = 7
   const lineH = 17
-  const chartTotal = chartRows.reduce((sum, r) => sum + Math.max(0, r.value), 0) || 1
+  const chartTotal = chartRows.reduce((sum, r) => sum + Math.abs(r.value), 0) || 1
   const measureCanvas = document.createElement('canvas')
   const measureCtx = measureCanvas.getContext('2d')
   if (!measureCtx) throw new Error('当前浏览器无法生成图片')
@@ -373,6 +405,14 @@ async function renderPivotShareImage({
   ctx.stroke()
 
   drawCanvasDonut(ctx, chartRows, chartTotal, chartCx, chartCy, chartR, chartInnerR)
+  setFont(ctx, 15, 700, true)
+  ctx.fillStyle = strong
+  ctx.textAlign = 'center'
+  ctx.fillText(shortMoney(total, currency), chartCx, chartCy - 4)
+  setFont(ctx, 9, 500)
+  ctx.fillStyle = tertiary
+  ctx.fillText('合计', chartCx, chartCy + 12)
+  ctx.textAlign = 'left'
 
   const nameX = legendX + swatch + swatchGap
   const pctX = legendX + legendWidth
@@ -419,7 +459,7 @@ function drawCanvasDonut(ctx: CanvasRenderingContext2D, rows: PivotRow[], total:
   let start = -Math.PI / 2
   const gap = rows.length > 1 ? 0.025 : 0
   rows.forEach((row, i) => {
-    const sweep = (Math.max(0, row.value) / total) * Math.PI * 2
+    const sweep = (Math.abs(row.value) / total) * Math.PI * 2
     const g = Math.min(gap, sweep * 0.4)
     const a0 = start + g / 2
     const a1 = start + sweep - g / 2

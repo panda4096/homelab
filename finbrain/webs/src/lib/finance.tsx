@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { useId, useMemo, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { SYM } from './format'
 
 export const VIZ = [
@@ -515,7 +515,7 @@ export function Donut({
           ? { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, minWidth: 0, flex: '0 1 auto', width: legendWidth, maxWidth: '100%' }
           : {
             display: 'grid',
-            gridTemplateColumns: `repeat(${bottomColumns}, ${legendWidth}px)`,
+            gridTemplateColumns: `repeat(${bottomColumns}, minmax(0, ${legendWidth}px))`,
             justifyContent: 'center',
             columnGap: 24,
             rowGap: 8,
@@ -575,24 +575,46 @@ export interface SankeyLinkInput {
   color?: string
 }
 
-interface SankeyLayoutNode extends SankeyNodeInput {
+export interface SankeyGeomNode extends SankeyNodeInput {
   value: number
+  order: number
   x0: number
   x1: number
   y0: number
   y1: number
-  order: number
-  sourceCursor: number
-  targetCursor: number
 }
 
-interface SankeyLayoutLink extends SankeyLinkInput {
-  d: string
-  width: number
-  sourceY: number
-  targetY: number
+export interface SankeyGeomLink {
+  source: string
+  target: string
+  value: number
   color: string
+  width: number
+  /** ribbon endpoints: (sx,sy) on the source edge, (tx,ty) on the target edge */
+  sx: number
+  sy: number
+  tx: number
+  ty: number
+  bend: number
 }
+
+export interface SankeyLayout {
+  nodes: SankeyGeomNode[]
+  links: SankeyGeomLink[]
+}
+
+export interface SankeyLayoutOpts {
+  /** left x of a column's node rect */
+  columnX: (column: number) => number
+  nodeW: number
+  gap: number
+  /** top y of the drawable band */
+  top: number
+  /** usable vertical height of the band */
+  available: number
+}
+
+type SankeyWorkNode = SankeyGeomNode & { sourceCursor: number; targetCursor: number; height: number }
 
 export function SankeyChart({
   nodes,
@@ -616,17 +638,18 @@ export function SankeyChart({
   const padTop = columnLabels.length ? 42 : 24
   const padBottom = 24
   const gap = 14
-  const maxColumn = Math.max(0, ...nodes.map((n) => n.column))
-  const layout = layoutSankey(nodes, links, {
-    width,
-    height,
-    nodeW,
-    padX,
-    padTop,
-    padBottom,
-    gap,
-    maxColumn,
-  })
+  const maxColumn = useMemo(() => Math.max(0, ...nodes.map((n) => n.column)), [nodes])
+  const layout = useMemo(
+    () =>
+      computeSankeyLayout(nodes, links, {
+        columnX: (column) => sankeyColumnX(column, maxColumn, width, padX, nodeW),
+        nodeW,
+        gap,
+        top: padTop,
+        available: Math.max(80, height - padTop - padBottom),
+      }),
+    [nodes, links, maxColumn, height, padTop],
+  )
 
   if (!layout.nodes.length || !layout.links.length) {
     return (
@@ -636,10 +659,20 @@ export function SankeyChart({
     )
   }
 
+  const nameOf = new Map(layout.nodes.map((n) => [n.id, n.label]))
+  const labelFor = (id: string) => nameOf.get(id) ?? id
+
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="资产结构桑基图" style={{ display: 'block', overflow: 'visible' }}>
+    <svg
+      width="100%"
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={columnLabels.length ? `${columnLabels.join(' → ')} 桑基图` : '桑基图'}
+      style={{ display: 'block', overflow: 'visible' }}
+    >
       {columnLabels.map((label, column) => {
-        const x = xForSankeyColumn(column, maxColumn, width, padX, nodeW)
+        const x = sankeyColumnX(column, maxColumn, width, padX, nodeW)
         return (
           <text
             key={label}
@@ -660,9 +693,9 @@ export function SankeyChart({
           return (
             <path
               key={`${link.source}-${link.target}-${index}`}
-              d={link.d}
+              d={sankeyLinkPath(link)}
               stroke={link.color}
-              strokeWidth={Math.max(1.4, link.width)}
+              strokeWidth={link.width}
               strokeOpacity={active ? 0.3 : 0.08}
               strokeLinecap="butt"
               onMouseEnter={() => setHover(link.source)}
@@ -671,8 +704,8 @@ export function SankeyChart({
             >
               <title>
                 {showValues
-                  ? `${nodeLabel(layout.nodesByID, link.source)} → ${nodeLabel(layout.nodesByID, link.target)} · ${formatValue?.(link.value) ?? link.value.toLocaleString()}`
-                  : `${nodeLabel(layout.nodesByID, link.source)} → ${nodeLabel(layout.nodesByID, link.target)}`}
+                  ? `${labelFor(link.source)} → ${labelFor(link.target)} · ${formatValue?.(link.value) ?? link.value.toLocaleString()}`
+                  : `${labelFor(link.source)} → ${labelFor(link.target)}`}
               </title>
             </path>
           )
@@ -696,7 +729,7 @@ export function SankeyChart({
                 x={node.x0}
                 y={node.y0}
                 width={nodeW}
-                height={Math.max(3, node.y1 - node.y0)}
+                height={node.y1 - node.y0}
                 rx={4}
                 fill={node.color ?? VIZ[node.order % VIZ.length]}
               >
@@ -732,126 +765,146 @@ export function SankeyChart({
   )
 }
 
-function layoutSankey(
+// px floors applied at LAYOUT time so the packing cursor stays consistent with the
+// rendered stroke/rect. (Mixing an unclamped cursor with a clamped stroke makes
+// adjacent thin ribbons overlap; flooring the band keeps ribbons from spilling out.)
+const SANKEY_MIN_LINK = 1
+const SANKEY_MIN_NODE = 3
+
+// Render-agnostic Sankey geometry shared by the SVG <SankeyChart> and the canvas
+// share-image renderer — single source of truth for the layout math.
+export function computeSankeyLayout(
   nodes: SankeyNodeInput[],
   links: SankeyLinkInput[],
-  opts: {
-    width: number
-    height: number
-    nodeW: number
-    padX: number
-    padTop: number
-    padBottom: number
-    gap: number
-    maxColumn: number
-  },
-) {
+  opts: SankeyLayoutOpts,
+): SankeyLayout {
+  const { columnX, nodeW, gap, top, available } = opts
   const inputByID = new Map(nodes.map((n) => [n.id, n]))
   const incoming = new Map<string, number>()
   const outgoing = new Map<string, number>()
-  const safeLinks = links.filter((l) => {
-    if (l.value <= 0 || !Number.isFinite(l.value)) return false
-    return inputByID.has(l.source) && inputByID.has(l.target)
-  })
+  const safeLinks = links.filter(
+    (l) => l.value > 0 && Number.isFinite(l.value) && inputByID.has(l.source) && inputByID.has(l.target),
+  )
   for (const link of safeLinks) {
     outgoing.set(link.source, (outgoing.get(link.source) ?? 0) + link.value)
     incoming.set(link.target, (incoming.get(link.target) ?? 0) + link.value)
   }
 
-  const layoutNodes = nodes
+  const layoutNodes: SankeyWorkNode[] = nodes
     .map((node, index) => ({
       ...node,
       value: Math.max(incoming.get(node.id) ?? 0, outgoing.get(node.id) ?? 0),
+      order: index,
       x0: 0,
       x1: 0,
       y0: 0,
       y1: 0,
-      order: index,
       sourceCursor: 0,
       targetCursor: 0,
+      height: 0,
     }))
     .filter((n) => n.value > 0)
 
-  const nodesByID = new Map(layoutNodes.map((n) => [n.id, n]))
-  const columns = new Map<number, SankeyLayoutNode[]>()
+  const byID = new Map<string, SankeyWorkNode>(layoutNodes.map((n) => [n.id, n]))
+  const columns = new Map<number, SankeyWorkNode[]>()
   for (const node of layoutNodes) {
     const list = columns.get(node.column) ?? []
     list.push(node)
     columns.set(node.column, list)
   }
 
-  const available = Math.max(80, opts.height - opts.padTop - opts.padBottom)
+  // Cap each column's gap so a crowded column can never drive (available - gaps)
+  // negative and collapse the whole diagram to hairlines.
+  const colGap = (count: number) => (count > 1 ? Math.min(gap, available / (2 * count)) : 0)
+
+  // One scale across all columns (flow conservation) = the smallest column scale.
   const scales = [...columns.values()]
     .filter((col) => col.length > 0)
     .map((col) => {
       const total = col.reduce((sum, n) => sum + n.value, 0)
-      const gaps = Math.max(0, col.length - 1) * opts.gap
-      return total > 0 ? Math.max(0.0001, (available - gaps) / total) : 1
+      const usable = Math.max(1, available - colGap(col.length) * Math.max(0, col.length - 1))
+      return total > 0 ? Math.max(0.0001, usable / total) : 1
     })
-  const scale = Math.max(0.0001, Math.min(...scales))
+  const scale = scales.length ? Math.max(0.0001, Math.min(...scales)) : 1
+
+  // Floor each ribbon, then size each node band to hold its larger stacked side, so
+  // ribbons never overlap (cursor == rendered width) nor spill past the node band.
+  const linkWidth = (value: number) => Math.max(SANKEY_MIN_LINK, value * scale)
+  const inStack = new Map<string, number>()
+  const outStack = new Map<string, number>()
+  for (const link of safeLinks) {
+    const w = linkWidth(link.value)
+    inStack.set(link.target, (inStack.get(link.target) ?? 0) + w)
+    outStack.set(link.source, (outStack.get(link.source) ?? 0) + w)
+  }
+  for (const node of layoutNodes) {
+    node.height = Math.max(SANKEY_MIN_NODE, inStack.get(node.id) ?? 0, outStack.get(node.id) ?? 0)
+  }
 
   for (const [column, col] of columns) {
     col.sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
-    const used = col.reduce((sum, n) => sum + n.value * scale, 0) + Math.max(0, col.length - 1) * opts.gap
-    let y = opts.padTop + Math.max(0, (available - used) / 2)
-    const x = xForSankeyColumn(column, opts.maxColumn, opts.width, opts.padX, opts.nodeW)
+    const g = colGap(col.length)
+    const used = col.reduce((sum, n) => sum + n.height, 0) + Math.max(0, col.length - 1) * g
+    let y = top + Math.max(0, (available - used) / 2)
+    const x = columnX(column)
     col.forEach((node, index) => {
-      const h = Math.max(3, node.value * scale)
+      node.order = index
       node.x0 = x
-      node.x1 = x + opts.nodeW
+      node.x1 = x + nodeW
       node.y0 = y
-      node.y1 = y + h
+      node.y1 = y + node.height
       node.sourceCursor = y
       node.targetCursor = y
-      node.order = index
-      y += h + opts.gap
+      y += node.height + g
     })
   }
 
-  const sortedLinks = safeLinks
-    .filter((l) => nodesByID.has(l.source) && nodesByID.has(l.target))
+  const layoutLinks: SankeyGeomLink[] = safeLinks
+    .slice()
     .sort((a, b) => {
-      const sa = nodesByID.get(a.source)!
-      const sb = nodesByID.get(b.source)!
-      const ta = nodesByID.get(a.target)!
-      const tb = nodesByID.get(b.target)!
+      const sa = byID.get(a.source)!
+      const sb = byID.get(b.source)!
+      const ta = byID.get(a.target)!
+      const tb = byID.get(b.target)!
       return sa.column - sb.column || sa.y0 - sb.y0 || ta.y0 - tb.y0
     })
+    .map((link) => {
+      const source = byID.get(link.source)!
+      const target = byID.get(link.target)!
+      const w = linkWidth(link.value)
+      const sy = source.sourceCursor + w / 2
+      const ty = target.targetCursor + w / 2
+      source.sourceCursor += w
+      target.targetCursor += w
+      const sx = source.x1
+      const tx = target.x0
+      return {
+        source: link.source,
+        target: link.target,
+        value: link.value,
+        width: w,
+        sx,
+        sy,
+        tx,
+        ty,
+        bend: Math.max(44, Math.abs(tx - sx) * 0.54),
+        color: link.color ?? source.color ?? VIZ[source.order % VIZ.length],
+      }
+    })
 
-  const layoutLinks: SankeyLayoutLink[] = sortedLinks.map((link) => {
-    const source = nodesByID.get(link.source)!
-    const target = nodesByID.get(link.target)!
-    const w = link.value * scale
-    const sourceY = source.sourceCursor + w / 2
-    const targetY = target.targetCursor + w / 2
-    source.sourceCursor += w
-    target.targetCursor += w
-    const x0 = source.x1
-    const x1 = target.x0
-    const bend = Math.max(44, Math.abs(x1 - x0) * 0.54)
-    return {
-      ...link,
-      sourceY,
-      targetY,
-      width: w,
-      color: link.color ?? source.color ?? VIZ[source.order % VIZ.length],
-      d: `M${x0.toFixed(1)} ${sourceY.toFixed(1)} C${(x0 + bend).toFixed(1)} ${sourceY.toFixed(1)} ${(x1 - bend).toFixed(1)} ${targetY.toFixed(1)} ${x1.toFixed(1)} ${targetY.toFixed(1)}`,
-    }
-  })
-
-  return { nodes: layoutNodes, links: layoutLinks, nodesByID }
+  return { nodes: layoutNodes, links: layoutLinks }
 }
 
-function xForSankeyColumn(column: number, maxColumn: number, width: number, padX: number, nodeW: number) {
+export function sankeyColumnX(column: number, maxColumn: number, width: number, padX: number, nodeW: number) {
   if (maxColumn <= 0) return padX
   return padX + ((width - padX * 2 - nodeW) * column) / maxColumn
 }
 
-function nodeLabel(nodes: Map<string, SankeyLayoutNode>, id: string) {
-  return nodes.get(id)?.label ?? id
+export function sankeyLinkPath(link: SankeyGeomLink) {
+  return `M${link.sx.toFixed(1)} ${link.sy.toFixed(1)} C${(link.sx + link.bend).toFixed(1)} ${link.sy.toFixed(1)} ${(link.tx - link.bend).toFixed(1)} ${link.ty.toFixed(1)} ${link.tx.toFixed(1)} ${link.ty.toFixed(1)}`
 }
 
-function trimSankeyLabel(label: string, maxUnits: number) {
+export function trimSankeyLabel(label: string, maxUnits: number) {
   let units = 0
   let out = ''
   for (const ch of Array.from(label)) {
