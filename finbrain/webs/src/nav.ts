@@ -31,6 +31,7 @@ export const NAV: NavGroup[] = [
       { id: 'transactions', label: '持仓交易', icon: 'arrow-left-right' },
       { id: 'income', label: '收益事件', icon: 'coins' },
       { id: 'transfers', label: '账户转账', icon: 'repeat' },
+      { id: 'corporate-actions', label: '公司动作', icon: 'git-fork' },
     ],
   },
   {
@@ -40,6 +41,7 @@ export const NAV: NavGroup[] = [
       { id: 'targets', label: '目标配置', icon: 'target' },
       { id: 'recon', label: '现金对账', icon: 'scale' },
       { id: 'market', label: '价格 / 汇率 / 基准', icon: 'candlestick-chart' },
+      { id: 'summaries', label: '阶段总结', icon: 'scroll-text' },
       { id: 'settings', label: '设置', icon: 'settings' },
     ],
   },
@@ -55,10 +57,12 @@ export const TITLES: Record<string, string> = {
   transactions: '持仓交易',
   income: '收益事件',
   transfers: '账户转账',
+  'corporate-actions': '公司动作',
   accounts: '账户列表',
   targets: '目标配置',
   recon: '现金对账',
   market: '价格 / 汇率 / 基准',
+  summaries: '阶段总结',
   settings: '设置',
 }
 

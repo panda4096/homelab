@@ -3,12 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import { Badge, Button, Card, Icon } from '../ds'
 import {
   getValuation,
+  getTrend,
   listAccountTemplates,
   listAccounts,
   type AccountTemplate,
   type ValuationBucket,
 } from '../api'
-import { currencyLabel, KIND_LABEL, KIND_TONE, MARKET_TONE } from '../lib/format'
+import { currencyLabel, KIND_LABEL, KIND_TONE, MARKET_TONE, native } from '../lib/format'
 import {
   CurrencyValue,
   DeltaValue,
@@ -35,6 +36,11 @@ export function Dashboard() {
   const valuation = useQuery({
     queryKey: ['valuation', displayCurrency, fxMode],
     queryFn: () => getValuation({ display_currency: displayCurrency, fx_mode: fxMode }),
+    enabled: accounts.length > 0,
+  })
+  const trend = useQuery({
+    queryKey: ['trend', 'dashboard', displayCurrency, fxMode],
+    queryFn: () => getTrend({ granularity: 'month', display_currency: displayCurrency, fx_mode: fxMode }),
     enabled: accounts.length > 0,
   })
   const hasAccounts = accounts.length > 0
@@ -68,8 +74,12 @@ export function Dashboard() {
   }
 
   const v = valuation.data
-  const positionTrend = staticTrend(v.position_value)
-  const netWorthTrend = staticTrend(v.net_worth)
+  const trendPts = trend.data?.points ?? []
+  const netWorthSeries = trendPts.map((p) => num(p.net_worth) ?? 0)
+  const positionSeries = trendPts.map((p) => num(p.position_value) ?? 0)
+  const positionTrend = positionSeries.length >= 2 ? positionSeries : staticTrend(v.position_value)
+  const netWorthTrend = netWorthSeries.length >= 2 ? netWorthSeries : staticTrend(v.net_worth)
+  const trendIsReal = netWorthSeries.length >= 2
   const missingPriceCount = v.warnings.filter((w) => w.kind === 'missing_price').length
   const fxFallbackCount = v.warnings.filter((w) => w.kind === 'fx_fallback').length
   const liabilityValue = num(v.total_liabilities) ?? 0
@@ -158,7 +168,7 @@ export function Dashboard() {
           <div style={{ marginTop: 16 }}>
             <Sparkline data={positionTrend} width={300} height={34} />
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
-              历史走势待 P5 生成
+              {trendIsReal ? '近 12 个月月度截面（§6.14）' : '历史走势待更多盘点生成'}
             </div>
             <div style={{ display: 'flex', gap: 24, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--divider)' }}>
               <div>
@@ -176,8 +186,8 @@ export function Dashboard() {
         </div>
 
         <div className="fb-grid split-2">
-          <SmallMetric icon="badge-check" label="本年已实现盈亏" value="待 P4" />
-          <SmallMetric icon="coins" label="累计收益 · 本年" value="待 P4" />
+          <SmallMetric icon="badge-check" label="本年已实现盈亏" value={native(v.realized_pl_ytd, v.display_currency)} />
+          <SmallMetric icon="coins" label="累计收益 · 本年" value={native(v.income_ytd, v.display_currency)} />
         </div>
       </div>
 
@@ -256,7 +266,7 @@ export function Dashboard() {
 
       <div className="fb-grid db-12">
         <Card
-          eyebrow="净资产趋势 · 静态预览"
+          eyebrow={trendIsReal ? '净资产趋势 · 近 12 月' : '净资产趋势 · 静态预览'}
           actions={
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 11, color: 'var(--text-tertiary)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -274,7 +284,7 @@ export function Dashboard() {
                 <CurrencyValue value={v.net_worth} currency={v.display_currency} compact size="22px" />
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-                历史趋势待 P5 生成；当前仅展示当日估值结构。
+                {trendIsReal ? '按月度盘点截面插值生成（§6.14）；缺历史价格的持仓不计入当期市值。' : '历史趋势待更多盘点快照生成；当前仅展示当日估值结构。'}
               </div>
             </div>
           </div>
@@ -394,6 +404,11 @@ function EmptyDashboard({ onBuild }: { onBuild: () => void }) {
             <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0, maxWidth: 640 }}>
               当前还没有任何账户。可以从内置模板快速建账，或手动添加单个账户，然后开始更新余额 / 持仓。
             </p>
+            <ol style={{ fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.9, margin: '10px 0 0', paddingLeft: 18, maxWidth: 640 }}>
+              <li><strong style={{ color: 'var(--text-secondary)' }}>建账</strong> — 从模板或手动创建机构与账户</li>
+              <li><strong style={{ color: 'var(--text-secondary)' }}>录入</strong> — 更新余额 / 持仓快照（或用月度盘点向导一次录完），价格 / 汇率在「价格 / 汇率 / 基准」维护</li>
+              <li><strong style={{ color: 'var(--text-secondary)' }}>查看</strong> — 仪表盘看净资产与分布，持仓总览、趋势、对账逐步点亮</li>
+            </ol>
             <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
               <Button variant="primary" size="sm" iconLeft={<Icon name="plus" size={14} />} onClick={onBuild}>
                 新增账户

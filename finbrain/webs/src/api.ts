@@ -341,6 +341,8 @@ export interface Valuation {
   unrealized_pl: string
   unrealized_pl_pct: string | null
   position_share: string | null
+  realized_pl_ytd: string
+  income_ytd: string
   allocations: Record<string, ValuationBucket[]>
   positions: ValuationPosition[]
   position_groups: ValuationPosition[]
@@ -690,4 +692,466 @@ export function getValuation(params?: {
   if (params?.fx_mode) qs.set('fx_mode', params.fx_mode)
   const suffix = qs.toString() ? `?${qs}` : ''
   return request<Valuation>(`/api/valuation${suffix}`)
+}
+
+// ---------- P4 transactions / transfers / income events / corporate actions ----------
+
+export type TransactionAction = 'buy' | 'sell'
+
+export interface Transaction {
+  id: number
+  account_id: number
+  account_name?: string
+  institution?: string
+  symbol: string
+  display_name?: string | null
+  action: TransactionAction
+  trade_date: string
+  settle_date: string | null
+  quantity: string
+  price: string
+  currency: string
+  fee: string | null
+  is_settled: boolean
+  notes: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTransactionInput {
+  account_id: number
+  symbol: string
+  action: TransactionAction
+  trade_date: string
+  settle_date?: string | null
+  quantity: string
+  price: string
+  currency: string
+  fee?: string | null
+  is_settled?: boolean
+  notes?: string | null
+}
+
+export type UpdateTransactionInput = Omit<CreateTransactionInput, 'account_id' | 'symbol'>
+
+export interface Transfer {
+  id: number
+  from_account_id: number
+  to_account_id: number
+  from_account_name?: string | null
+  to_account_name?: string | null
+  from_currency?: string
+  to_currency?: string
+  from_amount: string
+  to_amount: string
+  transfer_date: string
+  notes: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTransferInput {
+  from_account_id: number
+  to_account_id: number
+  from_amount: string
+  to_amount: string
+  transfer_date: string
+  notes?: string | null
+}
+
+export type UpdateTransferInput = CreateTransferInput
+
+export type IncomeKind = 'dividend' | 'interest' | 'rebate' | 'other'
+
+export interface IncomeEvent {
+  id: number
+  event_kind: IncomeKind
+  event_date: string
+  account_id: number
+  account_name?: string
+  institution?: string
+  symbol: string | null
+  amount: string
+  currency: string
+  payment_account_id: number | null
+  payment_account_name?: string | null
+  tax_withheld: string | null
+  note: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateIncomeEventInput {
+  event_kind: IncomeKind
+  event_date: string
+  account_id: number
+  symbol?: string | null
+  amount: string
+  currency: string
+  payment_account_id?: number | null
+  tax_withheld?: string | null
+  note?: string | null
+}
+
+export type UpdateIncomeEventInput = CreateIncomeEventInput
+
+export type CorporateActionKind = 'split' | 'merge' | 'rights'
+
+export interface CorporateAction {
+  id: number
+  symbol: string
+  display_name?: string | null
+  action: CorporateActionKind
+  event_date: string
+  ratio_numerator: string
+  ratio_denominator: string
+  extra?: unknown
+  notes: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateCorporateActionInput {
+  symbol: string
+  action: CorporateActionKind
+  event_date: string
+  ratio_numerator: string
+  ratio_denominator: string
+  extra?: unknown
+  notes?: string | null
+}
+
+export type UpdateCorporateActionInput = Omit<CreateCorporateActionInput, 'symbol'>
+
+export interface ReconEvent {
+  date: string
+  kind: string
+  label: string
+  amount: string
+  running: string
+}
+
+export interface PositionDelta {
+  symbol: string
+  replay_quantity: string
+  snapshot_quantity: string
+  delta: string
+}
+
+export interface AccountReconciliation {
+  account_id: number
+  account_name: string
+  currency: string
+  snapshot_date: string | null
+  snapshot_balance: string
+  expected_balance: string
+  reconciliation_delta: string
+  over_threshold: boolean
+  settled_only: boolean
+  events: ReconEvent[]
+  position_deltas: PositionDelta[]
+}
+
+export interface TransactionFilter {
+  account_id?: number
+  symbol?: string
+  limit?: number
+}
+
+function listQuery(params: Record<string, string | number | undefined>) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '' && v !== 0) q.set(k, String(v))
+  })
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
+export function listTransactions(filter: TransactionFilter = {}): Promise<ListEnvelope<Transaction>> {
+  return request<ListEnvelope<Transaction>>(`/api/transactions${listQuery(filter as Record<string, string | number | undefined>)}`)
+}
+
+export function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
+  return request<Transaction>('/api/transactions', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateTransaction(id: number, input: UpdateTransactionInput): Promise<Transaction> {
+  return request<Transaction>(`/api/transactions/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteTransaction(id: number): Promise<void> {
+  return request<void>(`/api/transactions/${id}`, { method: 'DELETE' })
+}
+
+export function listTransfers(accountId?: number): Promise<ListEnvelope<Transfer>> {
+  return request<ListEnvelope<Transfer>>(`/api/transfers${listQuery({ account_id: accountId })}`)
+}
+
+export function createTransfer(input: CreateTransferInput): Promise<Transfer> {
+  return request<Transfer>('/api/transfers', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateTransfer(id: number, input: UpdateTransferInput): Promise<Transfer> {
+  return request<Transfer>(`/api/transfers/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteTransfer(id: number): Promise<void> {
+  return request<void>(`/api/transfers/${id}`, { method: 'DELETE' })
+}
+
+export function listIncomeEvents(filter: { account_id?: number; symbol?: string; event_kind?: string } = {}): Promise<ListEnvelope<IncomeEvent>> {
+  return request<ListEnvelope<IncomeEvent>>(`/api/income-events${listQuery(filter)}`)
+}
+
+export function createIncomeEvent(input: CreateIncomeEventInput): Promise<IncomeEvent> {
+  return request<IncomeEvent>('/api/income-events', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateIncomeEvent(id: number, input: UpdateIncomeEventInput): Promise<IncomeEvent> {
+  return request<IncomeEvent>(`/api/income-events/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteIncomeEvent(id: number): Promise<void> {
+  return request<void>(`/api/income-events/${id}`, { method: 'DELETE' })
+}
+
+export function listCorporateActions(symbol?: string): Promise<ListEnvelope<CorporateAction>> {
+  return request<ListEnvelope<CorporateAction>>(`/api/corporate-actions${listQuery({ symbol })}`)
+}
+
+export function createCorporateAction(input: CreateCorporateActionInput): Promise<CorporateAction> {
+  return request<CorporateAction>('/api/corporate-actions', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateCorporateAction(id: number, input: UpdateCorporateActionInput): Promise<CorporateAction> {
+  return request<CorporateAction>(`/api/corporate-actions/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteCorporateAction(id: number): Promise<void> {
+  return request<void>(`/api/corporate-actions/${id}`, { method: 'DELETE' })
+}
+
+export function getAccountReconciliation(
+  accountId: number,
+  params: { date?: string; settled_only?: boolean } = {},
+): Promise<AccountReconciliation> {
+  const qs = new URLSearchParams()
+  if (params.date) qs.set('date', params.date)
+  if (params.settled_only) qs.set('settled_only', 'true')
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return request<AccountReconciliation>(`/api/accounts/${accountId}/reconciliation${suffix}`)
+}
+
+// ---------- P5 trend / analysis ----------
+
+export interface TrendPoint {
+  date: string
+  net_worth: string
+  total_assets: string
+  total_liabilities: string
+  cash_value: string
+  position_value: string
+}
+
+export interface TrendSeries {
+  from: string
+  to: string
+  granularity: TimeAggregation
+  display_currency: string
+  fx_mode: FxMode
+  points: TrendPoint[]
+}
+
+export function getTrend(params: {
+  from?: string
+  to?: string
+  granularity?: TimeAggregation
+  display_currency?: string
+  fx_mode?: FxMode
+} = {}): Promise<TrendSeries> {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, String(v)) })
+  const s = q.toString()
+  return request<TrendSeries>(`/api/trend${s ? `?${s}` : ''}`)
+}
+
+// ---------- P5 allocation targets ----------
+
+export interface AllocationTargetItem {
+  id?: number
+  dimension_value: string
+  target_pct: string
+  actual_pct?: string
+  drift?: string
+  rebalance?: string
+  over_threshold?: boolean
+}
+
+export interface AllocationTargetSet {
+  id: number
+  name: string
+  dimension: string
+  drift_threshold_pct: string
+  is_dashboard_visible: boolean
+  is_archived: boolean
+  note: string | null
+  items: AllocationTargetItem[]
+  net_worth?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SaveAllocationTargetInput {
+  name: string
+  dimension: string
+  drift_threshold_pct?: string
+  is_dashboard_visible?: boolean
+  is_archived?: boolean
+  note?: string | null
+  items: { dimension_value: string; target_pct: string }[]
+}
+
+export function listAllocationTargets(): Promise<AllocationTargetSet[]> {
+  return request<AllocationTargetSet[]>('/api/allocation-targets')
+}
+
+export function createAllocationTarget(input: SaveAllocationTargetInput): Promise<AllocationTargetSet> {
+  return request<AllocationTargetSet>('/api/allocation-targets', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateAllocationTarget(id: number, input: SaveAllocationTargetInput): Promise<AllocationTargetSet> {
+  return request<AllocationTargetSet>(`/api/allocation-targets/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteAllocationTarget(id: number): Promise<void> {
+  return request<void>(`/api/allocation-targets/${id}`, { method: 'DELETE' })
+}
+
+export function getAllocationTargetDrift(id: number, params: { display_currency?: string; fx_mode?: FxMode } = {}): Promise<AllocationTargetSet> {
+  const q = new URLSearchParams()
+  if (params.display_currency) q.set('display_currency', params.display_currency)
+  if (params.fx_mode) q.set('fx_mode', params.fx_mode)
+  const s = q.toString()
+  return request<AllocationTargetSet>(`/api/allocation-targets/${id}/drift${s ? `?${s}` : ''}`)
+}
+
+// ---------- P6 LLM + summaries ----------
+
+export interface LLMStatus {
+  configured: boolean
+  provider: string
+  model: string
+}
+
+export interface QueryResult {
+  columns: string[]
+  rows: unknown[][]
+  truncated: boolean
+}
+
+export interface Summary {
+  id: number
+  period_kind: 'month' | 'quarter' | 'year'
+  period_start: string
+  period_end: string
+  display_currency: string
+  content: string
+  meta?: unknown
+  created_at: string
+}
+
+export function getLLMStatus(): Promise<LLMStatus> {
+  return request<LLMStatus>('/api/llm/status')
+}
+
+export function llmParse(text: string): Promise<{ draft: unknown }> {
+  return request<{ draft: unknown }>('/api/llm/parse', { method: 'POST', body: JSON.stringify({ text }) })
+}
+
+export function llmQuery(text: string): Promise<{ sql: string; result: QueryResult }> {
+  return request<{ sql: string; result: QueryResult }>('/api/llm/query', { method: 'POST', body: JSON.stringify({ text }) })
+}
+
+export function listSummaries(): Promise<Summary[]> {
+  return request<Summary[]>('/api/summaries')
+}
+
+export function generateSummary(input: {
+  period_kind: 'month' | 'quarter' | 'year'
+  period_start: string
+  period_end: string
+  display_currency?: string
+  fx_mode?: FxMode
+}): Promise<Summary> {
+  return request<Summary>('/api/summaries/generate', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function deleteSummary(id: number): Promise<void> {
+  return request<void>(`/api/summaries/${id}`, { method: 'DELETE' })
+}
+
+// ---------- P5 annotations ----------
+
+export type AnchorKind = 'date' | 'account' | 'symbol' | 'position'
+
+export interface Annotation {
+  id: number
+  anchor_kind: AnchorKind
+  anchor_keys: unknown
+  event_date: string
+  label: string
+  body: string | null
+  color: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAnnotationInput {
+  anchor_kind?: AnchorKind
+  anchor_keys?: unknown
+  event_date: string
+  label: string
+  body?: string | null
+  color?: string | null
+}
+
+export function listAnnotations(params: { from?: string; to?: string } = {}): Promise<Annotation[]> {
+  const q = new URLSearchParams()
+  if (params.from) q.set('from', params.from)
+  if (params.to) q.set('to', params.to)
+  const s = q.toString()
+  return request<Annotation[]>(`/api/annotations${s ? `?${s}` : ''}`)
+}
+
+export function createAnnotation(input: CreateAnnotationInput): Promise<Annotation> {
+  return request<Annotation>('/api/annotations', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function deleteAnnotation(id: number): Promise<void> {
+  return request<void>(`/api/annotations/${id}`, { method: 'DELETE' })
+}
+
+// ---------- P5 growth attribution (§6.12) ----------
+
+export interface AttributionResult {
+  from: string
+  to: string
+  display_currency: string
+  net_change: string
+  price_effect: string
+  quantity_effect: string
+  income_effect: string
+  fx_effect: string
+}
+
+export function getAttribution(params: { from: string; to: string; display_currency?: string; fx_mode?: FxMode }): Promise<AttributionResult> {
+  const q = new URLSearchParams({ from: params.from, to: params.to })
+  if (params.display_currency) q.set('display_currency', params.display_currency)
+  if (params.fx_mode) q.set('fx_mode', params.fx_mode)
+  return request<AttributionResult>(`/api/attribution?${q.toString()}`)
 }

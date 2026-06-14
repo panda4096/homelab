@@ -1,30 +1,29 @@
-import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Icon, Segmented } from '../ds'
 import { NAV } from '../nav'
+import { CopilotPanel } from './CopilotPanel'
 import wordmark from '../assets/logo/finbrain-wordmark.svg'
 
-// Ported from design/project/app/Shell.jsx (Sidebar). The design's "Copilot"
-// pane (FBCopilot) is out of P0 scope, so the Copilot mode shows a tasteful
-// placeholder rail instead.
-export function Sidebar() {
+// Ported from design/project/app/Shell.jsx (Sidebar). The Copilot mode hosts the
+// persistent NL conversation panel (P6). Open state is controlled by App so ⌘K
+// and the Topbar trigger toggle the same pane.
+export function Sidebar({ copilotOpen, onCopilotChange }: { copilotOpen: boolean; onCopilotChange: (v: boolean) => void }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'nav' | 'copilot'>('nav')
-  const copilot = mode === 'copilot'
+  const copilot = copilotOpen
   const active = location.pathname.replace(/^\//, '') || 'dashboard'
 
   return (
     <aside
       style={{
         width: copilot ? 348 : 'var(--sidebar-width)',
+        minWidth: copilot ? 348 : 'var(--sidebar-width)',
         background: 'var(--surface-panel)',
         borderRight: '1px solid var(--divider)',
         display: 'flex',
         flexDirection: 'column',
         flex: 'none',
         height: '100%',
-        transition: 'width .24s var(--ease-out)',
       }}
     >
       <div
@@ -40,8 +39,8 @@ export function Sidebar() {
       <div style={{ padding: '10px 10px 6px' }}>
         <Segmented
           size="sm"
-          value={mode}
-          onChange={(m) => setMode(m as 'nav' | 'copilot')}
+          value={copilot ? 'copilot' : 'nav'}
+          onChange={(m) => onCopilotChange(m === 'copilot')}
           options={[
             { value: 'nav', label: '导航' },
             { value: 'copilot', label: 'Copilot' },
@@ -50,24 +49,7 @@ export function Sidebar() {
       </div>
 
       {copilot ? (
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: '24px 22px',
-            textAlign: 'center',
-          }}
-        >
-          <Icon name="sparkles" size={26} color="var(--accent)" />
-          <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>Copilot</div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-            自然语言录入与问答将在后续版本接入。按 ⌘K 体验解析预览。
-          </div>
-        </div>
+        <CopilotPanel onClose={() => onCopilotChange(false)} />
       ) : (
         <>
           <nav style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 18px' }}>

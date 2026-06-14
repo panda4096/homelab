@@ -139,7 +139,10 @@ func (s *Store) AccountHasData(ctx context.Context, id int64) (bool, error) {
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE account_id=$1)
 		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$1 OR payment_account_id=$1)`, id).Scan(&exists)
+		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$1 OR payment_account_id=$1)
+		    OR EXISTS(SELECT 1 FROM transactions WHERE account_id=$1)
+		    OR EXISTS(SELECT 1 FROM transfers WHERE from_account_id=$1 OR to_account_id=$1)
+		    OR EXISTS(SELECT 1 FROM income_events WHERE account_id=$1 OR payment_account_id=$1)`, id).Scan(&exists)
 	return exists, err
 }
 
@@ -175,7 +178,10 @@ func (s *Store) DeleteAccountIfEmpty(ctx context.Context, id int64) error {
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE account_id=$1)
 		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE account_id=$1)
-		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$1 OR payment_account_id=$1)`, id).Scan(&hasData); err != nil {
+		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE account_id=$1 OR payment_account_id=$1)
+		    OR EXISTS(SELECT 1 FROM transactions WHERE account_id=$1)
+		    OR EXISTS(SELECT 1 FROM transfers WHERE from_account_id=$1 OR to_account_id=$1)
+		    OR EXISTS(SELECT 1 FROM income_events WHERE account_id=$1 OR payment_account_id=$1)`, id).Scan(&hasData); err != nil {
 		return err
 	}
 	if hasData {

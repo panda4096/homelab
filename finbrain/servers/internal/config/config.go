@@ -16,6 +16,11 @@ type Config struct {
 	Location    *time.Location // resolved from Timezone
 	AuthHeader  string         // FINBRAIN_AUTH_HEADER; trusted identity header when behind a proxy
 	StaticDir   string         // FINBRAIN_STATIC_DIR; optional built-frontend dir to serve
+
+	// LLM (P6). DeepSeek is the default provider (PLAN §2.4); Anthropic is a fallback.
+	DeepSeekAPIKey  string // DEEPSEEK_API_KEY
+	AnthropicAPIKey string // ANTHROPIC_API_KEY (fallback)
+	LLMModel        string // FINBRAIN_LLM_MODEL; optional override
 }
 
 // Load reads configuration from the environment and validates it.
@@ -27,6 +32,10 @@ func Load() (*Config, error) {
 		Timezone:    getenv("FINBRAIN_TIMEZONE", "Asia/Shanghai"),
 		AuthHeader:  os.Getenv("FINBRAIN_AUTH_HEADER"),
 		StaticDir:   os.Getenv("FINBRAIN_STATIC_DIR"),
+
+		DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
+		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
+		LLMModel:        os.Getenv("FINBRAIN_LLM_MODEL"),
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")

@@ -78,7 +78,10 @@ func (s *Store) DeleteInstrument(ctx context.Context, symbol string) error {
 	if err := tx.QueryRow(ctx, `
 		SELECT
 			(SELECT count(*) FROM position_snapshots WHERE symbol=$1)
-			+ (SELECT count(*) FROM prices WHERE symbol=$1)`, symbol).Scan(&refs); err != nil {
+			+ (SELECT count(*) FROM prices WHERE symbol=$1)
+			+ (SELECT count(*) FROM transactions WHERE symbol=$1)
+			+ (SELECT count(*) FROM income_events WHERE symbol=$1)
+			+ (SELECT count(*) FROM corporate_actions WHERE symbol=$1)`, symbol).Scan(&refs); err != nil {
 		return err
 	}
 	if refs > 0 {

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Sidebar } from './shell/Sidebar'
 import { Topbar } from './shell/Topbar'
-import { NLModal } from './shell/NLModal'
+import { ErrorBoundary } from './shell/ErrorBoundary'
 import { Placeholder } from './screens/Placeholder'
 import { Settings } from './screens/Settings'
 import { Dashboard } from './screens/Dashboard'
@@ -14,21 +14,22 @@ import { MarketData } from './screens/MarketData'
 import { ReviewWizard } from './screens/ReviewWizard'
 import { QuickEntry } from './screens/QuickEntry'
 import { BuildAccount } from './screens/BuildAccount'
+import { Transactions } from './screens/Transactions'
+import { IncomeEvents } from './screens/IncomeEvents'
+import { Transfers } from './screens/Transfers'
+import { CorporateActions } from './screens/CorporateActions'
+import { Reconciliation } from './screens/Reconciliation'
+import { TrendAnalysis } from './screens/TrendAnalysis'
+import { Targets } from './screens/Targets'
+import { Pivot } from './screens/Pivot'
+import { Compare } from './screens/Compare'
+import { Summaries } from './screens/Summaries'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { getAccount } from './api'
 
 // Screens that are bespoke in P0/P1; everything else falls back to Placeholder.
-const PLACEHOLDER_IDS = [
-  'trend',
-  'compare',
-  'pivot',
-  'transactions',
-  'income',
-  'transfers',
-  'targets',
-  'recon',
-]
+const PLACEHOLDER_IDS: string[] = []
 
 export function App() {
   const [copilot, setCopilot] = useState(false)
@@ -78,11 +79,12 @@ export function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      <Sidebar />
+      <Sidebar copilotOpen={copilot} onCopilotChange={setCopilot} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Topbar title={title} onNL={() => setCopilot(true)} />
         <div className="fb-scroll" style={{ flex: 1 }}>
           <div key={route} className="fb-fade">
+            <ErrorBoundary key={route}>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
@@ -91,18 +93,28 @@ export function App() {
               <Route path="/accounts/:id/positions/:symbol" element={<PositionHistory />} />
               <Route path="/accounts/:id" element={<AccountDetail />} />
               <Route path="/holdings" element={<Holdings />} />
+              <Route path="/trend" element={<TrendAnalysis />} />
               <Route path="/review" element={<ReviewWizard />} />
               <Route path="/market" element={<MarketData />} />
+              <Route path="/transactions" element={<Transactions />} />
+              <Route path="/income" element={<IncomeEvents />} />
+              <Route path="/transfers" element={<Transfers />} />
+              <Route path="/corporate-actions" element={<CorporateActions />} />
+              <Route path="/recon" element={<Reconciliation />} />
+              <Route path="/targets" element={<Targets />} />
+              <Route path="/pivot" element={<Pivot />} />
+              <Route path="/compare" element={<Compare />} />
+              <Route path="/summaries" element={<Summaries />} />
               <Route path="/settings" element={<Settings />} />
               {PLACEHOLDER_IDS.map((id) => (
                 <Route key={id} path={`/${id}`} element={<Placeholder id={id} />} />
               ))}
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
+            </ErrorBoundary>
           </div>
         </div>
       </div>
-      {copilot ? <NLModal onClose={() => setCopilot(false)} /> : null}
       <QuickEntry />
       <BuildAccount />
     </div>
