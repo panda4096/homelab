@@ -505,7 +505,6 @@ export function Donut({
           fontFamily="var(--font-mono)"
           fontSize="9.5"
           fill="var(--text-tertiary)"
-          letterSpacing="0.06em"
         >
           {centerSub}
         </text>

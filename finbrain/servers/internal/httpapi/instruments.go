@@ -20,7 +20,7 @@ func (s *Server) listInstruments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getInstrument(w http.ResponseWriter, r *http.Request) {
-	i, err := s.store.GetInstrument(r.Context(), chi.URLParam(r, "symbol"))
+	i, err := s.store.GetInstrument(r.Context(), strings.ToUpper(strings.TrimSpace(chi.URLParam(r, "symbol"))))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "instrument not found")
 		return
@@ -37,7 +37,7 @@ func (s *Server) upsertInstrument(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	in.Symbol = strings.TrimSpace(in.Symbol)
+	in.Symbol = strings.ToUpper(strings.TrimSpace(in.Symbol))
 	if in.Symbol == "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "symbol is required")
 		return
@@ -57,7 +57,7 @@ func (s *Server) upsertInstrument(w http.ResponseWriter, r *http.Request) {
 
 // patchInstrument merges body fields onto the existing instrument at {symbol}.
 func (s *Server) patchInstrument(w http.ResponseWriter, r *http.Request) {
-	symbol := chi.URLParam(r, "symbol")
+	symbol := strings.ToUpper(strings.TrimSpace(chi.URLParam(r, "symbol")))
 	cur, err := s.store.GetInstrument(r.Context(), symbol)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "instrument not found")
@@ -110,7 +110,7 @@ func (s *Server) patchInstrument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteInstrument(w http.ResponseWriter, r *http.Request) {
-	err := s.store.DeleteInstrument(r.Context(), chi.URLParam(r, "symbol"))
+	err := s.store.DeleteInstrument(r.Context(), strings.ToUpper(strings.TrimSpace(chi.URLParam(r, "symbol"))))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "instrument not found")
 		return
@@ -127,7 +127,7 @@ func (s *Server) deleteInstrument(w http.ResponseWriter, r *http.Request) {
 }
 
 func normalizeInstrumentText(in *store.Instrument) {
-	in.Symbol = strings.TrimSpace(in.Symbol)
+	in.Symbol = strings.ToUpper(strings.TrimSpace(in.Symbol))
 	if in.DisplayName != nil {
 		v := strings.TrimSpace(*in.DisplayName)
 		in.DisplayName = &v

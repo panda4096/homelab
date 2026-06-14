@@ -101,7 +101,7 @@ export function Compare() {
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>对比两个截面的资产构成差异;价格/数量/收益/汇率四桶增长归因(§6.12)将在后续迭代补充。</div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>对比两个截面的资产构成差异；增长归因按价格、数量 / 余额、收益事件、汇率 / 其他四桶拆解。</div>
     </Page>
   )
 }

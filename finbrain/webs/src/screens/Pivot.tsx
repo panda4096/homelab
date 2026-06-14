@@ -65,19 +65,28 @@ export function Pivot() {
   }, [val.data, dim])
 
   const total = rows.reduce((a, r) => a + r.value, 0)
+  const hasNegativeRows = rows.some((r) => r.value < 0)
   // The donut/share plots exposure (Math.abs), so rank the chart by magnitude — otherwise
   // a large liability (very negative) sorts to the tail and gets folded into 其他 despite
   // being a major exposure. The table keeps its signed sort (rows) for the net view.
   const chartRows = useMemo(() => {
     const byExposure = [...rows].sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-    return compactChartRows(byExposure, total, dim === 'symbol' ? 7 : VIZ.length)
-  }, [rows, total, dim])
+    return compactChartRows(byExposure, dim === 'symbol' ? 7 : VIZ.length)
+  }, [rows, dim])
   const donutItems: DonutItem[] = chartRows.map((r, i) => ({ key: r.key, name: r.name, value: Math.abs(r.value), color: VIZ[i % VIZ.length] }))
   // The donut center must equal what the ring actually draws (sum of plotted, abs basis).
   // For quote_currency this is gross exposure; the signed net stays in the table 合计 row.
   const donutTotal = donutItems.reduce((sum, it) => sum + it.value, 0)
   const dimLabel = DIMENSIONS.find((d) => d.value === dim)?.label ?? dim
-  const basisLabel = dim === 'symbol' ? '按持仓市值' : dim === 'quote_currency' ? '按真实计价币种(暴露口径)' : '按净资产口径'
+  const exposureBasis = dim === 'quote_currency' || hasNegativeRows
+  const chartCenterSub = exposureBasis ? '暴露' : '合计'
+  const basisLabel = dim === 'symbol'
+    ? '按持仓市值'
+    : dim === 'quote_currency'
+      ? '按真实计价币种(暴露口径)'
+      : hasNegativeRows
+        ? '按绝对暴露口径'
+        : '按净资产口径'
 
   return (
     <Page>
@@ -115,7 +124,7 @@ export function Pivot() {
             <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 12px' }}>
               {donutItems.length ? (
                 <div style={{ width: 'min(100%, 760px)' }}>
-                  <Donut items={donutItems} size={220} thickness={24} centerLabel={shortMoney(donutTotal, displayCurrency)} centerSub={dim === 'quote_currency' ? '暴露' : '合计'} legendPlacement="side" />
+                  <Donut items={donutItems} size={220} thickness={24} centerLabel={shortMoney(donutTotal, displayCurrency)} centerSub={chartCenterSub} legendPlacement="side" />
                 </div>
               ) : (
                 <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
@@ -153,12 +162,9 @@ export function Pivot() {
       )}
       {shareOpen && view === 'pivot' ? (
         <ShareImageModal
-          dim={dim}
           dimLabel={dimLabel}
           basisLabel={basisLabel}
           chartRows={chartRows}
-          total={donutTotal}
-          currency={displayCurrency}
           onClose={() => setShareOpen(false)}
         />
       ) : null}
@@ -183,13 +189,14 @@ function fallbackLabel(key: string, name: string) {
   return name || key || '未分类'
 }
 
-function compactChartRows(rows: PivotRow[], total: number, limit: number) {
+function compactChartRows(rows: PivotRow[], limit: number) {
   if (rows.length <= limit) return rows
   const head = rows.slice(0, limit)
   const tail = rows.slice(limit)
   // The donut plots on an abs basis, so aggregate the tail by magnitude — never silently
   // drop it (a net-negative tail still contains real exposure shown in the table).
   const restAbs = tail.reduce((sum, r) => sum + Math.abs(r.value), 0)
+  const exposureTotal = rows.reduce((sum, r) => sum + Math.abs(r.value), 0)
   if (restAbs === 0) return head
   return [
     ...head,
@@ -197,26 +204,20 @@ function compactChartRows(rows: PivotRow[], total: number, limit: number) {
       key: '__other__',
       name: `其他（${tail.length}）`,
       value: restAbs,
-      percent: total ? ((restAbs / Math.abs(total)) * 100).toFixed(2) : '0.00',
+      percent: exposureTotal ? ((restAbs / exposureTotal) * 100).toFixed(2) : '0.00',
     },
   ]
 }
 
 function ShareImageModal({
-  dim,
   dimLabel,
   basisLabel,
   chartRows,
-  total,
-  currency,
   onClose,
 }: {
-  dim: string
   dimLabel: string
   basisLabel: string
   chartRows: PivotRow[]
-  total: number
-  currency: string
   onClose: () => void
 }) {
   const toast = useToast()
@@ -231,7 +232,7 @@ function ShareImageModal({
   useEffect(() => {
     let cancelled = false
     setGenerating(true)
-    renderPivotShareImage({ dim, dimLabel, basisLabel, chartRows, total, currency })
+    renderPivotShareImage({ dimLabel, basisLabel, chartRows })
       .then((blob) => {
         if (cancelled) return
         setPreviewUrl(URL.createObjectURL(blob))
@@ -243,7 +244,7 @@ function ShareImageModal({
     return () => {
       cancelled = true
     }
-  }, [basisLabel, chartRows, currency, dim, dimLabel, toast, total])
+  }, [basisLabel, chartRows, dimLabel, toast])
 
   useEffect(() => {
     return () => {
@@ -251,7 +252,7 @@ function ShareImageModal({
     }
   }, [previewUrl])
 
-  const makeBlob = () => renderPivotShareImage({ dim, dimLabel, basisLabel, chartRows, total, currency })
+  const makeBlob = () => renderPivotShareImage({ dimLabel, basisLabel, chartRows })
 
   async function copyImage() {
     const clipboard = navigator.clipboard as Clipboard & { write?: (items: unknown[]) => Promise<void> }
@@ -279,7 +280,7 @@ function ShareImageModal({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `finbrain-pivot-${dim}-${new Date().toISOString().slice(0, 10)}.png`
+      a.download = `finbrain-pivot-${dimLabel}-${new Date().toISOString().slice(0, 10)}.png`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -332,19 +333,13 @@ function ShareImageModal({
 }
 
 async function renderPivotShareImage({
-  dim,
   dimLabel,
   basisLabel,
   chartRows,
-  total,
-  currency,
 }: {
-  dim: string
   dimLabel: string
   basisLabel: string
   chartRows: PivotRow[]
-  total: number
-  currency: string
 }): Promise<Blob> {
   const width = 640
   const pad = 32
@@ -424,14 +419,6 @@ async function renderPivotShareImage({
   ctx.stroke()
 
   drawCanvasDonut(ctx, chartRows, chartTotal, chartCx, chartCy, chartR, chartInnerR)
-  setFont(ctx, 15, 700, true)
-  ctx.fillStyle = strong
-  ctx.textAlign = 'center'
-  ctx.fillText(shortMoney(total, currency), chartCx, chartCy - 4)
-  setFont(ctx, 9, 500)
-  ctx.fillStyle = tertiary
-  ctx.fillText(dim === 'quote_currency' ? '暴露' : '合计', chartCx, chartCy + 12)
-  ctx.textAlign = 'left'
 
   const nameX = legendX + swatch + swatchGap
   const pctX = legendX + legendWidth

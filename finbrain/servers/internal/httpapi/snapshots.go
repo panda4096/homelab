@@ -210,7 +210,7 @@ func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &p) {
 		return
 	}
-	p.Symbol = strings.TrimSpace(p.Symbol)
+	p.Symbol = strings.ToUpper(strings.TrimSpace(p.Symbol))
 	if p.AccountID == 0 || p.Symbol == "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "account_id and symbol are required")
 		return

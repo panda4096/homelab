@@ -264,7 +264,7 @@ func (s *Server) getValuation(w http.ResponseWriter, r *http.Request) {
 }
 
 func normalizePrice(p *store.Price) {
-	p.Symbol = strings.TrimSpace(p.Symbol)
+	p.Symbol = strings.ToUpper(strings.TrimSpace(p.Symbol))
 	p.PriceDate = strings.TrimSpace(p.PriceDate)
 	p.Price = strings.TrimSpace(p.Price)
 	p.Currency = strings.ToUpper(strings.TrimSpace(p.Currency))

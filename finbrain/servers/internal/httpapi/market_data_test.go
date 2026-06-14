@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/config"
+	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
 func TestBatchUpsertPricesRejectsInvalidRows(t *testing.T) {
@@ -74,5 +75,22 @@ func TestBatchUpsertFxRatesRejectsInvalidRows(t *testing.T) {
 	}
 	if !strings.Contains(got.Message, "must differ") {
 		t.Fatalf("message=%q, want currency pair validation", got.Message)
+	}
+}
+
+func TestMarketDataNormalizesSymbols(t *testing.T) {
+	price := store.Price{Symbol: " aapl ", PriceDate: "2026-06-12", Price: "195.00", Currency: "usd"}
+	normalizePrice(&price)
+	if price.Symbol != "AAPL" {
+		t.Fatalf("price symbol=%q, want AAPL", price.Symbol)
+	}
+	if price.Currency != "USD" {
+		t.Fatalf("price currency=%q, want USD", price.Currency)
+	}
+
+	instrument := store.Instrument{Symbol: " 0700.hk "}
+	normalizeInstrumentText(&instrument)
+	if instrument.Symbol != "0700.HK" {
+		t.Fatalf("instrument symbol=%q, want 0700.HK", instrument.Symbol)
 	}
 }

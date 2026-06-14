@@ -1016,7 +1016,7 @@ function BillDraftRow({
     setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
   }
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1fr) 118px minmax(140px, .9fr) 76px 72px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1fr) 118px minmax(140px, .9fr) 76px 72px 118px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
       <Select
         size="sm"
         value={String(row.account_id)}
@@ -1032,6 +1032,7 @@ function BillDraftRow({
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
         <input type="checkbox" checked={row.paid} onChange={(e) => patch({ paid: e.target.checked })} /> 已还
       </label>
+      <Input type="date" value={row.paid_at} max={maxSnapshotDateISO()} disabled={!row.paid} onChange={(e) => patch({ paid_at: e.target.value })} size="sm" />
       <Select
         size="sm"
         value={row.payment_account_id}

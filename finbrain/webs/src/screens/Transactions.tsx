@@ -126,7 +126,7 @@ function TxnModal({
   const [price, setPrice] = useState(item?.price ?? '')
   const [currency, setCurrency] = useState(item?.currency ?? 'USD')
   const [fee, setFee] = useState(item?.fee ?? '')
-  const [settled, setSettled] = useState(item?.is_settled ?? false)
+  const [settled, setSettled] = useState(item?.is_settled ?? true)
   const [notes, setNotes] = useState(item?.notes ?? '')
   const [touched, setTouched] = useState(false)
 

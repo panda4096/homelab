@@ -881,7 +881,7 @@ function PriceModal({
     mutationFn: () =>
       item
         ? updatePrice(item.id, { price_date: priceDate, price, currency, source, note })
-        : upsertPrice({ symbol, price_date: priceDate, price, currency, source, note }),
+        : upsertPrice({ symbol: symbol.trim().toUpperCase(), price_date: priceDate, price, currency, source, note }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['prices'] })
       void qc.invalidateQueries({ queryKey: ['instruments'] })
@@ -917,7 +917,7 @@ function PriceModal({
     >
       <div className="fb-form form-4">
         <Field label="标的" error={invalid && !symbol.trim() ? '必填' : undefined}>
-          <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={!!item} placeholder="0700.HK" />
+          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} disabled={!!item} placeholder="0700.HK" />
         </Field>
         <Field label="日期">
           <Input type="date" value={priceDate} onChange={(e) => setPriceDate(e.target.value)} />
@@ -1049,7 +1049,7 @@ function InstrumentModal({
     note: note || null,
   }
   const mutation = useMutation({
-    mutationFn: () => (item ? updateInstrument(item.symbol, payload) : upsertInstrument({ symbol, ...payload })),
+    mutationFn: () => (item ? updateInstrument(item.symbol, payload) : upsertInstrument({ symbol: symbol.trim().toUpperCase(), ...payload })),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['instruments'] })
       void qc.invalidateQueries({ queryKey: ['valuation'] })
@@ -1083,7 +1083,7 @@ function InstrumentModal({
     >
       <div className="fb-form form-4">
         <Field label="标的代码" error={invalid ? '必填' : undefined}>
-          <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={!!item} placeholder="GOOG" />
+          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} disabled={!!item} placeholder="GOOG" />
         </Field>
         <Field label="显示名">
           <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Alphabet" />
