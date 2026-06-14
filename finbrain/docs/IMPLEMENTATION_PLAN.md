@@ -66,7 +66,7 @@ PRD 就绪度评审里点名的"工程补遗",在此一次性定死,各阶段直
 
 ### 2.4 安全(PRD §9)
 - 单用户工具,app **不实现登录页**:开发期免登录(固定 dev 用户);鉴权中间件做成可插拔(默认放行),未来置于反代之后时再开启"信任反代身份头"(可配 `FINBRAIN_AUTH_HEADER`)。具体认证形态随部署决定,不在本方案范围。
-- DB / LLM 凭据从环境变量读取(`DATABASE_URL`、`DEEPSEEK_API_KEY`,可选 `ANTHROPIC_API_KEY` 兜底),**秘钥不入仓库文档或代码**。LLM/Copilot 默认先用 DeepSeek;NL 查询沙箱见 §5 P6。日志不落金额/余额,只记操作类型 + 账户 ID。
+- DB / LLM 凭据从环境变量读取(`DATABASE_URL`、`DEEPSEEK_API_KEY`,可选 `ANTHROPIC_API_KEY` 兜底),**秘钥不入仓库文档或代码**。`DEEPSEEK_API_KEY` 实际值已配置在 `infra/.secrets/finbrain.env`(私仓密钥,`servers/Makefile` 的 run 目标自动 source 注入;本文件只记指针,不写明文)。LLM/Copilot 默认先用 DeepSeek;NL 查询沙箱见 §5 P6。日志不落金额/余额,只记操作类型 + 账户 ID。
 
 ### 2.5 PRD 修订项 ✅ 已完成(入场条件已满足)
 - ✅ `credit_card_bills` 已补字段:`payment_account_id bigint`(可空,FK→`accounts.id`;为空=该期未指定还款账户;仅当 `paid_at` 非空时参与 §6.19)。PRD §5.2.5 + §4.4 已更新。

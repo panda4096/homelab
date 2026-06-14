@@ -32,6 +32,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(maxBodyMiddleware)
 		r.Use(authMiddleware(cfg))
+		r.Use(s.mutationAuditMiddleware)
 
 		r.Get("/preferences", s.getPreferences)
 		r.Put("/preferences", s.putPreferences)
@@ -119,10 +120,9 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 		r.Patch("/allocation-targets/{id}", s.patchAllocationTarget)
 		r.Delete("/allocation-targets/{id}", s.deleteAllocationTarget)
 
-		// P6: LLM (NL entry / query) + stage summaries
+		// P6: LLM status + stage summaries. NL→SQL/draft removed — all NL now goes
+		// through the P8 skill layer (/agent/plan → registered skills, no SQL).
 		r.Get("/llm/status", s.getLLMStatus)
-		r.Post("/llm/parse", s.llmParse)
-		r.Post("/llm/query", s.llmQuery)
 		r.Get("/summaries", s.listSummaries)
 		r.Post("/summaries/generate", s.generateSummary)
 		r.Get("/summaries/{id}", s.getSummary)
@@ -136,6 +136,20 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 
 		// P7: data export
 		r.Get("/export", s.exportData)
+
+		// P8: agent skill layer (no SQL — read/draft/apply via registered skills),
+		// API-key management for external agents, and the unified audit log.
+		r.Get("/api-keys", s.listAPIKeys)
+		r.Post("/api-keys", s.createAPIKey)
+		r.Delete("/api-keys/{id}", s.deleteAPIKey)
+		r.Get("/audit", s.listAuditEvents)
+		r.Route("/agent", func(r chi.Router) {
+			r.Use(s.agentAuthMiddleware)
+			r.Get("/skills", s.listAgentSkills)
+			r.Post("/plan", s.planAgent)
+			r.Post("/run", s.runAgentSkill)
+			r.Post("/apply", s.applyAgentSkill)
+		})
 	})
 
 	if cfg.StaticDir != "" {

@@ -1047,12 +1047,6 @@ export interface LLMStatus {
   model: string
 }
 
-export interface QueryResult {
-  columns: string[]
-  rows: unknown[][]
-  truncated: boolean
-}
-
 export interface Summary {
   id: number
   period_kind: 'month' | 'quarter' | 'year'
@@ -1066,14 +1060,6 @@ export interface Summary {
 
 export function getLLMStatus(): Promise<LLMStatus> {
   return request<LLMStatus>('/api/llm/status')
-}
-
-export function llmParse(text: string): Promise<{ draft: unknown }> {
-  return request<{ draft: unknown }>('/api/llm/parse', { method: 'POST', body: JSON.stringify({ text }) })
-}
-
-export function llmQuery(text: string): Promise<{ sql: string; result: QueryResult }> {
-  return request<{ sql: string; result: QueryResult }>('/api/llm/query', { method: 'POST', body: JSON.stringify({ text }) })
 }
 
 export function listSummaries(): Promise<Summary[]> {
@@ -1154,4 +1140,103 @@ export function getAttribution(params: { from: string; to: string; display_curre
   if (params.display_currency) q.set('display_currency', params.display_currency)
   if (params.fx_mode) q.set('fx_mode', params.fx_mode)
   return request<AttributionResult>(`/api/attribution?${q.toString()}`)
+}
+
+// ---------- P8 agent skill layer (no SQL — agents call registered skills) ----------
+
+export type SkillType = 'read' | 'draft' | 'write'
+
+export interface AgentSkill {
+  name: string
+  type: SkillType
+  description: string
+  input_schema: unknown
+  permission: string
+  requires_confirmation: boolean
+  max_rows?: number
+  audit_enabled: boolean
+}
+
+export interface AgentRunResult {
+  skill: string
+  type: SkillType
+  result: unknown
+  row_count: number
+  affected_entities?: string[]
+}
+
+export interface AgentPlanResult {
+  // chat path: no skill chosen — just a conversational reply (type='chat')
+  plan?: { skill: string; params: Record<string, unknown> }
+  type: SkillType | 'chat'
+  requires_confirmation?: boolean
+  result?: unknown
+  row_count?: number
+  affected_entities?: string[]
+  reply?: string
+}
+
+export interface APIKey {
+  id: number
+  name: string
+  prefix: string
+  scopes: 'read' | 'read_write'
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+export interface AuditEvent {
+  id: number
+  request_id: string
+  actor: string
+  source: 'ui' | 'agent' | 'apikey'
+  skill_name: string | null
+  skill_type: string | null
+  input_json?: unknown
+  output_row_count: number | null
+  affected_entities?: unknown
+  natural_language_source: string | null
+  confirmed_by_user: boolean
+  status: 'ok' | 'error'
+  error_code: string | null
+  http_method: string | null
+  http_path: string | null
+  created_at: string
+}
+
+export function listSkills(): Promise<AgentSkill[]> {
+  return request<{ skills: AgentSkill[] }>('/api/agent/skills').then((d) => d.skills)
+}
+
+export function planAgent(text: string): Promise<AgentPlanResult> {
+  return request<AgentPlanResult>('/api/agent/plan', { method: 'POST', body: JSON.stringify({ text }) })
+}
+
+export function runSkill(skill: string, params: Record<string, unknown>, nlSource?: string): Promise<AgentRunResult> {
+  return request<AgentRunResult>('/api/agent/run', { method: 'POST', body: JSON.stringify({ skill, params, nl_source: nlSource }) })
+}
+
+export function applySkill(skill: string, params: Record<string, unknown>, nlSource?: string): Promise<AgentRunResult> {
+  return request<AgentRunResult>('/api/agent/apply', { method: 'POST', body: JSON.stringify({ skill, params, confirm: true, nl_source: nlSource }) })
+}
+
+export function listApiKeys(): Promise<APIKey[]> {
+  return request<APIKey[]>('/api/api-keys')
+}
+
+export function createApiKey(name: string, scopes: 'read' | 'read_write'): Promise<{ key: APIKey; secret: string }> {
+  return request<{ key: APIKey; secret: string }>('/api/api-keys', { method: 'POST', body: JSON.stringify({ name, scopes }) })
+}
+
+export function deleteApiKey(id: number): Promise<void> {
+  return request<void>(`/api/api-keys/${id}`, { method: 'DELETE' })
+}
+
+export function listAudit(source?: string, limit?: number): Promise<AuditEvent[]> {
+  const qs = new URLSearchParams()
+  if (source) qs.set('source', source)
+  if (limit) qs.set('limit', String(limit))
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return request<AuditEvent[]>(`/api/audit${suffix}`)
 }

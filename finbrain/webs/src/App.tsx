@@ -24,6 +24,8 @@ import { Targets } from './screens/Targets'
 import { Pivot } from './screens/Pivot'
 import { Compare } from './screens/Compare'
 import { Summaries } from './screens/Summaries'
+import { Skills } from './screens/Skills'
+import { AuditLog } from './screens/AuditLog'
 import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { getAccount } from './api'
@@ -105,6 +107,8 @@ export function App() {
               <Route path="/pivot" element={<Pivot />} />
               <Route path="/compare" element={<Compare />} />
               <Route path="/summaries" element={<Summaries />} />
+              <Route path="/skills" element={<Skills />} />
+              <Route path="/audit" element={<AuditLog />} />
               <Route path="/settings" element={<Settings />} />
               {PLACEHOLDER_IDS.map((id) => (
                 <Route key={id} path={`/${id}`} element={<Placeholder id={id} />} />
