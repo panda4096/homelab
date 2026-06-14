@@ -18,7 +18,7 @@ func (s *Server) getAccountReconciliation(w http.ResponseWriter, r *http.Request
 	onDate := strings.TrimSpace(r.URL.Query().Get("date"))
 	if onDate == "" {
 		onDate = s.today(r.Context())
-	} else if _, err := domain.ParseDate(onDate, s.cfg.Location); err != nil {
+	} else if _, err := domain.ParseDate(onDate, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_failed", "date must be YYYY-MM-DD")
 		return
 	}

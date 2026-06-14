@@ -137,9 +137,9 @@ export function quantity(v: string | number | null | undefined): string {
 
 // ---- dates ----
 
-export function todayISO(): string {
+export function todayISO(timeZone?: string): string {
   const d = new Date()
-  return toISODate(d)
+  return timeZone ? toISODateInTimeZone(d, timeZone) : toISODate(d)
 }
 
 export function toISODate(d: Date): string {
@@ -149,26 +149,49 @@ export function toISODate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-export function daysSince(dateISO: string | null | undefined): number | null {
+function toISODateInTimeZone(d: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d)
+    const get = (type: string) => parts.find((p) => p.type === type)?.value
+    const y = get('year')
+    const m = get('month')
+    const day = get('day')
+    if (y && m && day) return `${y}-${m}-${day}`
+  } catch {
+    // Invalid or unsupported timezone should not break the UI; backend remains authoritative.
+  }
+  return toISODate(d)
+}
+
+function addDaysISO(dateISO: string, days: number): string {
+  const [y, m, d] = dateISO.split('-').map((v) => Number(v))
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return dateISO
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+}
+
+export function daysSince(dateISO: string | null | undefined, timeZone?: string): number | null {
   if (!dateISO) return null
   const then = new Date(dateISO + 'T00:00:00')
   if (Number.isNaN(then.getTime())) return null
-  const now = new Date(todayISO() + 'T00:00:00')
+  const now = new Date(todayISO(timeZone) + 'T00:00:00')
   return Math.round((now.getTime() - then.getTime()) / 86_400_000)
 }
 
 /** A snapshot date is stale if it's null or more than 35 days before today (PRD §7.2). */
-export function isStale(lastSnapshotDate: string | null | undefined): boolean {
+export function isStale(lastSnapshotDate: string | null | undefined, timeZone?: string): boolean {
   if (!lastSnapshotDate) return true
-  const d = daysSince(lastSnapshotDate)
+  const d = daysSince(lastSnapshotDate, timeZone)
   return d == null || d > 35
 }
 
 /** Max accepted snapshot date = today + 7 days (client mirror of backend rule). */
-export function maxSnapshotDateISO(): string {
-  const d = new Date()
-  d.setDate(d.getDate() + 7)
-  return toISODate(d)
+export function maxSnapshotDateISO(timeZone?: string): string {
+  return addDaysISO(todayISO(timeZone), 7)
 }
 
 // ---- validation (client-side mirror of backend) ----

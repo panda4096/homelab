@@ -17,6 +17,7 @@ import { ACCOUNT_CURRENCIES, native, todayISO } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
+import { usePrefStore } from '../store'
 
 const KIND_LABEL: Record<IncomeKind, string> = { dividend: '分红', interest: '利息', rebate: '返现', other: '其他' }
 
@@ -84,11 +85,12 @@ export function IncomeEvents() {
 function IncomeModal({ item, accounts, onClose }: { item?: IncomeEvent; accounts: Account[]; onClose: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const instruments = useQuery({ queryKey: ['instruments'], queryFn: listInstruments })
   const [kind, setKind] = useState<IncomeKind>(item?.event_kind ?? 'dividend')
   const [accountId, setAccountId] = useState(item ? String(item.account_id) : accounts[0] ? String(accounts[0].id) : '')
   const [symbol, setSymbol] = useState(item?.symbol ?? '')
-  const [date, setDate] = useState(item?.event_date ?? todayISO())
+  const [date, setDate] = useState(item?.event_date ?? todayISO(timezone))
   const [amount, setAmount] = useState(item?.amount ?? '')
   const [currency, setCurrency] = useState(item?.currency ?? 'USD')
   const [payAcct, setPayAcct] = useState(item?.payment_account_id ? String(item.payment_account_id) : '')

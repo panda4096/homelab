@@ -71,11 +71,11 @@ func (s *Server) generateSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "period_kind must be month / quarter / year")
 		return
 	}
-	if _, err := domain.ParseDate(body.PeriodStart, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(body.PeriodStart, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "period_start must be YYYY-MM-DD")
 		return
 	}
-	if _, err := domain.ParseDate(body.PeriodEnd, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(body.PeriodEnd, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "period_end must be YYYY-MM-DD")
 		return
 	}

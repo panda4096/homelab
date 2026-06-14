@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -26,7 +27,7 @@ func (s *Server) createCorporateAction(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &c) {
 		return
 	}
-	if msg := s.normalizeAndValidateCorporateAction(r, &c); msg != "" {
+	if msg := s.normalizeAndValidateCorporateAction(r.Context(), &c); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -62,7 +63,7 @@ func (s *Server) patchCorporateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.Symbol = current.Symbol // symbol immutable on edit
-	if msg := s.normalizeAndValidateCorporateAction(r, &c); msg != "" {
+	if msg := s.normalizeAndValidateCorporateAction(r.Context(), &c); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -98,7 +99,7 @@ func (s *Server) deleteCorporateAction(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) normalizeAndValidateCorporateAction(r *http.Request, c *store.CorporateAction) string {
+func (s *Server) normalizeAndValidateCorporateAction(ctx context.Context, c *store.CorporateAction) string {
 	c.Symbol = strings.ToUpper(strings.TrimSpace(c.Symbol))
 	c.Action = strings.ToLower(strings.TrimSpace(c.Action))
 	c.EventDate = strings.TrimSpace(c.EventDate)
@@ -119,7 +120,7 @@ func (s *Server) normalizeAndValidateCorporateAction(r *http.Request, c *store.C
 	if !validDecimal(c.RatioDenominator) || !positiveDecimal(c.RatioDenominator) {
 		return "ratio_denominator must be > 0"
 	}
-	if _, err := domain.ParseDate(c.EventDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(c.EventDate, s.location(ctx)); err != nil {
 		return "event_date must be YYYY-MM-DD"
 	}
 	if msg := validateOptionalTextLen("notes", c.Notes, maxNoteLen); msg != "" {

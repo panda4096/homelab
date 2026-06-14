@@ -46,10 +46,12 @@ export function Settings() {
     fxMode,
     marketConvention,
     timeAggregationDefault,
+    timezone,
     setDisplayCurrency,
     setFxMode,
     setMarketConvention,
     setTimeAggregationDefault,
+    setTimezone,
   } = usePrefStore()
   const llm = useQuery({ queryKey: ['llm-status'], queryFn: () => getLLMStatus() })
 
@@ -97,6 +99,20 @@ export function Settings() {
             ]}
             value={timeAggregationDefault}
             onChange={(v) => void setTimeAggregationDefault(v as TimeAggregation)}
+          />
+        </Row>
+        <Row label="时区" hint="影响默认今天、盘点日期和未来日期校验">
+          <Segmented
+            size="sm"
+            options={[
+              { value: 'Asia/Shanghai', label: '上海' },
+              { value: 'Asia/Hong_Kong', label: '香港' },
+              { value: 'Pacific/Honolulu', label: '檀香山' },
+              { value: 'America/Los_Angeles', label: '洛杉矶' },
+              { value: 'America/New_York', label: '纽约' },
+            ]}
+            value={timezone}
+            onChange={(v) => void setTimezone(v)}
           />
         </Row>
       </Card>

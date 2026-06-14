@@ -8,6 +8,7 @@ import { listAccounts, updateAccount, type Account } from '../api'
 import { useUiStore } from '../uiStore'
 import { useToast } from '../shell/Toast'
 import { Institutions } from './Institutions'
+import { usePrefStore } from '../store'
 
 interface Group {
   institutionId: number
@@ -257,7 +258,8 @@ function AccountRow({
   onOpen: (id: number) => void
 }) {
   const a = account
-  const stale = isStale(a.last_snapshot_date)
+  const timezone = usePrefStore((s) => s.timezone)
+  const stale = isStale(a.last_snapshot_date, timezone)
   const tone = a.kind === 'credit_card' ? 'var(--loss)' : 'var(--text-strong)'
   return (
     <Row

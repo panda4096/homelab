@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -27,7 +28,7 @@ func (s *Server) createAnnotation(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &a) {
 		return
 	}
-	if msg := s.normalizeAndValidateAnnotation(&a); msg != "" {
+	if msg := s.normalizeAndValidateAnnotation(r.Context(), &a); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -49,7 +50,7 @@ func (s *Server) patchAnnotation(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &a) {
 		return
 	}
-	if msg := s.normalizeAndValidateAnnotation(&a); msg != "" {
+	if msg := s.normalizeAndValidateAnnotation(r.Context(), &a); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -81,7 +82,7 @@ func (s *Server) deleteAnnotation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) normalizeAndValidateAnnotation(a *store.Annotation) string {
+func (s *Server) normalizeAndValidateAnnotation(ctx context.Context, a *store.Annotation) string {
 	a.AnchorKind = strings.ToLower(strings.TrimSpace(a.AnchorKind))
 	a.EventDate = strings.TrimSpace(a.EventDate)
 	a.Label = strings.TrimSpace(a.Label)
@@ -100,7 +101,7 @@ func (s *Server) normalizeAndValidateAnnotation(a *store.Annotation) string {
 	if msg := validateOptionalTextLen("body", a.Body, maxNoteLen); msg != "" {
 		return msg
 	}
-	if _, err := domain.ParseDate(a.EventDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(a.EventDate, s.location(ctx)); err != nil {
 		return "event_date must be YYYY-MM-DD"
 	}
 	return ""

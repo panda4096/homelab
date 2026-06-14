@@ -37,6 +37,8 @@ const PLACEHOLDER_IDS: string[] = []
 
 export function App() {
   const [copilot, setCopilot] = useState(false)
+  const [prefsReadyForUserID, setPrefsReadyForUserID] = useState<number | null>(null)
+  const [prefsError, setPrefsError] = useState<string | null>(null)
   const location = useLocation()
   const navigate = useNavigate()
   const hydrate = usePrefStore((s) => s.hydrate)
@@ -73,8 +75,25 @@ export function App() {
 
   // Hydrate preferences only after the user is known.
   useEffect(() => {
-    if (auth.status === 'authenticated') void hydrate()
-  }, [auth.status, hydrate])
+    if (auth.status !== 'authenticated' || !auth.user || auth.user.must_change_password) {
+      setPrefsReadyForUserID(null)
+      return
+    }
+    let cancelled = false
+    setPrefsReadyForUserID(null)
+    setPrefsError(null)
+    hydrate().then(() => {
+      if (!cancelled) setPrefsReadyForUserID(auth.user?.id ?? null)
+    }).catch((err) => {
+      if (!cancelled) {
+        setPrefsReadyForUserID(null)
+        setPrefsError(err instanceof Error ? err.message : '偏好加载失败')
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [auth.status, auth.user?.id, auth.user?.must_change_password, hydrate])
 
   // ⌘K / Ctrl-K toggles the NL modal; Esc closes it. (Ported from the HTML.)
   useEffect(() => {
@@ -121,6 +140,24 @@ export function App() {
   }
   if (auth.user?.must_change_password) {
     return <Login user={auth.user} onAuthenticated={auth.setAuthenticated} />
+  }
+  if (prefsReadyForUserID !== auth.user?.id) {
+    return (
+      <div className="auth-page">
+        <div className="auth-panel">
+          {prefsError ? (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>偏好加载失败</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>{prefsError}</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn" onClick={() => void hydrate().then(() => setPrefsReadyForUserID(auth.user?.id ?? null)).catch((err) => setPrefsError(err instanceof Error ? err.message : '偏好加载失败'))}>重试</button>
+                <button className="btn ghost" onClick={() => void handleLogout()}>登出</button>
+              </div>
+            </>
+          ) : '正在载入...'}
+        </div>
+      </div>
+    )
   }
 
   let title = TITLES[route] ?? TITLES.dashboard

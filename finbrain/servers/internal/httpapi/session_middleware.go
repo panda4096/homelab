@@ -38,8 +38,30 @@ func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 			writeInternal(w, r, err)
 			return
 		}
+		u, err := s.store.GetUser(r.Context(), sess.UserID)
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "会话已失效，请重新登录")
+			return
+		}
+		if err != nil {
+			writeInternal(w, r, err)
+			return
+		}
+		if u.MustChangePassword && !mustChangePasswordAllowedPath(r.URL.Path) {
+			writeError(w, http.StatusForbidden, "password_change_required", "请先修改临时密码")
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxUserID, sess.UserID)))
 	})
+}
+
+func mustChangePasswordAllowedPath(path string) bool {
+	switch path {
+	case "/api/auth/me", "/api/auth/change-password", "/api/auth/logout":
+		return true
+	default:
+		return false
+	}
 }
 
 func sessionTokenFromRequest(r *http.Request) string {

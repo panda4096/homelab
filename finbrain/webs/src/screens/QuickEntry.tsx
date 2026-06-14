@@ -26,6 +26,7 @@ import {
   SYM,
   todayISO,
 } from '../lib/format'
+import { usePrefStore } from '../store'
 
 const TYPE_OPTIONS = [
   { value: 'balance', label: '更新余额' },
@@ -52,6 +53,7 @@ function QuickEntryInner({
 }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const isEdit = !!initial.isEdit
   const lockType = isEdit || !!initial.lockType
   const lockAccount = isEdit || !!initial.lockAccount
@@ -85,7 +87,7 @@ function QuickEntryInner({
         : ''
   const account = pool.find((a) => String(a.id) === effectiveAccountId)
 
-  const [date, setDate] = useState(initial.date ?? todayISO())
+  const [date, setDate] = useState(initial.date ?? todayISO(timezone))
   const [note, setNote] = useState(initial.note ?? '')
 
   // balance fields
@@ -101,7 +103,7 @@ function QuickEntryInner({
   const [formError, setFormError] = useState<string | null>(null)
 
   const accountCcy = account?.currency ?? 'CNY'
-  const maxDate = maxSnapshotDateISO()
+  const maxDate = maxSnapshotDateISO(timezone)
 
   // resolve the matched instrument (case-insensitive) for cost-currency defaulting
   const matchedInstrument = useMemo(() => {

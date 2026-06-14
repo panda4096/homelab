@@ -13,11 +13,11 @@ func (s *Server) getAttribution(w http.ResponseWriter, r *http.Request) {
 	if to == "" {
 		to = s.today(r.Context())
 	}
-	if _, err := domain.ParseDate(from, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(from, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_failed", "from must be YYYY-MM-DD")
 		return
 	}
-	if _, err := domain.ParseDate(to, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(to, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_failed", "to must be YYYY-MM-DD")
 		return
 	}

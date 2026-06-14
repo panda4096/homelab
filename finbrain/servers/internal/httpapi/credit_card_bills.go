@@ -118,7 +118,7 @@ func (s *Server) submitReviewBatch(w http.ResponseWriter, r *http.Request) {
 	if batch.ReviewDate == "" {
 		batch.ReviewDate = s.today(r.Context())
 	}
-	if err := domain.ValidateSnapshotDate(batch.ReviewDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(batch.ReviewDate, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
@@ -187,7 +187,7 @@ func (s *Server) normalizeAndValidateReviewBatch(r *http.Request, batch *store.R
 		if c.EventDate == "" {
 			c.EventDate = batch.ReviewDate
 		}
-		if msg := s.normalizeAndValidateCorporateAction(r, c); msg != "" {
+		if msg := s.normalizeAndValidateCorporateAction(r.Context(), c); msg != "" {
 			errs = append(errs, newBatchRowError("corporate_actions", i, "", "business_rule_violated", msg))
 		}
 	}
@@ -210,7 +210,7 @@ func (s *Server) validateBalanceSnapshotRow(r *http.Request, b *store.BalanceSna
 	if msg := validateOptionalTextLen("note", b.Note, maxNoteLen); msg != "" {
 		return msg
 	}
-	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.location(r.Context())); err != nil {
 		return err.Error()
 	}
 	acct, err := s.store.GetAccount(r.Context(), userOf(r), b.AccountID, s.today(r.Context()))
@@ -246,7 +246,7 @@ func (s *Server) validatePositionSnapshotRow(r *http.Request, p *store.PositionS
 	if p.AvgCost != nil && !validDecimal(*p.AvgCost) {
 		return "avg_cost must be numeric"
 	}
-	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.location(r.Context())); err != nil {
 		return err.Error()
 	}
 	acct, err := s.store.GetAccount(r.Context(), userOf(r), p.AccountID, s.today(r.Context()))
@@ -288,7 +288,7 @@ func (s *Server) normalizeAndValidateCreditCardBill(r *http.Request, b *store.Cr
 	if !currencyRe.MatchString(b.Currency) {
 		return "currency must be a 3-letter ISO code"
 	}
-	if err := domain.ValidateSnapshotDate(b.StatementDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(b.StatementDate, s.location(r.Context())); err != nil {
 		return err.Error()
 	}
 	if b.PaidAt != nil {
@@ -297,7 +297,7 @@ func (s *Server) normalizeAndValidateCreditCardBill(r *http.Request, b *store.Cr
 			b.PaidAt = nil
 		} else {
 			b.PaidAt = &paid
-			if err := domain.ValidateSnapshotDate(paid, s.cfg.Location); err != nil {
+			if err := domain.ValidateSnapshotDate(paid, s.location(r.Context())); err != nil {
 				return err.Error()
 			}
 		}

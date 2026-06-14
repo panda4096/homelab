@@ -22,6 +22,7 @@ import {
   type CreditCardBill,
   type CreditCardCategory,
 } from '../api'
+import { usePrefStore } from '../store'
 
 export function CreditCardBillsSection({ account }: { account: Account }) {
   const qc = useQueryClient()
@@ -134,6 +135,7 @@ export function CreditCardBillModal({
 }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const { data: accounts = [] } = useQuery({ queryKey: ['accounts'], queryFn: listAccounts })
   const creditAccounts = useMemo(
     () => accounts.filter((a) => !a.is_archived && a.kind === 'credit_card'),
@@ -147,11 +149,11 @@ export function CreditCardBillModal({
   const [accountId, setAccountId] = useState(String(initialAccountId || ''))
   const selectedAccount =
     account ?? accounts.find((a) => String(a.id) === accountId) ?? creditAccounts[0]
-  const [statementDate, setStatementDate] = useState(bill?.statement_date ?? todayISO())
+  const [statementDate, setStatementDate] = useState(bill?.statement_date ?? todayISO(timezone))
   const [amountTotal, setAmountTotal] = useState(bill?.amount_total ?? '')
   const [currency, setCurrency] = useState(bill?.currency ?? selectedAccount?.currency ?? 'CNY')
   const [paid, setPaid] = useState(Boolean(bill?.paid_at))
-  const [paidAt, setPaidAt] = useState(bill?.paid_at ?? todayISO())
+  const [paidAt, setPaidAt] = useState(bill?.paid_at ?? todayISO(timezone))
   const [paymentAccountId, setPaymentAccountId] = useState(
     bill?.payment_account_id ? String(bill.payment_account_id) : '',
   )
@@ -247,7 +249,7 @@ export function CreditCardBillModal({
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="出账日">
-            <Input type="date" value={statementDate} max={maxSnapshotDateISO()} onChange={(e) => setStatementDate(e.target.value)} />
+            <Input type="date" value={statementDate} max={maxSnapshotDateISO(timezone)} onChange={(e) => setStatementDate(e.target.value)} />
           </Field>
           <Field label="账单总额" error={touched && (!isNumericString(amountTotal) || Number(amountTotal) <= 0) ? '请输入大于 0 的金额' : undefined}>
             <Input numeric prefix={currency} placeholder="0.00" value={amountTotal} onChange={(e) => setAmountTotal(e.target.value)} />
@@ -287,7 +289,7 @@ export function CreditCardBillModal({
         {paid ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="还款日期">
-              <Input type="date" value={paidAt} max={maxSnapshotDateISO()} onChange={(e) => setPaidAt(e.target.value)} />
+              <Input type="date" value={paidAt} max={maxSnapshotDateISO(timezone)} onChange={(e) => setPaidAt(e.target.value)} />
             </Field>
             <Field label="还款账户">
               <Select

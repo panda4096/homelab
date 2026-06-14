@@ -135,7 +135,7 @@ func (s *Server) normalizeAndValidateIncomeEvent(r *http.Request, e *store.Incom
 	if !currencyRe.MatchString(e.Currency) {
 		return "currency must be a 3-letter ISO code"
 	}
-	if _, err := domain.ParseDate(e.EventDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(e.EventDate, s.location(r.Context())); err != nil {
 		return "event_date must be YYYY-MM-DD"
 	}
 	if msg := validateOptionalTextLen("note", e.Note, maxNoteLen); msg != "" {

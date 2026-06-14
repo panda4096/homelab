@@ -17,14 +17,21 @@ import (
 
 var currencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
 
-func (s *Server) today(ctx context.Context) string {
+func (s *Server) location(ctx context.Context) *time.Location {
 	loc := s.cfg.Location
+	if s.store == nil {
+		return loc
+	}
 	if prefs, err := s.store.GetPreferences(ctx, userIDFromContext(ctx)); err == nil {
 		if userLoc, err := time.LoadLocation(prefs.Timezone); err == nil {
 			loc = userLoc
 		}
 	}
-	return domain.TodayString(loc)
+	return loc
+}
+
+func (s *Server) today(ctx context.Context) string {
+	return domain.TodayString(s.location(ctx))
 }
 
 func pathID(r *http.Request, key string) (int64, error) {

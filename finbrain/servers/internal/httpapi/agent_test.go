@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,7 +82,10 @@ func TestWriteNeedsConfirmation(t *testing.T) {
 }
 
 func TestAPIKeySecretShape(t *testing.T) {
-	plain, hash, prefix := newAPIKeySecret()
+	plain, hash, prefix, err := newAPIKeySecret()
+	if err != nil {
+		t.Fatalf("newAPIKeySecret: %v", err)
+	}
 	if !strings.HasPrefix(plain, "fbk_") {
 		t.Errorf("secret should start with fbk_, got %q", plain)
 	}
@@ -92,8 +96,21 @@ func TestAPIKeySecretShape(t *testing.T) {
 		t.Errorf("hash must be sha256 of secret, not the secret")
 	}
 	// distinct each call
-	p2, _, _ := newAPIKeySecret()
+	p2, _, _, err := newAPIKeySecret()
+	if err != nil {
+		t.Fatalf("newAPIKeySecret second call: %v", err)
+	}
 	if p2 == plain {
 		t.Errorf("secrets must be unique")
+	}
+}
+
+func TestGlobalWriteBlockedForAPIKey(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxSource, "apikey")
+	if !globalWriteBlockedForAPIKey(ctx) {
+		t.Fatal("apikey source should be blocked from global market writes")
+	}
+	if globalWriteBlockedForAPIKey(context.Background()) {
+		t.Fatal("ui/default source should not be blocked from global market writes")
 	}
 }

@@ -126,7 +126,7 @@ func (s *Server) normalizeAndValidateTransaction(r *http.Request, t *store.Trans
 	if !currencyRe.MatchString(t.Currency) {
 		return "currency must be a 3-letter ISO code"
 	}
-	if _, err := domain.ParseDate(t.TradeDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(t.TradeDate, s.location(r.Context())); err != nil {
 		return "trade_date must be YYYY-MM-DD"
 	}
 	if t.SettleDate != nil {
@@ -135,7 +135,7 @@ func (s *Server) normalizeAndValidateTransaction(r *http.Request, t *store.Trans
 			t.SettleDate = nil
 		} else {
 			t.SettleDate = &sd
-			if _, err := domain.ParseDate(sd, s.cfg.Location); err != nil {
+			if _, err := domain.ParseDate(sd, s.location(r.Context())); err != nil {
 				return "settle_date must be YYYY-MM-DD"
 			}
 		}

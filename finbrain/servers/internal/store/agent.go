@@ -160,10 +160,30 @@ func (s *Store) RevokeAPIKey(ctx context.Context, userID, id int64) error {
 	return nil
 }
 
+func (s *Store) RevokeUserAPIKeys(ctx context.Context, userID int64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE api_keys
+		SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL /* OWNED api_keys */`,
+		userID)
+	return err
+}
+
 // ResolveAPIKey returns the live (non-revoked) key for a secret hash and stamps
 // last_used_at. ErrNotFound when no active key matches.
 func (s *Store) ResolveAPIKey(ctx context.Context, hash string) (APIKey, error) {
-	k, err := scanAPIKey(s.pool.QueryRow(ctx, `SELECT `+apiKeyCols+` FROM api_keys WHERE key_hash=$1 AND revoked_at IS NULL`, hash))
+	k, err := scanAPIKey(s.pool.QueryRow(ctx, `
+		SELECT k.id, k.user_id, k.name, k.prefix, k.scopes, k.created_at, k.last_used_at, k.revoked_at
+		FROM api_keys k
+		JOIN users u ON u.id = k.user_id AND u.is_active
+		WHERE k.key_hash=$1
+		  AND k.revoked_at IS NULL
+		  AND NOT EXISTS (
+		      SELECT 1 FROM user_identities i
+		      WHERE i.user_id = k.user_id
+		        AND i.provider = 'password'
+		        AND i.must_change_password
+		  )`, hash))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return APIKey{}, ErrNotFound
 	}

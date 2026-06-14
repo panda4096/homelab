@@ -57,5 +57,8 @@ func setPassword(cfg *config.Config, username, temporaryPassword string) error {
 	if err := st.SetPassword(ctx, identity.UserID, hash, true); err != nil {
 		return err
 	}
-	return st.RevokeUserSessions(ctx, identity.UserID)
+	if err := st.RevokeUserSessions(ctx, identity.UserID); err != nil {
+		return err
+	}
+	return st.RevokeUserAPIKeys(ctx, identity.UserID)
 }

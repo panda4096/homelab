@@ -204,6 +204,9 @@ func writeSkills() []Skill {
 			Description: "确认后写入一条公司动作;持仓数量/成本按回放派生。",
 			InputSchema: corporateActionSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
+				if globalWriteBlockedForAPIKey(ctx) {
+					return nil, 0, nil, errSkillInput{"API Key 不允许写入全局市场数据"}
+				}
 				c, msg := s.buildCorporateActionFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
@@ -232,6 +235,9 @@ func writeSkills() []Skill {
 			Description: "确认后写入/覆盖一条标的价格。",
 			InputSchema: priceSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
+				if globalWriteBlockedForAPIKey(ctx) {
+					return nil, 0, nil, errSkillInput{"API Key 不允许写入全局市场数据"}
+				}
 				p, msg := s.buildPriceFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
@@ -260,6 +266,9 @@ func writeSkills() []Skill {
 			Description: "确认后写入/覆盖一条汇率。",
 			InputSchema: fxRateSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
+				if globalWriteBlockedForAPIKey(ctx) {
+					return nil, 0, nil, errSkillInput{"API Key 不允许写入全局市场数据"}
+				}
 				f, msg := s.buildFxRateFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
@@ -304,7 +313,7 @@ func writeSkills() []Skill {
 			Description: "校验并预览一条时间线标注(不写库)。",
 			InputSchema: annotationSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				ann, msg := s.buildAnnotationFromArgs(a)
+				ann, msg := s.buildAnnotationFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -316,7 +325,7 @@ func writeSkills() []Skill {
 			Description: "确认后写入一条时间线标注。",
 			InputSchema: annotationSchema,
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
-				ann, msg := s.buildAnnotationFromArgs(a)
+				ann, msg := s.buildAnnotationFromArgs(ctx, a)
 				if msg != "" {
 					return nil, 0, nil, errSkillInput{msg}
 				}
@@ -350,6 +359,11 @@ func balancePreview(b store.BalanceSnapshot, acct store.Account) map[string]any 
 	return map[string]any{"entity": "balance_snapshot", "account": acctLite(acct), "fields": b}
 }
 
+func globalWriteBlockedForAPIKey(ctx context.Context) bool {
+	source, _ := ctx.Value(ctxSource).(string)
+	return source == "apikey"
+}
+
 func optStr(a skillArgs, k string) *string {
 	if v := argStr(a, k); v != "" {
 		return &v
@@ -368,7 +382,7 @@ func (s *Server) buildBalanceFromArgs(ctx context.Context, a skillArgs) (store.B
 	if !validMoneyDecimal(b.Balance) {
 		return b, store.Account{}, "balance 必须是最多两位小数的数字"
 	}
-	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.location(ctx)); err != nil {
 		return b, store.Account{}, err.Error()
 	}
 	acct, msg := s.lookupAccount(ctx, b.AccountID)
@@ -413,11 +427,11 @@ func (s *Server) buildTransactionFromArgs(ctx context.Context, a skillArgs) (sto
 	if t.TradeDate == "" {
 		t.TradeDate = s.today(ctx)
 	}
-	if _, err := domain.ParseDate(t.TradeDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(t.TradeDate, s.location(ctx)); err != nil {
 		return t, store.Account{}, "trade_date 必须是 YYYY-MM-DD"
 	}
 	if t.SettleDate != nil {
-		if _, err := domain.ParseDate(*t.SettleDate, s.cfg.Location); err != nil {
+		if _, err := domain.ParseDate(*t.SettleDate, s.location(ctx)); err != nil {
 			return t, store.Account{}, "settle_date 必须是 YYYY-MM-DD"
 		}
 	}
@@ -463,14 +477,14 @@ func (s *Server) buildCreditCardFromArgs(ctx context.Context, a skillArgs) (stor
 	if b.StatementDate == "" {
 		b.StatementDate = s.today(ctx)
 	}
-	if err := domain.ValidateSnapshotDate(b.StatementDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(b.StatementDate, s.location(ctx)); err != nil {
 		return b, acct, err.Error()
 	}
 	if !validMoneyDecimal(b.AmountTotal) || !positiveDecimal(b.AmountTotal) {
 		return b, acct, "amount_total 必须 > 0 且最多两位小数"
 	}
 	if b.PaidAt != nil {
-		if _, err := domain.ParseDate(*b.PaidAt, s.cfg.Location); err != nil {
+		if _, err := domain.ParseDate(*b.PaidAt, s.location(ctx)); err != nil {
 			return b, acct, "paid_at 必须是 YYYY-MM-DD"
 		}
 	}
@@ -504,7 +518,7 @@ func (s *Server) buildPositionSnapshotFromArgs(ctx context.Context, a skillArgs)
 	if p.AvgCost != nil && !validDecimal(*p.AvgCost) {
 		return p, store.Account{}, "avg_cost 必须是数字"
 	}
-	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.location(ctx)); err != nil {
 		return p, store.Account{}, err.Error()
 	}
 	acct, msg := s.lookupAccount(ctx, p.AccountID)
@@ -548,7 +562,7 @@ func (s *Server) buildTransferFromArgs(ctx context.Context, a skillArgs) (store.
 	if !validDecimal(t.ToAmount) || !positiveDecimal(t.ToAmount) {
 		return t, "to_amount 必须 > 0"
 	}
-	if _, err := domain.ParseDate(t.TransferDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(t.TransferDate, s.location(ctx)); err != nil {
 		return t, "transfer_date 必须是 YYYY-MM-DD"
 	}
 	for _, id := range []int64{t.FromAccountID, t.ToAccountID} {
@@ -605,7 +619,7 @@ func (s *Server) buildIncomeEventFromArgs(ctx context.Context, a skillArgs) (sto
 	if !currencyRe.MatchString(e.Currency) {
 		return e, acct, "currency 必须是 3 位 ISO 代码"
 	}
-	if _, err := domain.ParseDate(e.EventDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(e.EventDate, s.location(ctx)); err != nil {
 		return e, acct, "event_date 必须是 YYYY-MM-DD"
 	}
 	if e.PaymentAccountID != nil {
@@ -629,7 +643,7 @@ func (s *Server) buildCorporateActionFromArgs(ctx context.Context, a skillArgs) 
 		blob, _ := json.Marshal(raw)
 		c.Extra = json.RawMessage(blob)
 	}
-	if msg := s.normalizeAndValidateCorporateAction(nil, &c); msg != "" {
+	if msg := s.normalizeAndValidateCorporateAction(ctx, &c); msg != "" {
 		return c, msg
 	}
 	return c, ""
@@ -645,7 +659,7 @@ func (s *Server) buildPriceFromArgs(ctx context.Context, a skillArgs) (store.Pri
 		p.PriceDate = s.today(ctx)
 	}
 	normalizePrice(&p)
-	if msg := validatePrice(p, s.cfg.Location); msg != "" {
+	if msg := validatePrice(p, s.location(ctx)); msg != "" {
 		return p, msg
 	}
 	return p, ""
@@ -661,7 +675,7 @@ func (s *Server) buildFxRateFromArgs(ctx context.Context, a skillArgs) (store.Fx
 		f.RateDate = s.today(ctx)
 	}
 	normalizeFxRate(&f)
-	if msg := validateFxRate(f, s.cfg.Location); msg != "" {
+	if msg := validateFxRate(f, s.location(ctx)); msg != "" {
 		return f, msg
 	}
 	return f, ""
@@ -686,7 +700,7 @@ func (s *Server) buildAllocationTargetFromArgs(a skillArgs) (store.AllocationTar
 	return set, ""
 }
 
-func (s *Server) buildAnnotationFromArgs(a skillArgs) (store.Annotation, string) {
+func (s *Server) buildAnnotationFromArgs(ctx context.Context, a skillArgs) (store.Annotation, string) {
 	ann := store.Annotation{
 		AnchorKind: argStr(a, "anchor_kind"), EventDate: argStr(a, "event_date"),
 		Label: argStr(a, "label"), Body: optStr(a, "body"), Color: optStr(a, "color"),
@@ -695,7 +709,7 @@ func (s *Server) buildAnnotationFromArgs(a skillArgs) (store.Annotation, string)
 		blob, _ := json.Marshal(raw)
 		ann.AnchorKeys = json.RawMessage(blob)
 	}
-	if msg := s.normalizeAndValidateAnnotation(&ann); msg != "" {
+	if msg := s.normalizeAndValidateAnnotation(ctx, &ann); msg != "" {
 		return ann, msg
 	}
 	return ann, ""

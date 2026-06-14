@@ -100,7 +100,7 @@ func (s *Server) normalizeAndValidateTransfer(r *http.Request, t *store.Transfer
 	if !validDecimal(t.ToAmount) || !positiveDecimal(t.ToAmount) {
 		return "to_amount must be > 0"
 	}
-	if _, err := domain.ParseDate(t.TransferDate, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(t.TransferDate, s.location(r.Context())); err != nil {
 		return "transfer_date must be YYYY-MM-DD"
 	}
 	if msg := validateOptionalTextLen("notes", t.Notes, maxNoteLen); msg != "" {

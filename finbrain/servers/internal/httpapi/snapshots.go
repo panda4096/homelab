@@ -124,7 +124,7 @@ func (s *Server) upsertBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
@@ -183,7 +183,7 @@ func (s *Server) patchBalanceSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(b.SnapshotDate, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
@@ -235,7 +235,7 @@ func (s *Server) upsertPositionSnapshot(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "avg_cost must be numeric")
 		return
 	}
-	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}
@@ -301,7 +301,7 @@ func (s *Server) patchPositionSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "avg_cost must be numeric")
 		return
 	}
-	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(p.SnapshotDate, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}

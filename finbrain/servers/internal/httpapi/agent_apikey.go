@@ -45,11 +45,13 @@ func sha256hex(s string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func newAPIKeySecret() (plain, hash, prefix string) {
+func newAPIKeySecret() (plain, hash, prefix string, err error) {
 	b := make([]byte, 24)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", "", err
+	}
 	plain = "fbk_" + hex.EncodeToString(b)
-	return plain, sha256hex(plain), plain[:12]
+	return plain, sha256hex(plain), plain[:12], nil
 }
 
 // agentAuthMiddleware identifies the caller of /agent routes: an API key (external
@@ -152,7 +154,11 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	if scopes != "read" && scopes != "read_write" {
 		scopes = "read"
 	}
-	plain, hash, prefix := newAPIKeySecret()
+	plain, hash, prefix, err := newAPIKeySecret()
+	if err != nil {
+		writeInternal(w, r, err)
+		return
+	}
 	key, err := s.store.CreateAPIKey(r.Context(), userOf(r), body.Name, hash, prefix, scopes)
 	if err != nil {
 		writeStorageError(w, r, err)

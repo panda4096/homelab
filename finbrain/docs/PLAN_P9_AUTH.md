@@ -56,7 +56,7 @@
 - [x] 热索引把 `user_id` 提到首列（如 `idx_transactions_acct_date`、`idx_balance_snapshots_acct_date`、`idx_position_snapshots_acct_sym_date` 等逐个重建）
 
 **回滚**
-- [ ] `-- +goose Down`：删触发器 → 还原索引/唯一约束 → 还原 `user_preferences` 单行 → 删各表 `user_id` → 删 `sessions`/`user_identities`/`users`
+- [x] `-- +goose Down`：先拒绝非 owner 用户数据回滚 → 删触发器 → 还原索引/唯一约束 → 还原 `user_preferences` 单行 → 删各表 `user_id` → 删 `sessions`/`user_identities`/`users`
 - [ ] 在 NUC dev DB 副本上跑通 up→down→up，确认无损
 
 ---
@@ -131,7 +131,10 @@
 - [x] cookie `Secure` 仅生产开启；同源假设复核（Vite 代理 / StaticDir）
 - [ ] 部署前由 CLI 为 user 1 设真实密码
 - [x] CI/评审门禁：grep owned 表查询缺 `user_id` / `/* OWNED */` 即失败
-- [x] 时区端到端：切换用户时区后，估值截面/趋势/对账"今天"随之变化
+- [x] 时区端到端：切换用户时区后，估值截面/趋势/对账"今天"随之变化；前端默认日期/日期上限与服务端校验同用用户 `timezone`，主应用等待当前用户偏好 hydrate 后再挂载；临时密码改密前不 hydrate，改密后重新 hydrate
+- [x] 临时密码后端强制：`must_change_password` 用户仅可访问 `/auth/me`、`/auth/change-password`、`/auth/logout`；API key 同样被拒绝直到完成改密
+- [x] 账号状态硬化：session/API key 解析均要求用户 active；后台重置密码同步吊销 session 与 API key
+- [x] 全局市场数据硬化：外部 API key 不允许写入全局 `prices/fx_rates/corporate_actions`，避免影响其他用户估值
 - [x] `FINBRAIN_ENV=production` 切换演练（dev 默认 user 1 → 生产强制会话，无停机窗口）
 
 **DoD（P9.4）**：生产模式登录强制生效、隔离门禁就位；user 1 真实密码重置保留为部署手工项，避免在开发验证中改动现有账号状态。
@@ -142,7 +145,7 @@
 - [x] 越权主风险：漏一个 `accounts` 谓词即泄漏 → 显式 `userID` 参数 + grep 门禁 + 网关表先测
 - [x] 子表 `user_id` 一致性（transfers 双账户 / payment_account_id / review_batch 批量）→ 触发器 + Go 侧校验
 - [x] argon2 与 sha256 不可混用（密码绝不走 `sha256hex`）
-- [ ] 唯一约束/`user_preferences` 改造为单向迁移 → 先在 dev DB 副本演练 up/down
+- [x] 唯一约束/`user_preferences` 改造回滚会丢非 owner 维度 → Down 迁移先检测并拒绝非 owner 数据；真实库只允许在副本演练
 - [x] 时区下沉影响所有"今天"计算 → 回归估值/趋势/对账
 
 ## 8. 进度日志
@@ -153,4 +156,4 @@
 | 2026-06-15 | P9.1 gateway 隔离 | 完成 | 新增 01410 gateway 迁移，将既有机构/账户回填到 user 1；accounts/institutions/preferences 入口按 user 隔离；接口验证 A/B 用户互查/互删/直传对方 account_id 均被拒，全局 instruments 仍共享；临时测试账户下空机构/账户已通过 API 清理 |
 | 2026-06-15 | P9.2 owned 业务数据隔离 | 完成 | 新增 01420 owned 数据迁移，保留既有行并按账户/目标集回填 owner；balance/position/transactions/transfers/income/credit-card/targets/annotations/summaries/valuation/replay/recon/attribution/export/review batch 全链路下传 userID；NUC dev 迁移到 1420，Go build/vet/test 通过；API A/B 越权验证覆盖读写删、列表、估值、批量盘点，临时 `p9test` 数据已清理为 0 |
 | 2026-06-15 | P9.3 Agent / API Key / 审计隔离 | 完成 | 新增 01430 agent 用户隔离迁移，保留既有 api_keys/agent_audit 并回填 user 1；API key CRUD、ResolveAPIKey、agentAuthMiddleware、mutation/skill audit 全部绑定 userID；验证 A/B key 列表互不可见、B 无法吊销 A key、API key 调 accounts.list 只见 owner 账户、read key 写操作 403、audit 只显示本人 key 事件；临时 `p9test` 数据已清理为 0 |
-| 2026-06-15 | P9.4 生产加固 | 完成 | `today` 改为按当前用户 `timezone` 计算，Honolulu/Shanghai E2E 验证估值默认日期随用户时区变化；新增 owned 表查询门禁测试；`FINBRAIN_ENV=production` 验证无会话 401、登录 cookie 仅生产带 `Secure`；临时 `p9test` 数据已清理为 0；user 1 真实密码重置留作部署手工项 |
+| 2026-06-15 | P9.4 生产加固 | 完成 | `today` 改为按当前用户 `timezone` 计算，Honolulu/Shanghai E2E 验证估值默认日期随用户时区变化；前端默认日期与日期上限接入用户时区，设置页可改 timezone，主应用等待偏好 hydrate 后再挂载，临时密码改密后重新 hydrate；新增 owned 表查询门禁测试；Down 迁移增加非 owner 数据保护，拒绝会丢数据的真实库回滚；`must_change_password` 后端强制改密且 API key 不可绕过，session/API key 要求 active，后台重置密码吊销 session/API key，API key 禁止写全局市场数据；`FINBRAIN_ENV=production` 验证无会话 401、登录 cookie 仅生产带 `Secure`；临时 `p9test` 数据已清理为 0；user 1 真实密码重置留作部署手工项 |

@@ -23,6 +23,7 @@ import {
   type Account,
 } from '../api'
 import { useToast } from '../shell/Toast'
+import { usePrefStore } from '../store'
 
 const DRAFT_KEY = 'finbrain.reviewDraft.v1'
 
@@ -138,8 +139,9 @@ export function ReviewWizard() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const [step, setStep] = useState(1)
-  const [reviewDate, setReviewDate] = useState(todayISO())
+  const [reviewDate, setReviewDate] = useState(todayISO(timezone))
   const [balances, setBalances] = useState<BalanceDraft[]>([])
   const [positions, setPositions] = useState<PositionDraft[]>([])
   const [bills, setBills] = useState<BillDraft[]>([])
@@ -459,7 +461,7 @@ export function ReviewWizard() {
                 onClick={() => {
                   setBatchErrors([])
                   if (step === 10) {
-                    const errors = validateReviewDraft(bills, transactions, corporateActions, transfers, incomeEvents)
+                    const errors = validateReviewDraft(bills, transactions, corporateActions, transfers, incomeEvents, timezone)
                     if (errors.length) {
                       setBatchErrors(errors)
                       return
@@ -727,6 +729,7 @@ function TransactionDraftRow({
   setRows: (rows: TransactionDraft[] | ((rows: TransactionDraft[]) => TransactionDraft[])) => void
   accounts: Account[]
 }) {
+  const timezone = usePrefStore((s) => s.timezone)
   function patch(next: Partial<TransactionDraft>) {
     setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
   }
@@ -754,7 +757,7 @@ function TransactionDraftRow({
         <Icon name="x" size={13} />
       </IconButton>
       <div style={{ gridColumn: '1 / 3' }}>
-        <Input type="date" value={row.trade_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ trade_date: e.target.value })} size="sm" />
+        <Input type="date" value={row.trade_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ trade_date: e.target.value })} size="sm" />
       </div>
       <div style={{ gridColumn: '3 / -1' }}>
         <Input placeholder="备注" value={row.notes} onChange={(e) => patch({ notes: e.target.value })} size="sm" />
@@ -791,6 +794,7 @@ function CorporateActionDraftRow({
   row: CorporateActionDraft
   setRows: (rows: CorporateActionDraft[] | ((rows: CorporateActionDraft[]) => CorporateActionDraft[])) => void
 }) {
+  const timezone = usePrefStore((s) => s.timezone)
   function patch(next: Partial<CorporateActionDraft>) {
     setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
   }
@@ -798,7 +802,7 @@ function CorporateActionDraftRow({
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(130px, 1fr) 94px 126px 112px 112px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
       <Input placeholder="标的" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
       <Select size="sm" value={row.action} onChange={(e) => patch({ action: e.target.value as 'split' | 'merge' | 'rights' })} options={[{ value: 'split', label: '拆股' }, { value: 'merge', label: '合股' }, { value: 'rights', label: '配股' }]} />
-      <Input type="date" value={row.event_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
+      <Input type="date" value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
       <Input numeric placeholder="比例分子" value={row.ratio_numerator} onChange={(e) => patch({ ratio_numerator: e.target.value })} size="sm" />
       <Input numeric placeholder="比例分母" value={row.ratio_denominator} onChange={(e) => patch({ ratio_denominator: e.target.value })} size="sm" />
       <IconButton aria-label="移除公司动作" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
@@ -843,6 +847,7 @@ function TransferDraftRow({
   setRows: (rows: TransferDraft[] | ((rows: TransferDraft[]) => TransferDraft[])) => void
   accounts: Account[]
 }) {
+  const timezone = usePrefStore((s) => s.timezone)
   function patch(next: Partial<TransferDraft>) {
     setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
   }
@@ -852,7 +857,7 @@ function TransferDraftRow({
       <Select size="sm" value={row.to_account_id} onChange={(e) => patch({ to_account_id: e.target.value })} placeholder="转入账户" options={accounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))} />
       <Input numeric placeholder="转出金额" value={row.from_amount} onChange={(e) => patch({ from_amount: e.target.value })} size="sm" />
       <Input numeric placeholder="转入金额" value={row.to_amount} onChange={(e) => patch({ to_amount: e.target.value })} size="sm" />
-      <Input type="date" value={row.transfer_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ transfer_date: e.target.value })} size="sm" />
+      <Input type="date" value={row.transfer_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ transfer_date: e.target.value })} size="sm" />
       <IconButton aria-label="移除转账" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
         <Icon name="x" size={13} />
       </IconButton>
@@ -900,6 +905,7 @@ function IncomeDraftRow({
   accounts: Account[]
   paymentAccounts: Account[]
 }) {
+  const timezone = usePrefStore((s) => s.timezone)
   function patch(next: Partial<IncomeDraft>) {
     setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
   }
@@ -919,7 +925,7 @@ function IncomeDraftRow({
       <Input placeholder="标的可空" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
       <Input numeric placeholder="金额" value={row.amount} onChange={(e) => patch({ amount: e.target.value })} size="sm" />
       <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
-      <Input type="date" value={row.event_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
+      <Input type="date" value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
       <Input numeric placeholder="税费" value={row.tax_withheld} onChange={(e) => patch({ tax_withheld: e.target.value })} size="sm" />
       <IconButton aria-label="移除收益" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
         <Icon name="x" size={13} />
@@ -1012,6 +1018,7 @@ function BillDraftRow({
   creditAccounts: Account[]
   paymentAccounts: Account[]
 }) {
+  const timezone = usePrefStore((s) => s.timezone)
   function patch(next: Partial<BillDraft>) {
     setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
   }
@@ -1026,13 +1033,13 @@ function BillDraftRow({
         }}
         options={creditAccounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))}
       />
-      <Input type="date" value={row.statement_date} max={maxSnapshotDateISO()} onChange={(e) => patch({ statement_date: e.target.value })} size="sm" />
+      <Input type="date" value={row.statement_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ statement_date: e.target.value })} size="sm" />
       <Input numeric prefix={row.currency} placeholder="账单总额" value={row.amount_total} min="0.01" onChange={(e) => patch({ amount_total: e.target.value })} size="sm" />
       <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
         <input type="checkbox" checked={row.paid} onChange={(e) => patch({ paid: e.target.checked })} /> 已还
       </label>
-      <Input type="date" value={row.paid_at} max={maxSnapshotDateISO()} disabled={!row.paid} onChange={(e) => patch({ paid_at: e.target.value })} size="sm" />
+      <Input type="date" value={row.paid_at} max={maxSnapshotDateISO(timezone)} disabled={!row.paid} onChange={(e) => patch({ paid_at: e.target.value })} size="sm" />
       <Select
         size="sm"
         value={row.payment_account_id}
@@ -1215,9 +1222,10 @@ function validateReviewDraft(
   corporateActions: CorporateActionDraft[],
   transfers: TransferDraft[],
   incomeEvents: IncomeDraft[],
+  timezone: string,
 ) {
   const errors: string[] = []
-  const maxDate = maxSnapshotDateISO()
+  const maxDate = maxSnapshotDateISO(timezone)
   bills.forEach((bill, index) => {
     if (!bill.amount_total.trim()) return
     const row = `credit_card_bills #${index + 1}`

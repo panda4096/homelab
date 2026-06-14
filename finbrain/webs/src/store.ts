@@ -14,6 +14,7 @@ interface PrefState {
   fxMode: FxMode
   marketConvention: MarketConvention
   timeAggregationDefault: TimeAggregation
+  timezone: string
   hydrated: boolean
 
   hydrate: () => Promise<void>
@@ -21,6 +22,7 @@ interface PrefState {
   setFxMode: (v: FxMode) => Promise<void>
   setMarketConvention: (v: MarketConvention) => Promise<void>
   setTimeAggregationDefault: (v: TimeAggregation) => Promise<void>
+  setTimezone: (v: string) => Promise<void>
 }
 
 // Keep the <html data-market-convention> attribute in sync so the design system's
@@ -35,6 +37,7 @@ function fromPrefs(p: Preferences) {
     fxMode: p.fx_mode,
     marketConvention: p.market_convention,
     timeAggregationDefault: p.time_aggregation_default,
+    timezone: p.timezone,
   }
 }
 
@@ -43,6 +46,7 @@ export const usePrefStore = create<PrefState>((set, get) => ({
   fxMode: 'current',
   marketConvention: 'western',
   timeAggregationDefault: 'month',
+  timezone: 'Asia/Shanghai',
   hydrated: false,
 
   hydrate: async () => {
@@ -54,7 +58,8 @@ export const usePrefStore = create<PrefState>((set, get) => ({
       applyConvention(p.market_convention)
     } catch {
       // backend unavailable (e.g. no dev server) — fall back to defaults
-      set({ hydrated: true })
+      set({ hydrated: false })
+      throw new Error('偏好加载失败')
     }
   },
 
@@ -83,6 +88,13 @@ export const usePrefStore = create<PrefState>((set, get) => ({
   setTimeAggregationDefault: async (v) => {
     set({ timeAggregationDefault: v })
     const p = await putPreferences({ time_aggregation_default: v })
+    set(fromPrefs(p))
+    applyConvention(p.market_convention)
+  },
+
+  setTimezone: async (v) => {
+    set({ timezone: v })
+    const p = await putPreferences({ timezone: v })
     set(fromPrefs(p))
     applyConvention(p.market_convention)
   },

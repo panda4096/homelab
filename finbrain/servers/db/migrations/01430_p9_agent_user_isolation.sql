@@ -21,6 +21,17 @@ CREATE INDEX IF NOT EXISTS idx_agent_audit_user_created ON agent_audit (user_id,
 CREATE INDEX IF NOT EXISTS idx_agent_audit_user_source_created ON agent_audit (user_id, source, created_at DESC, id DESC);
 
 -- +goose Down
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM api_keys WHERE user_id <> 1)
+       OR EXISTS (SELECT 1 FROM agent_audit WHERE user_id <> 1) THEN
+        RAISE EXCEPTION 'refusing P9 agent rollback: non-owner API key or audit data exists; consolidate or export it before rolling back';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
+
 DROP INDEX IF EXISTS idx_agent_audit_user_source_created;
 DROP INDEX IF EXISTS idx_agent_audit_user_created;
 DROP INDEX IF EXISTS idx_api_keys_user_created;

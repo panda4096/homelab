@@ -15,6 +15,7 @@ import { ACCOUNT_CURRENCIES, todayISO } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
+import { usePrefStore } from '../store'
 
 const ACTION_LABEL: Record<CorporateActionKind, string> = { split: '拆股', merge: '合股', rights: '配股' }
 
@@ -77,10 +78,11 @@ export function CorporateActions() {
 function CaModal({ item, onClose }: { item?: CorporateAction; onClose: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const instruments = useQuery({ queryKey: ['instruments'], queryFn: listInstruments })
   const [symbol, setSymbol] = useState(item?.symbol ?? '')
   const [action, setAction] = useState<CorporateActionKind>(item?.action ?? 'split')
-  const [date, setDate] = useState(item?.event_date ?? todayISO())
+  const [date, setDate] = useState(item?.event_date ?? todayISO(timezone))
   const [num, setNum] = useState(item?.ratio_numerator ?? '2')
   const [den, setDen] = useState(item?.ratio_denominator ?? '1')
   const extra = (item?.extra ?? {}) as Record<string, string>

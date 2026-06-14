@@ -196,6 +196,33 @@ CREATE INDEX IF NOT EXISTS idx_credit_card_bills_user_unpaid ON credit_card_bill
 CREATE INDEX IF NOT EXISTS idx_credit_card_bills_user_payment_account ON credit_card_bills (user_id, payment_account_id, paid_at);
 
 -- +goose Down
+-- +goose StatementBegin
+DO $$
+DECLARE
+    tbl regclass;
+    has_non_owner boolean;
+BEGIN
+    FOREACH tbl IN ARRAY ARRAY[
+        'allocation_target_sets'::regclass,
+        'allocation_target_items'::regclass,
+        'summaries'::regclass,
+        'annotations'::regclass,
+        'balance_snapshots'::regclass,
+        'position_snapshots'::regclass,
+        'transactions'::regclass,
+        'transfers'::regclass,
+        'income_events'::regclass,
+        'credit_card_bills'::regclass
+    ] LOOP
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s WHERE user_id <> 1)', tbl) INTO has_non_owner;
+        IF has_non_owner THEN
+            RAISE EXCEPTION 'refusing P9 owned-data rollback: non-owner rows exist in %; consolidate or export them before rolling back', tbl;
+        END IF;
+    END LOOP;
+END;
+$$;
+-- +goose StatementEnd
+
 DROP INDEX IF EXISTS idx_credit_card_bills_user_payment_account;
 DROP INDEX IF EXISTS idx_credit_card_bills_user_unpaid;
 DROP INDEX IF EXISTS idx_credit_card_bills_user_acct_date;

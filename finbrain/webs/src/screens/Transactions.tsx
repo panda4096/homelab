@@ -17,6 +17,7 @@ import { ACCOUNT_CURRENCIES, native, quantity, supportsPositionSnapshots, todayI
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
+import { usePrefStore } from '../store'
 
 function Page({ children }: { children: React.ReactNode }) {
   return (
@@ -116,11 +117,12 @@ function TxnModal({
 }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const instruments = useQuery({ queryKey: ['instruments'], queryFn: listInstruments })
   const [accountId, setAccountId] = useState(item ? String(item.account_id) : accounts[0] ? String(accounts[0].id) : '')
   const [symbol, setSymbol] = useState(item?.symbol ?? '')
   const [action, setAction] = useState<TransactionAction>(item?.action ?? 'buy')
-  const [tradeDate, setTradeDate] = useState(item?.trade_date ?? todayISO())
+  const [tradeDate, setTradeDate] = useState(item?.trade_date ?? todayISO(timezone))
   const [settleDate, setSettleDate] = useState(item?.settle_date ?? '')
   const [qty, setQty] = useState(item?.quantity ?? '')
   const [price, setPrice] = useState(item?.price ?? '')

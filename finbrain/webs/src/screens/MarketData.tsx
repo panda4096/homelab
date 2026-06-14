@@ -23,6 +23,7 @@ import { LineChart, type LineSeriesPoint } from '../lib/finance'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
+import { usePrefStore } from '../store'
 
 type Tab = 'instruments' | 'fx' | 'benchmarks'
 type Editor =
@@ -869,8 +870,9 @@ function PriceModal({
 }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const [symbol, setSymbol] = useState(item?.symbol ?? defaultSymbol ?? '')
-  const [priceDate, setPriceDate] = useState(item?.price_date ?? todayISO())
+  const [priceDate, setPriceDate] = useState(item?.price_date ?? todayISO(timezone))
   const [price, setPrice] = useState(item?.price ?? '')
   const [currency, setCurrency] = useState(item?.currency ?? defaultCurrency ?? 'HKD')
   const [source, setSource] = useState(item?.source ?? 'manual')
@@ -946,9 +948,10 @@ function PriceModal({
 function FxModal({ item, onClose }: { item?: FxRate; onClose: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const [base, setBase] = useState(item?.base_currency ?? 'USD')
   const [quote, setQuote] = useState(item?.quote_currency ?? 'CNY')
-  const [rateDate, setRateDate] = useState(item?.rate_date ?? todayISO())
+  const [rateDate, setRateDate] = useState(item?.rate_date ?? todayISO(timezone))
   const [rate, setRate] = useState(item?.rate ?? '')
   const [source, setSource] = useState(item?.source ?? 'manual')
   const [note, setNote] = useState(item?.note ?? '')

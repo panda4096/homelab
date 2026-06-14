@@ -25,6 +25,17 @@ CREATE INDEX IF NOT EXISTS idx_institutions_user_order ON institutions (user_id,
 CREATE INDEX IF NOT EXISTS idx_accounts_user_order ON accounts (user_id, is_archived, institution_id, display_order, kind, name);
 
 -- +goose Down
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM institutions WHERE user_id <> 1)
+       OR EXISTS (SELECT 1 FROM accounts WHERE user_id <> 1) THEN
+        RAISE EXCEPTION 'refusing P9 gateway rollback: non-owner account/institution data exists; consolidate or export it before rolling back';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
+
 DROP INDEX IF EXISTS idx_accounts_user_order;
 DROP INDEX IF EXISTS idx_institutions_user_order;
 

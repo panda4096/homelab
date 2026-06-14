@@ -30,7 +30,7 @@ func (s *Server) upsertPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizePrice(&p)
-	if msg := validatePrice(p, s.cfg.Location); msg != "" {
+	if msg := validatePrice(p, s.location(r.Context())); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -50,7 +50,7 @@ func (s *Server) batchUpsertPrices(w http.ResponseWriter, r *http.Request) {
 	errs := make([]batchRowError, 0)
 	for i := range prices {
 		normalizePrice(&prices[i])
-		if msg := validatePrice(prices[i], s.cfg.Location); msg != "" {
+		if msg := validatePrice(prices[i], s.location(r.Context())); msg != "" {
 			errs = append(errs, newBatchRowError("prices", i, "", "business_rule_violated", msg))
 		}
 	}
@@ -77,7 +77,7 @@ func (s *Server) patchPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizePrice(&p)
-	if msg := validatePricePatch(p, s.cfg.Location); msg != "" {
+	if msg := validatePricePatch(p, s.location(r.Context())); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -142,7 +142,7 @@ func (s *Server) upsertFxRate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizeFxRate(&f)
-	if msg := validateFxRate(f, s.cfg.Location); msg != "" {
+	if msg := validateFxRate(f, s.location(r.Context())); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -162,7 +162,7 @@ func (s *Server) batchUpsertFxRates(w http.ResponseWriter, r *http.Request) {
 	errs := make([]batchRowError, 0)
 	for i := range rates {
 		normalizeFxRate(&rates[i])
-		if msg := validateFxRate(rates[i], s.cfg.Location); msg != "" {
+		if msg := validateFxRate(rates[i], s.location(r.Context())); msg != "" {
 			errs = append(errs, newBatchRowError("fx_rates", i, "", "business_rule_violated", msg))
 		}
 	}
@@ -189,7 +189,7 @@ func (s *Server) patchFxRate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizeFxRate(&f)
-	if msg := validateFxRatePatch(f, s.cfg.Location); msg != "" {
+	if msg := validateFxRatePatch(f, s.location(r.Context())); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
@@ -235,7 +235,7 @@ func (s *Server) getValuation(w http.ResponseWriter, r *http.Request) {
 	if onDate == "" {
 		onDate = s.today(r.Context())
 	}
-	if err := domain.ValidateSnapshotDate(onDate, s.cfg.Location); err != nil {
+	if err := domain.ValidateSnapshotDate(onDate, s.location(r.Context())); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", err.Error())
 		return
 	}

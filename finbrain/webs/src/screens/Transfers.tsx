@@ -15,6 +15,7 @@ import { native, todayISO } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
+import { usePrefStore } from '../store'
 
 function Page({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 22, maxWidth: 1200, margin: '0 auto' }}>{children}</div>
@@ -74,9 +75,10 @@ export function Transfers() {
 function TransferModal({ item, accounts, onClose }: { item?: Transfer; accounts: Account[]; onClose: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const timezone = usePrefStore((s) => s.timezone)
   const [fromId, setFromId] = useState(item ? String(item.from_account_id) : accounts[0] ? String(accounts[0].id) : '')
   const [toId, setToId] = useState(item ? String(item.to_account_id) : accounts[1] ? String(accounts[1].id) : '')
-  const [date, setDate] = useState(item?.transfer_date ?? todayISO())
+  const [date, setDate] = useState(item?.transfer_date ?? todayISO(timezone))
   const [fromAmt, setFromAmt] = useState(item?.from_amount ?? '')
   const [toAmt, setToAmt] = useState(item?.to_amount ?? '')
   const [touched, setTouched] = useState(false)

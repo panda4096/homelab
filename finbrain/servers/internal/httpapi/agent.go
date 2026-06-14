@@ -88,7 +88,7 @@ func (s *Server) asOf(ctx context.Context, a skillArgs) (string, error) {
 	if d == "" {
 		return s.today(ctx), nil
 	}
-	if _, err := domain.ParseDate(d, s.cfg.Location); err != nil {
+	if _, err := domain.ParseDate(d, s.location(ctx)); err != nil {
 		return "", errSkillInput{"as_of must be YYYY-MM-DD"}
 	}
 	return d, nil
@@ -259,10 +259,10 @@ func readSkills() []Skill {
 			InputSchema: sch(`{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},` + disp + `},"required":["from","to"],"additionalProperties":false}`),
 			run: func(s *Server, ctx context.Context, a skillArgs) (any, int, []string, error) {
 				from, to := argStr(a, "from"), argStr(a, "to")
-				if _, err := domain.ParseDate(from, s.cfg.Location); err != nil {
+				if _, err := domain.ParseDate(from, s.location(ctx)); err != nil {
 					return nil, 0, nil, errSkillInput{"from must be YYYY-MM-DD"}
 				}
-				if _, err := domain.ParseDate(to, s.cfg.Location); err != nil {
+				if _, err := domain.ParseDate(to, s.location(ctx)); err != nil {
 					return nil, 0, nil, errSkillInput{"to must be YYYY-MM-DD"}
 				}
 				d, fx := s.resolveDisplay(ctx, a)

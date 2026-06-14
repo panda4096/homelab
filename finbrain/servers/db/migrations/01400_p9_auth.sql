@@ -63,9 +63,19 @@ ALTER TABLE user_preferences DROP COLUMN IF EXISTS id;
 ALTER TABLE user_preferences ADD CONSTRAINT user_preferences_user_id_key UNIQUE (user_id);
 
 -- +goose Down
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM users WHERE id <> 1)
+       OR EXISTS (SELECT 1 FROM user_preferences WHERE user_id <> 1) THEN
+        RAISE EXCEPTION 'refusing P9 auth rollback: non-owner user data exists; consolidate or export it before rolling back';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
+
 ALTER TABLE user_preferences DROP CONSTRAINT IF EXISTS user_preferences_user_id_key;
 ALTER TABLE user_preferences DROP CONSTRAINT IF EXISTS user_preferences_user_id_fkey;
-DELETE FROM user_preferences WHERE user_id <> 1;
 ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS id int;
 UPDATE user_preferences SET id = 1 WHERE id IS NULL;
 ALTER TABLE user_preferences ALTER COLUMN id SET DEFAULT 1;
