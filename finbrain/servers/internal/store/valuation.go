@@ -89,6 +89,7 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		DisplayCurrency: displayCurrency,
 		FxMode:          fxMode,
 		Allocations:     map[string][]ValuationBucket{},
+		CashAccounts:    []ValuationCash{},
 		Positions:       []ValuationPosition{},
 		PositionGroups:  []ValuationPosition{},
 		Warnings:        []ValuationWarning{},
@@ -133,6 +134,16 @@ func (s *Store) GetValuation(ctx context.Context, onDate, displayCurrency, fxMod
 		displayValue := balance.Mul(res.Rate)
 		totalAssets = totalAssets.Add(displayValue)
 		cashValue = cashValue.Add(displayValue)
+		val.CashAccounts = append(val.CashAccounts, ValuationCash{
+			AccountID:           c.AccountID,
+			AccountName:         c.AccountName,
+			AccountCurrency:     c.AccountCurrency,
+			AccountKind:         c.AccountKind,
+			Institution:         c.Institution,
+			SnapshotDate:        c.SnapshotDate,
+			Balance:             c.Balance,
+			BalanceValueDisplay: formatMoneyDecimal(displayValue),
+		})
 
 		alloc.add("kind", c.AccountKind, c.AccountKind, displayValue)
 		alloc.add("asset_kind", "cash", "cash", displayValue)

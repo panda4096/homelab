@@ -140,6 +140,7 @@ type Valuation struct {
 	RealizedPLYtd    string                       `json:"realized_pl_ytd"`
 	IncomeYtd        string                       `json:"income_ytd"`
 	Allocations      map[string][]ValuationBucket `json:"allocations"`
+	CashAccounts     []ValuationCash              `json:"cash_accounts"`
 	Positions        []ValuationPosition          `json:"positions"`
 	PositionGroups   []ValuationPosition          `json:"position_groups"`
 	Warnings         []ValuationWarning           `json:"warnings"`
@@ -156,6 +157,17 @@ type ValuationWarning struct {
 	Kind    string `json:"kind"`
 	Key     string `json:"key"`
 	Message string `json:"message"`
+}
+
+type ValuationCash struct {
+	AccountID           int64  `json:"account_id"`
+	AccountName         string `json:"account_name"`
+	AccountCurrency     string `json:"account_currency"`
+	AccountKind         string `json:"account_kind"`
+	Institution         string `json:"institution"`
+	SnapshotDate        string `json:"snapshot_date"`
+	Balance             string `json:"balance"`
+	BalanceValueDisplay string `json:"balance_value_display"`
 }
 
 type ValuationPosition struct {

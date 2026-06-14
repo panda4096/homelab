@@ -306,6 +306,17 @@ export interface ValuationWarning {
   message: string
 }
 
+export interface ValuationCash {
+  account_id: number
+  account_name: string
+  account_currency: string
+  account_kind: AccountKind
+  institution: string
+  snapshot_date: string
+  balance: string
+  balance_value_display: string
+}
+
 export interface ValuationPosition {
   account_id: number
   account_name: string
@@ -357,6 +368,7 @@ export interface Valuation {
   realized_pl_ytd: string
   income_ytd: string
   allocations: Record<string, ValuationBucket[]>
+  cash_accounts: ValuationCash[]
   positions: ValuationPosition[]
   position_groups: ValuationPosition[]
   warnings: ValuationWarning[]

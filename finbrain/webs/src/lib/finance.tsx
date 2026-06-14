@@ -413,12 +413,14 @@ export function Donut({
   centerSub,
   size = 132,
   thickness = 14,
+  legendPlacement = 'auto',
 }: {
   items: DonutItem[]
   centerLabel: string
   centerSub: string
   size?: number
   thickness?: number
+  legendPlacement?: 'auto' | 'side' | 'bottom'
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const total = items.reduce((s, it) => s + Math.max(0, it.value), 0) || 1
@@ -444,8 +446,12 @@ export function Donut({
     a += sweep
     return seg
   })
+  const legendNameWidth = Math.min(260, Math.max(34, ...segs.map((s) => approxLegendTextWidth(s.name))))
+  const legendWidth = 8 + 8 + legendNameWidth + 8 + 46
+  const sideLegend = legendPlacement === 'side' || (legendPlacement === 'auto' && segs.length <= 4 && legendNameWidth <= 90)
+  const bottomColumns = !sideLegend && legendWidth <= 280 && segs.length > 3 ? 2 : 1
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+    <div style={{ display: 'flex', flexDirection: sideLegend ? 'row' : 'column', alignItems: 'center', justifyContent: 'center', gap: sideLegend ? 24 : 16 }}>
       <svg width={size} height={size} style={{ flex: 'none' }}>
         <circle cx={cx} cy={cy} r={midR} fill="none" stroke="var(--surface-inset)" strokeWidth={thickness} />
         {segs.map((s) =>
@@ -504,17 +510,29 @@ export function Donut({
           {centerSub}
         </text>
       </svg>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 7, minWidth: 0, flex: '0 1 320px' }}>
+      <div
+        style={sideLegend
+          ? { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, minWidth: 0, flex: '0 1 auto', width: legendWidth, maxWidth: '100%' }
+          : {
+            display: 'grid',
+            gridTemplateColumns: `repeat(${bottomColumns}, ${legendWidth}px)`,
+            justifyContent: 'center',
+            columnGap: 24,
+            rowGap: 8,
+            minWidth: 0,
+            maxWidth: '100%',
+          }}
+      >
         {segs.map((s) => (
           <div
             key={s.key}
             style={{
               display: 'grid',
-              gridTemplateColumns: '8px minmax(0, 1fr) 46px',
+              gridTemplateColumns: `8px minmax(0, ${legendNameWidth}px) 46px`,
               columnGap: 8,
               alignItems: 'center',
               fontSize: 12,
-              width: 'min(100%, 300px)',
+              width: '100%',
               opacity: hover == null || hover === s.i ? 1 : 0.45,
               transition: 'opacity .15s',
             }}
@@ -533,6 +551,315 @@ export function Donut({
       </div>
     </div>
   )
+}
+
+function approxLegendTextWidth(text: string) {
+  return [...text].reduce((sum, ch) => {
+    if (/[\u3400-\u9fff]/.test(ch)) return sum + 13.5
+    if (/[A-Z0-9]/.test(ch)) return sum + 8.4
+    return sum + 7
+  }, 0) + 12
+}
+
+export interface SankeyNodeInput {
+  id: string
+  label: string
+  column: number
+  color?: string
+}
+
+export interface SankeyLinkInput {
+  source: string
+  target: string
+  value: number
+  color?: string
+}
+
+interface SankeyLayoutNode extends SankeyNodeInput {
+  value: number
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+  order: number
+  sourceCursor: number
+  targetCursor: number
+}
+
+interface SankeyLayoutLink extends SankeyLinkInput {
+  d: string
+  width: number
+  sourceY: number
+  targetY: number
+  color: string
+}
+
+export function SankeyChart({
+  nodes,
+  links,
+  height = 320,
+  columnLabels = [],
+  formatValue,
+  showValues = true,
+}: {
+  nodes: SankeyNodeInput[]
+  links: SankeyLinkInput[]
+  height?: number
+  columnLabels?: string[]
+  formatValue?: (value: number) => string
+  showValues?: boolean
+}) {
+  const [hover, setHover] = useState<string | null>(null)
+  const width = 980
+  const nodeW = 14
+  const padX = 26
+  const padTop = columnLabels.length ? 42 : 24
+  const padBottom = 24
+  const gap = 14
+  const maxColumn = Math.max(0, ...nodes.map((n) => n.column))
+  const layout = layoutSankey(nodes, links, {
+    width,
+    height,
+    nodeW,
+    padX,
+    padTop,
+    padBottom,
+    gap,
+    maxColumn,
+  })
+
+  if (!layout.nodes.length || !layout.links.length) {
+    return (
+      <div style={{ height, display: 'grid', placeItems: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+        暂无可展示的流向数据
+      </div>
+    )
+  }
+
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="资产结构桑基图" style={{ display: 'block', overflow: 'visible' }}>
+      {columnLabels.map((label, column) => {
+        const x = xForSankeyColumn(column, maxColumn, width, padX, nodeW)
+        return (
+          <text
+            key={label}
+            x={column === maxColumn ? x + nodeW : x}
+            y={18}
+            textAnchor={column === maxColumn ? 'end' : 'start'}
+            fontSize="11"
+            fontWeight="600"
+            fill="var(--text-tertiary)"
+          >
+            {label}
+          </text>
+        )
+      })}
+      <g fill="none">
+        {layout.links.map((link, index) => {
+          const active = hover == null || hover === link.source || hover === link.target
+          return (
+            <path
+              key={`${link.source}-${link.target}-${index}`}
+              d={link.d}
+              stroke={link.color}
+              strokeWidth={Math.max(1.4, link.width)}
+              strokeOpacity={active ? 0.3 : 0.08}
+              strokeLinecap="butt"
+              onMouseEnter={() => setHover(link.source)}
+              onMouseLeave={() => setHover(null)}
+              style={{ transition: 'stroke-opacity .16s' }}
+            >
+              <title>
+                {showValues
+                  ? `${nodeLabel(layout.nodesByID, link.source)} → ${nodeLabel(layout.nodesByID, link.target)} · ${formatValue?.(link.value) ?? link.value.toLocaleString()}`
+                  : `${nodeLabel(layout.nodesByID, link.source)} → ${nodeLabel(layout.nodesByID, link.target)}`}
+              </title>
+            </path>
+          )
+        })}
+      </g>
+      <g>
+        {layout.nodes.map((node) => {
+          const active = hover == null || hover === node.id
+          const labelSide = node.column === maxColumn ? 'left' : 'right'
+          const labelX = labelSide === 'left' ? node.x0 - 8 : node.x1 + 8
+          const valueText = formatValue?.(node.value) ?? node.value.toLocaleString()
+          const label = trimSankeyLabel(node.label, node.column === maxColumn ? 20 : 15)
+          return (
+            <g
+              key={node.id}
+              onMouseEnter={() => setHover(node.id)}
+              onMouseLeave={() => setHover(null)}
+              style={{ opacity: active ? 1 : 0.38, transition: 'opacity .16s' }}
+            >
+              <rect
+                x={node.x0}
+                y={node.y0}
+                width={nodeW}
+                height={Math.max(3, node.y1 - node.y0)}
+                rx={4}
+                fill={node.color ?? VIZ[node.order % VIZ.length]}
+              >
+                <title>{showValues ? `${node.label} · ${valueText}` : node.label}</title>
+              </rect>
+              <text
+                x={labelX}
+                y={(node.y0 + node.y1) / 2 - (showValues && node.y1 - node.y0 > 28 ? 6 : 0)}
+                textAnchor={labelSide === 'left' ? 'end' : 'start'}
+                fontSize="11.5"
+                fontWeight="500"
+                fill="var(--text-secondary)"
+              >
+                {label}
+              </text>
+              {showValues && node.y1 - node.y0 > 28 ? (
+                <text
+                  x={labelX}
+                  y={(node.y0 + node.y1) / 2 + 9}
+                  textAnchor={labelSide === 'left' ? 'end' : 'start'}
+                  fontSize="10"
+                  fontFamily="var(--font-mono)"
+                  fill="var(--text-tertiary)"
+                >
+                  {valueText}
+                </text>
+              ) : null}
+            </g>
+          )
+        })}
+      </g>
+    </svg>
+  )
+}
+
+function layoutSankey(
+  nodes: SankeyNodeInput[],
+  links: SankeyLinkInput[],
+  opts: {
+    width: number
+    height: number
+    nodeW: number
+    padX: number
+    padTop: number
+    padBottom: number
+    gap: number
+    maxColumn: number
+  },
+) {
+  const inputByID = new Map(nodes.map((n) => [n.id, n]))
+  const incoming = new Map<string, number>()
+  const outgoing = new Map<string, number>()
+  const safeLinks = links.filter((l) => {
+    if (l.value <= 0 || !Number.isFinite(l.value)) return false
+    return inputByID.has(l.source) && inputByID.has(l.target)
+  })
+  for (const link of safeLinks) {
+    outgoing.set(link.source, (outgoing.get(link.source) ?? 0) + link.value)
+    incoming.set(link.target, (incoming.get(link.target) ?? 0) + link.value)
+  }
+
+  const layoutNodes = nodes
+    .map((node, index) => ({
+      ...node,
+      value: Math.max(incoming.get(node.id) ?? 0, outgoing.get(node.id) ?? 0),
+      x0: 0,
+      x1: 0,
+      y0: 0,
+      y1: 0,
+      order: index,
+      sourceCursor: 0,
+      targetCursor: 0,
+    }))
+    .filter((n) => n.value > 0)
+
+  const nodesByID = new Map(layoutNodes.map((n) => [n.id, n]))
+  const columns = new Map<number, SankeyLayoutNode[]>()
+  for (const node of layoutNodes) {
+    const list = columns.get(node.column) ?? []
+    list.push(node)
+    columns.set(node.column, list)
+  }
+
+  const available = Math.max(80, opts.height - opts.padTop - opts.padBottom)
+  const scales = [...columns.values()]
+    .filter((col) => col.length > 0)
+    .map((col) => {
+      const total = col.reduce((sum, n) => sum + n.value, 0)
+      const gaps = Math.max(0, col.length - 1) * opts.gap
+      return total > 0 ? Math.max(0.0001, (available - gaps) / total) : 1
+    })
+  const scale = Math.max(0.0001, Math.min(...scales))
+
+  for (const [column, col] of columns) {
+    col.sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
+    const used = col.reduce((sum, n) => sum + n.value * scale, 0) + Math.max(0, col.length - 1) * opts.gap
+    let y = opts.padTop + Math.max(0, (available - used) / 2)
+    const x = xForSankeyColumn(column, opts.maxColumn, opts.width, opts.padX, opts.nodeW)
+    col.forEach((node, index) => {
+      const h = Math.max(3, node.value * scale)
+      node.x0 = x
+      node.x1 = x + opts.nodeW
+      node.y0 = y
+      node.y1 = y + h
+      node.sourceCursor = y
+      node.targetCursor = y
+      node.order = index
+      y += h + opts.gap
+    })
+  }
+
+  const sortedLinks = safeLinks
+    .filter((l) => nodesByID.has(l.source) && nodesByID.has(l.target))
+    .sort((a, b) => {
+      const sa = nodesByID.get(a.source)!
+      const sb = nodesByID.get(b.source)!
+      const ta = nodesByID.get(a.target)!
+      const tb = nodesByID.get(b.target)!
+      return sa.column - sb.column || sa.y0 - sb.y0 || ta.y0 - tb.y0
+    })
+
+  const layoutLinks: SankeyLayoutLink[] = sortedLinks.map((link) => {
+    const source = nodesByID.get(link.source)!
+    const target = nodesByID.get(link.target)!
+    const w = link.value * scale
+    const sourceY = source.sourceCursor + w / 2
+    const targetY = target.targetCursor + w / 2
+    source.sourceCursor += w
+    target.targetCursor += w
+    const x0 = source.x1
+    const x1 = target.x0
+    const bend = Math.max(44, Math.abs(x1 - x0) * 0.54)
+    return {
+      ...link,
+      sourceY,
+      targetY,
+      width: w,
+      color: link.color ?? source.color ?? VIZ[source.order % VIZ.length],
+      d: `M${x0.toFixed(1)} ${sourceY.toFixed(1)} C${(x0 + bend).toFixed(1)} ${sourceY.toFixed(1)} ${(x1 - bend).toFixed(1)} ${targetY.toFixed(1)} ${x1.toFixed(1)} ${targetY.toFixed(1)}`,
+    }
+  })
+
+  return { nodes: layoutNodes, links: layoutLinks, nodesByID }
+}
+
+function xForSankeyColumn(column: number, maxColumn: number, width: number, padX: number, nodeW: number) {
+  if (maxColumn <= 0) return padX
+  return padX + ((width - padX * 2 - nodeW) * column) / maxColumn
+}
+
+function nodeLabel(nodes: Map<string, SankeyLayoutNode>, id: string) {
+  return nodes.get(id)?.label ?? id
+}
+
+function trimSankeyLabel(label: string, maxUnits: number) {
+  let units = 0
+  let out = ''
+  for (const ch of Array.from(label)) {
+    units += /[\u3400-\u9fff]/.test(ch) ? 1.35 : 1
+    if (units > maxUnits) return `${out}…`
+    out += ch
+  }
+  return out
 }
 
 export function shortMoney(value: string | number | null | undefined, currency: string) {
