@@ -32,6 +32,7 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(maxBodyMiddleware)
 		r.Use(authMiddleware(cfg))
+		r.Use(s.mutationAuditMiddleware)
 
 		r.Get("/preferences", s.getPreferences)
 		r.Put("/preferences", s.putPreferences)
@@ -136,6 +137,19 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 
 		// P7: data export
 		r.Get("/export", s.exportData)
+
+		// P8: agent skill layer (no SQL — read/draft/apply via registered skills),
+		// API-key management for external agents, and the unified audit log.
+		r.Get("/api-keys", s.listAPIKeys)
+		r.Post("/api-keys", s.createAPIKey)
+		r.Delete("/api-keys/{id}", s.deleteAPIKey)
+		r.Get("/audit", s.listAuditEvents)
+		r.Route("/agent", func(r chi.Router) {
+			r.Use(s.agentAuthMiddleware)
+			r.Get("/skills", s.listAgentSkills)
+			r.Post("/run", s.runAgentSkill)
+			r.Post("/apply", s.applyAgentSkill)
+		})
 	})
 
 	if cfg.StaticDir != "" {
