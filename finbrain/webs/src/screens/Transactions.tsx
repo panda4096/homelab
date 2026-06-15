@@ -159,6 +159,7 @@ function TxnModal({
     <Modal
       title={item ? '编辑交易' : '新增交易'}
       icon="arrow-left-right"
+      width={660}
       onClose={onClose}
       footer={
         <>
@@ -171,7 +172,7 @@ function TxnModal({
         <Segmented value={action} onChange={(v) => setAction(v as TransactionAction)} size="sm"
           options={[{ value: 'buy', label: '买入' }, { value: 'sell', label: '卖出' }]} />
       </div>
-      <div className="fb-form form-4">
+      <div className="fb-form form-4 form-lead">
         <Field label="账户" error={invalid && !accountId ? '必填' : undefined}>
           <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} disabled={!!item}
             options={accounts.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name }))} />
@@ -185,7 +186,7 @@ function TxnModal({
         <Field label="成交日"><Input type="date" value={tradeDate} onChange={(e) => setTradeDate(e.target.value)} /></Field>
         <Field label="结算日（可选）"><Input type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} /></Field>
       </div>
-      <div className="fb-form form-4" style={{ marginTop: 12 }}>
+      <div className="fb-form form-4 form-lead" style={{ marginTop: 12 }}>
         <Field label="数量" error={invalid && !qty.trim() ? '必填' : undefined}><Input numeric value={qty} onChange={(e) => setQty(e.target.value)} placeholder="100" /></Field>
         <Field label="单价" error={invalid && !price.trim() ? '必填' : undefined}><Input numeric value={price} onChange={(e) => setPrice(e.target.value)} placeholder="184.25" /></Field>
         <Field label="币种"><Select value={currency} onChange={(e) => setCurrency(e.target.value)} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} /></Field>
