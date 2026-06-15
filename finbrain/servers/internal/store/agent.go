@@ -45,7 +45,7 @@ func (s *Store) InsertAuditEvent(ctx context.Context, userID int64, e AuditEvent
 			output_row_count, affected_entities, natural_language_source,
 			confirmed_by_user, status, error_code, http_method, http_path
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,$10,$11,$12,$13,$14,$15)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,$10,$11,$12,$13,$14,$15) /* OWNED agent_audit */`,
 		userID, e.RequestID, nonBlank(e.Actor, "user:0"), nonBlank(e.Source, "agent"),
 		e.SkillName, e.SkillType, rawOrNil(e.InputJSON), e.OutputRowCount,
 		rawOrNil(e.AffectedEntities), e.NLSource, e.ConfirmedByUser,
@@ -116,7 +116,7 @@ func scanAPIKey(row rowScanner) (APIKey, error) {
 func (s *Store) CreateAPIKey(ctx context.Context, userID int64, name, hash, prefix, scopes string) (APIKey, error) {
 	var id int64
 	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO api_keys (user_id, name, key_hash, prefix, scopes)
+		INSERT INTO api_keys (user_id, name, key_hash, prefix, scopes) /* OWNED api_keys */
 		VALUES ($1,$2,$3,$4,$5) RETURNING id`,
 		userID, name, hash, prefix, scopes).Scan(&id); err != nil {
 		return APIKey{}, err

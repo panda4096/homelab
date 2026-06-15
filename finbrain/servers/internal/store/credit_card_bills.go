@@ -36,10 +36,10 @@ func scanCreditCardBill(row rowScanner) (CreditCardBill, error) {
 func creditCardBillJoinSQL(where string) string {
 	return `
 		SELECT ` + creditCardBillCols + `
-		FROM credit_card_bills b
-		JOIN accounts a ON a.id = b.account_id AND a.user_id = b.user_id
-		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
-		LEFT JOIN accounts pa ON pa.id = b.payment_account_id AND pa.user_id = b.user_id
+		FROM credit_card_bills b /* OWNED credit_card_bills requires caller scope */
+		JOIN accounts a ON a.id = b.account_id AND a.user_id = b.user_id /* OWNED accounts via scoped credit_card_bills */
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id /* OWNED institutions via scoped accounts */
+		LEFT JOIN accounts pa ON pa.id = b.payment_account_id AND pa.user_id = b.user_id /* OWNED accounts via scoped credit_card_bills */
 		` + where
 }
 
@@ -84,7 +84,7 @@ func (s *Store) CreateCreditCardBill(ctx context.Context, userID int64, b Credit
 	}
 	var id int64
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO credit_card_bills (
+		INSERT INTO credit_card_bills ( /* OWNED credit_card_bills */
 			user_id, account_id, statement_date, amount_total, currency, top_categories,
 			paid_at, payment_account_id, note, updated_at
 		)
@@ -111,7 +111,7 @@ func (s *Store) UpsertCreditCardBill(ctx context.Context, userID int64, b Credit
 	}
 	var id int64
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO credit_card_bills (
+		INSERT INTO credit_card_bills ( /* OWNED credit_card_bills */
 			user_id, account_id, statement_date, amount_total, currency, top_categories,
 			paid_at, payment_account_id, note, updated_at
 		)

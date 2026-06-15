@@ -26,7 +26,7 @@ const balanceCols = `id, account_id, snapshot_date::text, balance::text, note, c
 func (s *Store) UpsertBalanceSnapshot(ctx context.Context, userID int64, b BalanceSnapshot) (BalanceSnapshot, error) {
 	var out BalanceSnapshot
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO balance_snapshots (user_id, account_id, snapshot_date, balance, note, updated_at)
+		INSERT INTO balance_snapshots (user_id, account_id, snapshot_date, balance, note, updated_at) /* OWNED balance_snapshots */
 		SELECT $1, $2, $3::date, $4::numeric(20,2), $5, now()
 		WHERE EXISTS (SELECT 1 FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */)
 		ON CONFLICT (account_id, snapshot_date) DO UPDATE SET

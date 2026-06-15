@@ -57,7 +57,7 @@ func (s *Store) GetAnnotation(ctx context.Context, userID, id int64) (Annotation
 func (s *Store) CreateAnnotation(ctx context.Context, userID int64, a Annotation) (Annotation, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO annotations (user_id, anchor_kind, anchor_keys, event_date, label, body, color, source, updated_at)
+		INSERT INTO annotations (user_id, anchor_kind, anchor_keys, event_date, label, body, color, source, updated_at) /* OWNED annotations */
 		VALUES ($1, $2, $3::jsonb, $4::date, $5, $6, $7, $8, now())
 		RETURNING id`,
 		userID, a.AnchorKind, anchorKeysJSON(a.AnchorKeys), a.EventDate, a.Label, a.Body, a.Color, nonEmptySource(a.Source),

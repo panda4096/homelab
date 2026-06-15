@@ -514,8 +514,8 @@ func (s *Store) currentCashRows(ctx context.Context, userID int64, onDate string
 		)
 		SELECT a.id, a.name, a.currency, a.kind, i.name, lb.snapshot_date::text, lb.balance::text
 		FROM latest_balance lb
-		JOIN accounts a ON a.id = lb.account_id AND a.user_id = $1
-		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
+		JOIN accounts a ON a.id = lb.account_id AND a.user_id = $1 /* OWNED accounts */
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id /* OWNED institutions via scoped accounts */
 		WHERE NOT a.is_archived AND a.kind IN ('cash', 'time_deposit', 'wealth_product')
 		ORDER BY i.display_order, i.name, a.display_order, a.name`, userID, onDate)
 	if err != nil {
@@ -558,8 +558,8 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 		       pr.price_date::text, pr.price::text, pr.currency,
 		       hs.holding_start_date::text, ($2::date - hs.holding_start_date)::int
 		FROM position_keys pk
-		JOIN accounts a ON a.id = pk.account_id AND a.user_id = $1
-		JOIN institutions inst ON inst.id = a.institution_id AND inst.user_id = a.user_id
+		JOIN accounts a ON a.id = pk.account_id AND a.user_id = $1 /* OWNED accounts */
+		JOIN institutions inst ON inst.id = a.institution_id AND inst.user_id = a.user_id /* OWNED institutions via scoped accounts */
 		LEFT JOIN latest_position lp ON lp.account_id = pk.account_id AND lp.symbol = pk.symbol
 		LEFT JOIN instruments ins ON ins.symbol = pk.symbol
 		LEFT JOIN LATERAL (
@@ -571,7 +571,7 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 		) pr ON true
 		LEFT JOIN LATERAL (
 			SELECT MIN(t.trade_date) AS first_trade_date
-			FROM transactions t
+			FROM transactions t /* OWNED transactions */
 			WHERE t.account_id = pk.account_id
 			  AND t.symbol = pk.symbol
 			  AND t.user_id = $1
@@ -579,7 +579,7 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 		) first_txn ON true
 		LEFT JOIN LATERAL (
 			SELECT MIN(ps.snapshot_date) AS holding_start_date
-			FROM position_snapshots ps
+			FROM position_snapshots ps /* OWNED position_snapshots */
 			WHERE ps.account_id = pk.account_id
 			  AND ps.symbol = pk.symbol
 			  AND ps.user_id = $1
@@ -587,7 +587,7 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 			  AND ps.quantity > 0
 			  AND ps.snapshot_date > COALESCE((
 			      SELECT MAX(z.snapshot_date)
-			      FROM position_snapshots z
+			      FROM position_snapshots z /* OWNED position_snapshots */
 			      WHERE z.account_id = pk.account_id
 			        AND z.symbol = pk.symbol
 			        AND z.user_id = $1
@@ -622,8 +622,8 @@ func (s *Store) currentLiabilityRows(ctx context.Context, userID int64, onDate s
 		SELECT a.id, a.name, a.currency, a.kind, i.name,
 		       b.statement_date::text, b.amount_total::text, b.currency, b.paid_at::text
 		FROM credit_card_bills b
-		JOIN accounts a ON a.id = b.account_id AND a.user_id = b.user_id
-		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
+		JOIN accounts a ON a.id = b.account_id AND a.user_id = b.user_id /* OWNED accounts via scoped credit_card_bills */
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id /* OWNED institutions via scoped accounts */
 		WHERE NOT a.is_archived
 		  AND b.user_id = $1 /* OWNED credit_card_bills */
 		  AND a.kind = 'credit_card'

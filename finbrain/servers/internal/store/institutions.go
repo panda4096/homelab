@@ -29,8 +29,8 @@ func scanInstitution(row rowScanner) (Institution, error) {
 
 const institutionSelect = `
 	SELECT i.id, i.name, i.kind, i.note, i.display_order, i.created_at, i.updated_at,
-	       (SELECT count(*) FROM accounts a WHERE a.institution_id = i.id AND a.user_id = i.user_id)
-	FROM institutions i`
+	       (SELECT count(*) FROM accounts a WHERE a.institution_id = i.id AND a.user_id = i.user_id /* OWNED accounts via scoped institutions */)
+	FROM institutions i /* OWNED institutions requires caller scope */`
 
 // ListInstitutions returns all institutions ordered by display_order then name.
 func (s *Store) ListInstitutions(ctx context.Context, userID int64) ([]Institution, error) {
@@ -63,7 +63,7 @@ func (s *Store) GetInstitution(ctx context.Context, userID, id int64) (Instituti
 func (s *Store) CreateInstitution(ctx context.Context, userID int64, in Institution) (Institution, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO institutions (user_id, name, kind, note, display_order)
+		INSERT INTO institutions (user_id, name, kind, note, display_order) /* OWNED institutions */
 		VALUES ($1, $2, $3, $4, (SELECT COALESCE(MAX(display_order), -10) + 10 FROM institutions WHERE user_id = $1 /* OWNED institutions */))
 		RETURNING id`,
 		userID, in.Name, in.Kind, in.Note).Scan(&id)
@@ -137,7 +137,7 @@ func (s *Store) DeleteInstitutionIfEmpty(ctx context.Context, userID, id int64) 
 func (s *Store) GetOrCreateInstitutionByName(ctx context.Context, userID int64, name string) (Institution, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO institutions (user_id, name, display_order)
+		INSERT INTO institutions (user_id, name, display_order) /* OWNED institutions */
 		VALUES ($1, $2, (SELECT COALESCE(MAX(display_order), -10) + 10 FROM institutions WHERE user_id = $1 /* OWNED institutions */))
 		ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
 		RETURNING id`, userID, name).Scan(&id)

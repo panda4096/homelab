@@ -94,7 +94,7 @@ func (s *Store) SaveAllocationTargetSet(ctx context.Context, userID int64, set A
 	id := set.ID
 	if id == 0 {
 		err = tx.QueryRow(ctx, `
-			INSERT INTO allocation_target_sets (user_id, name, dimension, drift_threshold_pct, is_dashboard_visible, is_archived, note, updated_at)
+			INSERT INTO allocation_target_sets (user_id, name, dimension, drift_threshold_pct, is_dashboard_visible, is_archived, note, updated_at) /* OWNED allocation_target_sets */
 			VALUES ($1, $2, $3, $4::numeric, $5, $6, $7, now()) RETURNING id`,
 			userID, set.Name, set.Dimension, set.DriftThresholdPct, set.IsDashboardVisible, set.IsArchived, set.Note).Scan(&id)
 		if err != nil {
@@ -118,7 +118,7 @@ func (s *Store) SaveAllocationTargetSet(ctx context.Context, userID int64, set A
 	}
 	for _, it := range set.Items {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO allocation_target_items (user_id, set_id, dimension_value, target_pct, updated_at)
+			INSERT INTO allocation_target_items (user_id, set_id, dimension_value, target_pct, updated_at) /* OWNED allocation_target_items */
 			VALUES ($1, $2, $3, $4::numeric, now())`, userID, id, it.DimensionValue, it.TargetPct); err != nil {
 			return AllocationTargetSet{}, err
 		}

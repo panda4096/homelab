@@ -45,7 +45,7 @@ func (s *Store) UpsertPositionSnapshot(ctx context.Context, userID int64, p Posi
 		return PositionSnapshot{}, err
 	}
 	out, err := scanPosition(tx.QueryRow(ctx, `
-		INSERT INTO position_snapshots (user_id, account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date, note, updated_at)
+		INSERT INTO position_snapshots (user_id, account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date, note, updated_at) /* OWNED position_snapshots */
 		SELECT $1, $2, $3, $4::numeric, $5::numeric, $6, $7::date, $8, now()
 		WHERE EXISTS (SELECT 1 FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */)
 		ON CONFLICT (account_id, symbol, snapshot_date) DO UPDATE SET

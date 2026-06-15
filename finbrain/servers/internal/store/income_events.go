@@ -25,10 +25,10 @@ func scanIncomeEvent(row rowScanner) (IncomeEvent, error) {
 func incomeEventJoinSQL(where string) string {
 	return `
 		SELECT ` + incomeEventCols + `
-		FROM income_events e
-		JOIN accounts a ON a.id = e.account_id AND a.user_id = e.user_id
-		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
-		LEFT JOIN accounts pa ON pa.id = e.payment_account_id AND pa.user_id = e.user_id
+		FROM income_events e /* OWNED income_events requires caller scope */
+		JOIN accounts a ON a.id = e.account_id AND a.user_id = e.user_id /* OWNED accounts via scoped income_events */
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id /* OWNED institutions via scoped accounts */
+		LEFT JOIN accounts pa ON pa.id = e.payment_account_id AND pa.user_id = e.user_id /* OWNED accounts via scoped income_events */
 		` + where
 }
 
@@ -86,7 +86,7 @@ func (s *Store) CreateIncomeEvent(ctx context.Context, userID int64, e IncomeEve
 	}
 	var id int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO income_events (
+		INSERT INTO income_events ( /* OWNED income_events */
 			user_id, event_kind, event_date, account_id, symbol, amount, currency,
 			payment_account_id, tax_withheld, note, source, updated_at
 		)

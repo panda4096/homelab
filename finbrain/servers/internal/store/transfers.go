@@ -25,9 +25,9 @@ func scanTransfer(row rowScanner) (Transfer, error) {
 func transferJoinSQL(where string) string {
 	return `
 		SELECT ` + transferCols + `
-		FROM transfers t
-		JOIN accounts fa ON fa.id = t.from_account_id AND fa.user_id = t.user_id
-		JOIN accounts ta ON ta.id = t.to_account_id AND ta.user_id = t.user_id
+		FROM transfers t /* OWNED transfers requires caller scope */
+		JOIN accounts fa ON fa.id = t.from_account_id AND fa.user_id = t.user_id /* OWNED accounts via scoped transfers */
+		JOIN accounts ta ON ta.id = t.to_account_id AND ta.user_id = t.user_id /* OWNED accounts via scoped transfers */
 		` + where
 }
 
@@ -73,7 +73,7 @@ func (s *Store) GetTransfer(ctx context.Context, userID, id int64) (Transfer, er
 func (s *Store) CreateTransfer(ctx context.Context, userID int64, t Transfer) (Transfer, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO transfers (
+		INSERT INTO transfers ( /* OWNED transfers */
 			user_id, from_account_id, to_account_id, from_amount, to_amount, transfer_date,
 			notes, source, updated_at
 		)

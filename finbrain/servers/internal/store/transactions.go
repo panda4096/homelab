@@ -25,9 +25,9 @@ func scanTransaction(row rowScanner) (Transaction, error) {
 func transactionJoinSQL(where string) string {
 	return `
 		SELECT ` + transactionCols + `
-		FROM transactions t
-		JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
-		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id
+		FROM transactions t /* OWNED transactions requires caller scope */
+		JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id /* OWNED accounts via scoped transactions */
+		JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id /* OWNED institutions via scoped accounts */
 		JOIN instruments ins ON ins.symbol = t.symbol
 		` + where
 }
@@ -90,7 +90,7 @@ func (s *Store) CreateTransaction(ctx context.Context, userID int64, t Transacti
 	}
 	var id int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO transactions (
+		INSERT INTO transactions ( /* OWNED transactions */
 			user_id, account_id, symbol, action, trade_date, settle_date, quantity, price,
 			currency, fee, is_settled, notes, source, updated_at
 		)

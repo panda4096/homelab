@@ -34,7 +34,7 @@ const accountFull = `
 	SELECT a.id, a.name, a.institution_id, i.name, i.kind, a.currency, a.kind, a.display_order, a.is_archived, a.note, a.created_at, a.updated_at,
 	  COALESCE(
 	    (SELECT bs.balance::text FROM balance_snapshots bs
-	       WHERE bs.user_id = a.user_id AND bs.account_id = a.id AND bs.snapshot_date <= $1::date /* OWNED balance_snapshots */
+	       WHERE bs.user_id = a.user_id AND bs.account_id = a.id AND bs.snapshot_date <= $1::date /* OWNED balance_snapshots via scoped accounts */
 	       ORDER BY bs.snapshot_date DESC LIMIT 1),
 	    (SELECT ROUND(SUM(lp.quantity * lp.avg_cost), 2)::text
 	       FROM (
@@ -43,21 +43,21 @@ const accountFull = `
 	                COALESCE(ps.cost_currency, ins.quote_currency, a.currency) value_currency
 	           FROM position_snapshots ps
 	           LEFT JOIN instruments ins ON ins.symbol = ps.symbol
-	          WHERE ps.user_id = a.user_id AND ps.account_id = a.id AND ps.snapshot_date <= $1::date /* OWNED position_snapshots */
+	          WHERE ps.user_id = a.user_id AND ps.account_id = a.id AND ps.snapshot_date <= $1::date /* OWNED position_snapshots via scoped accounts */
 	          ORDER BY ps.symbol, ps.snapshot_date DESC
 	       ) lp
 	      WHERE lp.quantity > 0 AND lp.avg_cost IS NOT NULL AND lp.value_currency = a.currency)
 	  ),
 	  (SELECT max(d)::text FROM (
-	     SELECT max(snapshot_date) d FROM balance_snapshots WHERE user_id = a.user_id AND account_id = a.id /* OWNED balance_snapshots */
+	     SELECT max(snapshot_date) d FROM balance_snapshots WHERE user_id = a.user_id AND account_id = a.id /* OWNED balance_snapshots via scoped accounts */
 	     UNION ALL
-	     SELECT max(snapshot_date)   FROM position_snapshots WHERE user_id = a.user_id AND account_id = a.id /* OWNED position_snapshots */) t)
-	FROM accounts a JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id`
+	     SELECT max(snapshot_date)   FROM position_snapshots WHERE user_id = a.user_id AND account_id = a.id /* OWNED position_snapshots via scoped accounts */) t)
+FROM accounts a /* OWNED accounts requires caller scope */ JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id /* OWNED institutions via scoped accounts */`
 
 // accountMeta selects account + joined institution, no computed fields (NULLs).
 const accountMeta = `
 	SELECT a.id, a.name, a.institution_id, i.name, i.kind, a.currency, a.kind, a.display_order, a.is_archived, a.note, a.created_at, a.updated_at, NULL::text, NULL::text
-	FROM accounts a JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id`
+FROM accounts a /* OWNED accounts requires caller scope */ JOIN institutions i ON i.id = a.institution_id AND i.user_id = a.user_id /* OWNED institutions via scoped accounts */`
 
 func scanAccount(row rowScanner) (Account, error) {
 	var a Account
@@ -106,7 +106,7 @@ func (s *Store) accountMetaByID(ctx context.Context, userID, id int64) (Account,
 func (s *Store) CreateAccount(ctx context.Context, userID int64, a Account) (Account, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO accounts (user_id, name, institution_id, currency, kind, note, display_order)
+		INSERT INTO accounts (user_id, name, institution_id, currency, kind, note, display_order) /* OWNED accounts */
 		VALUES ($1, $2, $3, $4, $5, $6,
 		        (SELECT COALESCE(MAX(display_order), -10) + 10 FROM accounts WHERE user_id = $1 AND institution_id = $3 /* OWNED accounts */))
 		RETURNING id`,
@@ -232,7 +232,7 @@ func (s *Store) CreateAccountsFromTemplate(ctx context.Context, userID, template
 		var id int64
 		name := bp.NameSuffix
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO accounts (user_id, name, institution_id, currency, kind, note, display_order)
+			INSERT INTO accounts (user_id, name, institution_id, currency, kind, note, display_order) /* OWNED accounts */
 			VALUES ($1, $2, $3, $4, $5, $6,
 			        (SELECT COALESCE(MAX(display_order), -10) + 10 FROM accounts WHERE user_id = $1 AND institution_id = $3 /* OWNED accounts */))
 			RETURNING id`,

@@ -7,7 +7,7 @@ func (s *Store) GetPreferences(ctx context.Context, userID int64) (Preferences, 
 	var p Preferences
 	err := s.pool.QueryRow(ctx, `
 		SELECT display_currency, fx_mode, time_aggregation_default, market_convention, timezone, updated_at
-		FROM user_preferences WHERE user_id = $1`,
+		FROM user_preferences WHERE user_id = $1 /* OWNED user_preferences */`,
 		userID).
 		Scan(&p.DisplayCurrency, &p.FxMode, &p.TimeAggregationDefault, &p.MarketConvention, &p.Timezone, &p.UpdatedAt)
 	return p, err
@@ -19,7 +19,7 @@ func (s *Store) UpdatePreferences(ctx context.Context, userID int64, p Preferenc
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO user_preferences (user_id, display_currency, fx_mode, time_aggregation_default, market_convention, timezone, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, now())
-		ON CONFLICT (user_id) DO UPDATE SET
+		ON CONFLICT (user_id) DO UPDATE SET /* OWNED user_preferences */
 			display_currency         = EXCLUDED.display_currency,
 			fx_mode                  = EXCLUDED.fx_mode,
 			time_aggregation_default = EXCLUDED.time_aggregation_default,

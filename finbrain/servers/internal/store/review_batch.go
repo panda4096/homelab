@@ -20,7 +20,7 @@ func (s *Store) ApplyReviewBatch(ctx context.Context, userID int64, batch Review
 
 	for _, b := range batch.BalanceSnapshots {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO balance_snapshots (user_id, account_id, snapshot_date, balance, note, updated_at)
+			INSERT INTO balance_snapshots (user_id, account_id, snapshot_date, balance, note, updated_at) /* OWNED balance_snapshots */
 			VALUES ($1, $2, $3::date, $4::numeric(20,2), $5, now())
 			ON CONFLICT (account_id, snapshot_date) DO UPDATE SET
 				balance = EXCLUDED.balance, note = EXCLUDED.note, updated_at = now()`,
@@ -35,7 +35,7 @@ func (s *Store) ApplyReviewBatch(ctx context.Context, userID int64, batch Review
 			return ReviewBatchResult{}, err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO position_snapshots (user_id, account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date, note, updated_at)
+			INSERT INTO position_snapshots (user_id, account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date, note, updated_at) /* OWNED position_snapshots */
 			VALUES ($1, $2, $3, $4::numeric, $5::numeric, $6, $7::date, $8, now())
 			ON CONFLICT (account_id, symbol, snapshot_date) DO UPDATE SET
 				quantity = EXCLUDED.quantity,
@@ -54,7 +54,7 @@ func (s *Store) ApplyReviewBatch(ctx context.Context, userID int64, batch Review
 			return ReviewBatchResult{}, err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO transactions (
+			INSERT INTO transactions ( /* OWNED transactions */
 				user_id, account_id, symbol, action, trade_date, settle_date, quantity, price,
 				currency, fee, is_settled, notes, source, updated_at
 			)
@@ -69,7 +69,7 @@ func (s *Store) ApplyReviewBatch(ctx context.Context, userID int64, batch Review
 
 	for _, t := range batch.Transfers {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO transfers (
+			INSERT INTO transfers ( /* OWNED transfers */
 				user_id, from_account_id, to_account_id, from_amount, to_amount, transfer_date,
 				notes, source, updated_at
 			)
@@ -87,7 +87,7 @@ func (s *Store) ApplyReviewBatch(ctx context.Context, userID int64, batch Review
 			}
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO income_events (
+			INSERT INTO income_events ( /* OWNED income_events */
 				user_id, event_kind, event_date, account_id, symbol, amount, currency,
 				payment_account_id, tax_withheld, note, source, updated_at
 			)
@@ -120,7 +120,7 @@ func (s *Store) ApplyReviewBatch(ctx context.Context, userID int64, batch Review
 			return ReviewBatchResult{}, err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO credit_card_bills (
+			INSERT INTO credit_card_bills ( /* OWNED credit_card_bills */
 				user_id, account_id, statement_date, amount_total, currency, top_categories,
 				paid_at, payment_account_id, note, updated_at
 			)

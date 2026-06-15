@@ -55,7 +55,7 @@ func scanSummary(row rowScanner) (Summary, error) {
 func (s *Store) CreateSummary(ctx context.Context, userID int64, sm Summary) (Summary, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO summaries (user_id, period_kind, period_start, period_end, display_currency, content, meta)
+		INSERT INTO summaries (user_id, period_kind, period_start, period_end, display_currency, content, meta) /* OWNED summaries */
 		VALUES ($1, $2, $3::date, $4::date, $5, $6, $7::jsonb)
 		RETURNING id`,
 		userID, sm.PeriodKind, sm.PeriodStart, sm.PeriodEnd, sm.DisplayCurrency, sm.Content, extraJSON(sm.Meta),
