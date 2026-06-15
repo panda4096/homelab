@@ -31,6 +31,7 @@ import { TITLES } from './nav'
 import { usePrefStore } from './store'
 import { ApiError, getAccount, getMe, logout } from './api'
 import { useAuthStore } from './authStore'
+import { clearClientSession } from './session'
 
 // Screens that are bespoke in P0/P1; everything else falls back to Placeholder.
 const PLACEHOLDER_IDS: string[] = []
@@ -54,10 +55,10 @@ export function App() {
       .catch((err) => {
         if (cancelled) return
         if (err instanceof ApiError && err.status === 401) {
-          auth.setAnonymous()
+          clearClientSession()
           return
         }
-        auth.setAnonymous()
+        clearClientSession()
       })
     return () => {
       cancelled = true
@@ -66,7 +67,10 @@ export function App() {
 
   useEffect(() => {
     const h = () => {
-      auth.setAnonymous()
+      clearClientSession()
+      setCopilot(false)
+      setPrefsReadyForUserID(null)
+      setPrefsError(null)
       navigate('/login', { replace: true })
     }
     window.addEventListener('finbrain:unauthorized', h)
@@ -126,7 +130,10 @@ export function App() {
     try {
       await logout()
     } finally {
-      auth.setAnonymous()
+      clearClientSession()
+      setCopilot(false)
+      setPrefsReadyForUserID(null)
+      setPrefsError(null)
       navigate('/login', { replace: true })
     }
   }

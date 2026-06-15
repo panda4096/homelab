@@ -32,6 +32,7 @@ interface UiState {
   closeQuickEntry: () => void
   openBuild: () => void
   closeBuild: () => void
+  reset: () => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -42,4 +43,5 @@ export const useUiStore = create<UiState>((set) => ({
   closeQuickEntry: () => set({ quickEntry: null }),
   openBuild: () => set({ buildOpen: true }),
   closeBuild: () => set({ buildOpen: false }),
+  reset: () => set({ quickEntry: null, buildOpen: false }),
 }))

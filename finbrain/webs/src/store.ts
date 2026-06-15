@@ -23,6 +23,7 @@ interface PrefState {
   setMarketConvention: (v: MarketConvention) => Promise<void>
   setTimeAggregationDefault: (v: TimeAggregation) => Promise<void>
   setTimezone: (v: string) => Promise<void>
+  reset: () => void
 }
 
 // Keep the <html data-market-convention> attribute in sync so the design system's
@@ -41,13 +42,17 @@ function fromPrefs(p: Preferences) {
   }
 }
 
-export const usePrefStore = create<PrefState>((set, get) => ({
-  displayCurrency: 'CNY',
-  fxMode: 'current',
-  marketConvention: 'western',
-  timeAggregationDefault: 'month',
+const defaultPrefState = {
+  displayCurrency: 'CNY' as DisplayCurrency,
+  fxMode: 'current' as FxMode,
+  marketConvention: 'western' as MarketConvention,
+  timeAggregationDefault: 'month' as TimeAggregation,
   timezone: 'Asia/Shanghai',
   hydrated: false,
+}
+
+export const usePrefStore = create<PrefState>((set, get) => ({
+  ...defaultPrefState,
 
   hydrate: async () => {
     // apply the default convention immediately so colors are right pre-fetch
@@ -97,5 +102,10 @@ export const usePrefStore = create<PrefState>((set, get) => ({
     const p = await putPreferences({ timezone: v })
     set(fromPrefs(p))
     applyConvention(p.market_convention)
+  },
+
+  reset: () => {
+    set(defaultPrefState)
+    applyConvention(defaultPrefState.marketConvention)
   },
 }))
