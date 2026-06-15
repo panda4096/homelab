@@ -1,8 +1,12 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/panda4096/homelab/finbrain/servers/internal/config"
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
@@ -50,25 +54,55 @@ func TestAgentResponseCarriesVisibleSteps(t *testing.T) {
 	}
 }
 
-func TestShouldRefreshHoldingsForCorrection(t *testing.T) {
-	history := []agentChatMessage{
-		{Role: "user", Text: "我亏得最多的是什么"},
-		{Role: "assistant", Text: "DRAM +18.11%，AAPL +16.91%，这些盈利稳健。"},
+func TestAgentInitialMessagesPreserveConversationRoles(t *testing.T) {
+	s := &Server{cfg: &config.Config{Location: time.UTC}}
+	got := s.agentInitialMessages(context.Background(), "我现在亏得最多是什么？", []agentChatMessage{
+		{Role: "user", Text: "先看持仓"},
+		{Role: "assistant", Text: "已经查过当前持仓。"},
+	})
+	if len(got) != 3 {
+		t.Fatalf("messages len = %d, want 3", len(got))
 	}
-	if !shouldRefreshHoldingsForCorrection("盈利稳健加钱光？你逻辑不对吧", history) {
-		t.Fatal("expected holdings refresh for corrective follow-up")
+	if got[0].Role != "user" || got[1].Role != "assistant" || got[2].Role != "user" {
+		t.Fatalf("roles = %q, %q, %q", got[0].Role, got[1].Role, got[2].Role)
 	}
-	if shouldRefreshHoldingsForCorrection("这个文案不对，帮我改短一点", nil) {
-		t.Fatal("did not expect holdings refresh for non-portfolio copy correction")
+	if !containsAny(got[2].Content, []string{"用户问题:我现在亏得最多是什么？"}) {
+		t.Fatalf("current question message = %q", got[2].Content)
 	}
 }
 
-func TestParseAgentActionExtractsJSONObject(t *testing.T) {
-	got, err := parseAgentAction("我会先处理：\n{\"action\":\"run_skill\",\"skill\":\"holdings.listCurrent\",\"params\":{}}\n谢谢")
+func TestParseToolCallArgsRequiresJSONObject(t *testing.T) {
+	got, err := parseToolCallArgs(json.RawMessage(`{"display_currency":"CNY"}`))
 	if err != nil {
-		t.Fatalf("parseAgentAction returned error: %v", err)
+		t.Fatal(err)
 	}
-	if got.Action != "run_skill" || got.Skill != "holdings.listCurrent" {
-		t.Fatalf("unexpected action: %+v", got)
+	if got["display_currency"] != "CNY" {
+		t.Fatalf("display_currency = %v", got["display_currency"])
+	}
+	if _, err := parseToolCallArgs(json.RawMessage(`[1,2]`)); err == nil {
+		t.Fatal("expected non-object args to fail")
+	}
+}
+
+func TestAgentNativeToolsUseProviderSafeNames(t *testing.T) {
+	s := &Server{}
+	tools, names := s.agentNativeToolContext()
+	if len(tools) == 0 {
+		t.Fatal("expected tools")
+	}
+	found := false
+	for _, tool := range tools {
+		if containsAny(tool.Name, []string{"."}) {
+			t.Fatalf("wire tool name contains dot: %q", tool.Name)
+		}
+		if tool.Name == "holdings_listCurrent" {
+			found = true
+			if names[tool.Name] != "holdings.listCurrent" {
+				t.Fatalf("mapped name = %q", names[tool.Name])
+			}
+		}
+	}
+	if !found {
+		t.Fatal("did not find holdings_listCurrent wire tool")
 	}
 }

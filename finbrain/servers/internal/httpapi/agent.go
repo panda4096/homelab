@@ -472,7 +472,9 @@ func (s *Server) streamAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runAgentLoop(r *http.Request, question string, history []agentChatMessage, llmOpts llmpkg.Options, emit func(agentStep), emitAnswer func(string)) (agentLoopResult, error) {
-	toolsJSON, acctCtx := s.agentToolContext(r.Context())
+	system := s.agentSystemPrompt(r.Context())
+	tools, toolNameMap := s.agentNativeToolContext()
+	messages := s.agentInitialMessages(r.Context(), question, history)
 	steps := []agentStep{{Key: "understand", Label: "理解问题", Status: "done", Detail: shortText(question, 42)}}
 	emitAgentStep(emit, steps[0])
 	observations := []agentObservation{}
@@ -489,7 +491,51 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 		result.Usage = usage
 		return result
 	}
+	finalize := func(detail string) (agentLoopResult, error) {
+		step := agentStep{Key: "answer", Label: "总结回答", Status: "pending", Detail: detail}
+		steps = append(steps, step)
+		emitAgentStep(emit, step)
 
+		finalMessages := append(append([]llmpkg.Message(nil), messages...), finalInstructionMessage())
+		req := llmpkg.ChatRequest{System: system, Messages: finalMessages, Tools: tools, ToolChoice: "none"}
+		var resp llmpkg.ChatResponse
+		var err error
+		if emitAnswer != nil {
+			resp, err = s.llm.StreamMessagesWithOptions(r.Context(), req, llmOpts, func(delta llmpkg.StreamDelta) error {
+				if delta.Content != "" {
+					emitAnswer(delta.Content)
+				}
+				return nil
+			})
+		} else {
+			resp, err = s.llm.CompleteMessagesWithOptions(r.Context(), req, llmOpts)
+		}
+		if err != nil {
+			if isLLMServiceError(err) {
+				s.setLLMProbeCache(false, llmUserMessage(err))
+			}
+			return agentLoopResult{}, err
+		}
+		s.setLLMProbeCache(true, "")
+		reply := strings.TrimSpace(stripCodeFence(resp.Content))
+		if reply == "" && last != nil {
+			reply = narrateSkillResult(last.Skill, skillArgs(last.Params), last.Result, last.RowCount)
+			if emitAnswer != nil && reply != "" {
+				emitAnswer(reply)
+			}
+		}
+		if reply == "" {
+			reply = "我可以帮你查资产、持仓、对账，也可以先整理一条待确认的记账草稿。"
+		}
+		steps[len(steps)-1] = agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已基于上下文生成回答"}
+		emitAgentStep(emit, steps[len(steps)-1])
+		if last == nil {
+			return finish(agentLoopResult{Reply: reply, Steps: steps}), nil
+		}
+		return finish(agentLoopResult{Outcome: last, Reply: reply, Steps: steps}), nil
+	}
+
+	toolCallsUsed := 0
 	for turn := 0; turn <= maxAgentToolCalls; turn++ {
 		planKey := "plan_" + strconv.Itoa(turn+1)
 		planIdx := len(steps)
@@ -497,40 +543,12 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 		steps = append(steps, step)
 		emitAgentStep(emit, step)
 
-		if turn == 0 && shouldRefreshHoldingsForCorrection(question, history) {
-			action := agentAction{
-				Action: "run_skill",
-				Skill:  "holdings.listCurrent",
-				Params: map[string]any{},
-				UINote: "重新查询当前持仓和浮动盈亏，核实数据",
-			}
-			steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: action.UINote, Skill: action.Skill}
-			emitAgentStep(emit, steps[planIdx])
-
-			toolKey := "tool_" + strconv.Itoa(turn+1)
-			step = agentStep{Key: toolKey, Label: "查询数据", Status: "pending", Detail: "正在执行" + skillDisplayName(action.Skill), Skill: action.Skill}
-			steps = append(steps, step)
-			emitAgentStep(emit, step)
-			outcome, err := s.executeAgentSkillPlan(r, question, action.Skill, action.Params)
-			if err != nil {
-				return agentLoopResult{}, err
-			}
-			lastOutcome := outcome
-			last = &lastOutcome
-			observations = append(observations, outcome.observation())
-			steps[len(steps)-1] = agentStep{
-				Key:      toolKey,
-				Label:    agentToolStepLabel(outcome.Skill.Type),
-				Status:   "done",
-				Detail:   fmt.Sprintf("已完成%s，返回 %d 条结果", skillDisplayName(outcome.Skill.Name), outcome.RowCount),
-				Skill:    outcome.Skill.Name,
-				RowCount: outcome.RowCount,
-			}
-			emitAgentStep(emit, steps[len(steps)-1])
-			continue
-		}
-
-		action, err := s.nextAgentAction(r.Context(), question, history, toolsJSON, acctCtx, observations, llmOpts)
+		resp, err := s.llm.CompleteMessagesWithOptions(r.Context(), llmpkg.ChatRequest{
+			System:     system,
+			Messages:   messages,
+			Tools:      tools,
+			ToolChoice: "auto",
+		}, llmOpts)
 		if err != nil {
 			if isLLMServiceError(err) {
 				s.setLLMProbeCache(false, llmUserMessage(err))
@@ -539,90 +557,97 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 		}
 		s.setLLMProbeCache(true, "")
 
-		switch action.Action {
-		case "final":
+		if len(resp.ToolCalls) == 0 {
 			steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: "已判断当前信息足够回答"}
 			emitAgentStep(emit, steps[planIdx])
-			reply := strings.TrimSpace(action.Reply)
-			if len(observations) > 0 {
-				step := agentStep{Key: "answer", Label: "总结回答", Status: "pending", Detail: "正在生成回答"}
-				steps = append(steps, step)
-				emitAgentStep(emit, step)
-
-				if emitAnswer != nil {
-					reply, err = s.finalAgentReplyStream(r.Context(), question, history, observations, llmOpts, emitAnswer)
-					if err != nil {
-						if isLLMServiceError(err) {
-							s.setLLMProbeCache(false, llmUserMessage(err))
-						}
-						return agentLoopResult{}, err
-					}
-				} else if reply == "" {
-					reply, err = s.finalAgentReply(r.Context(), question, history, observations, llmOpts)
-					if err != nil {
-						if isLLMServiceError(err) {
-							s.setLLMProbeCache(false, llmUserMessage(err))
-						}
-						return agentLoopResult{}, err
-					}
-				}
-				s.setLLMProbeCache(true, "")
-				if reply == "" && last != nil {
-					reply = narrateSkillResult(last.Skill, skillArgs(last.Params), last.Result, last.RowCount)
-					if emitAnswer != nil {
-						emitAnswer(reply)
-					}
-				}
-				steps[len(steps)-1] = agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已基于查询结果生成回答"}
-				emitAgentStep(emit, steps[len(steps)-1])
-			} else if emitAnswer != nil && reply != "" {
-				step := agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已生成回答"}
-				steps = append(steps, step)
-				emitAgentStep(emit, step)
-				emitAnswer(reply)
-			} else {
-				step := agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已生成回答"}
-				steps = append(steps, step)
-				emitAgentStep(emit, step)
+			// The planning turn already produced the final answer text — reuse it directly
+			// instead of re-generating via finalize(), which wasted a full LLM round-trip and
+			// duplicate (uncached) output tokens on every answered question. Only fall back to
+			// a dedicated summary call when the model stopped without text but data exists.
+			reply := strings.TrimSpace(stripCodeFence(resp.Content))
+			if reply == "" && len(observations) > 0 {
+				return finalize("正在生成回答")
 			}
 			if reply == "" {
-				if last != nil {
-					reply = narrateSkillResult(last.Skill, skillArgs(last.Params), last.Result, last.RowCount)
-				} else {
-					reply = "我可以帮你查资产、持仓、对账，也可以先整理一条待确认的记账草稿。"
-				}
+				reply = "我可以帮你查资产、持仓、对账，也可以先整理一条待确认的记账草稿。"
+			}
+			step := agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已生成回答"}
+			steps = append(steps, step)
+			emitAgentStep(emit, step)
+			if emitAnswer != nil && reply != "" {
+				emitAnswer(reply)
 			}
 			if last == nil {
 				return finish(agentLoopResult{Reply: reply, Steps: steps}), nil
 			}
 			return finish(agentLoopResult{Outcome: last, Reply: reply, Steps: steps}), nil
+		}
 
-		case "run_skill":
-			if action.Skill == "" {
-				return agentLoopResult{}, errSkillInput{"agent 未选择 skill"}
-			}
-			note := action.UINote
-			if note == "" {
-				note = "准备查询" + skillDisplayName(action.Skill)
-			}
-			steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: note, Skill: action.Skill}
-			emitAgentStep(emit, steps[planIdx])
+		remainingCalls := maxAgentToolCalls - toolCallsUsed
+		if remainingCalls <= 0 {
+			return finalize("已达到查询上限，正在基于已有结果总结")
+		}
+		calls := resp.ToolCalls
+		truncatedCalls := false
+		if len(calls) > remainingCalls {
+			calls = calls[:remainingCalls]
+			truncatedCalls = true
+		}
+		messages = append(messages, llmpkg.Message{Role: "assistant", Content: strings.TrimSpace(resp.Content), ToolCalls: calls})
+		firstSkill := toolNameMap[calls[0].Name]
+		if firstSkill == "" {
+			firstSkill = calls[0].Name
+		}
+		steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: "准备查询" + skillDisplayName(firstSkill), Skill: firstSkill}
+		emitAgentStep(emit, steps[planIdx])
 
-			toolKey := "tool_" + strconv.Itoa(turn+1)
+		for _, call := range calls {
+			skillName := toolNameMap[call.Name]
+			if skillName == "" {
+				skillName = strings.TrimSpace(call.Name)
+			}
+			toolCallsUsed++
+			toolKey := "tool_" + strconv.Itoa(toolCallsUsed)
 			toolLabel := "查询数据"
-			if sk, ok := s.findSkill(action.Skill); ok {
+			if sk, ok := s.findSkill(skillName); ok {
 				toolLabel = agentToolStepLabel(sk.Type)
 			}
-			step = agentStep{Key: toolKey, Label: toolLabel, Status: "pending", Detail: "正在执行" + skillDisplayName(action.Skill), Skill: action.Skill}
+			pendingDetail := "正在执行工具调用"
+			if skillName != "" {
+				pendingDetail = "正在执行" + skillDisplayName(skillName)
+			}
+			step = agentStep{Key: toolKey, Label: toolLabel, Status: "pending", Detail: pendingDetail, Skill: skillName}
 			steps = append(steps, step)
 			emitAgentStep(emit, step)
-			outcome, err := s.executeAgentSkillPlan(r, question, action.Skill, action.Params)
-			if err != nil {
-				return agentLoopResult{}, err
+
+			// On any tool failure, feed the error back as this call's tool_result so the model
+			// can correct itself on the next turn — never abort the whole answer over one bad
+			// call. Every tool_call in the assistant message must still get a matching
+			// tool_result, so we append one on every path. The turn budget bounds retries.
+			failTool := func(detail, toolContent string) {
+				messages = append(messages, llmpkg.Message{Role: "tool", ToolCallID: call.ID, Content: toolContent})
+				steps[len(steps)-1] = agentStep{Key: toolKey, Label: toolLabel, Status: "error", Detail: detail, Skill: skillName}
+				emitAgentStep(emit, steps[len(steps)-1])
+			}
+			if skillName == "" {
+				failTool("工具调用缺少名称，已反馈模型", "工具调用缺少名称")
+				continue
+			}
+			params, perr := parseToolCallArgs(call.Arguments)
+			if perr != nil {
+				failTool("参数无效，已反馈模型重试", "工具参数解析失败："+agentErrorMessage(perr))
+				continue
+			}
+			outcome, eerr := s.executeAgentSkillPlan(r, question, skillName, params)
+			if eerr != nil {
+				failTool("查询失败，已反馈模型", "工具执行失败："+agentErrorMessage(eerr))
+				continue
 			}
 			lastOutcome := outcome
 			last = &lastOutcome
-			observations = append(observations, outcome.observation())
+			observation := outcome.observation()
+			observations = append(observations, observation)
+			messages = append(messages, toolObservationMessage(call.ID, observation))
 			steps[len(steps)-1] = agentStep{
 				Key:      toolKey,
 				Label:    agentToolStepLabel(outcome.Skill.Type),
@@ -638,18 +663,12 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 				emitAgentStep(emit, step)
 				return finish(agentLoopResult{Outcome: &outcome, Reply: narrateSkillResult(outcome.Skill, skillArgs(outcome.Params), outcome.Result, outcome.RowCount), Steps: steps}), nil
 			}
-			if turn == maxAgentToolCalls-1 {
-				step = agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已达到工具调用上限，使用当前查询结果总结"}
-				steps = append(steps, step)
-				emitAgentStep(emit, step)
-				return finish(agentLoopResult{Outcome: &outcome, Reply: narrateSkillResult(outcome.Skill, skillArgs(outcome.Params), outcome.Result, outcome.RowCount), Steps: steps}), nil
-			}
-
-		default:
-			return agentLoopResult{}, errSkillInput{"Copilot 没能识别下一步动作，请换个问法或稍后重试"}
+		}
+		if truncatedCalls {
+			return finalize("已达到查询上限，正在基于已有结果总结")
 		}
 	}
-	return agentLoopResult{}, errSkillInput{"agent 未生成回答"}
+	return finalize("已完成必要查询，正在总结")
 }
 
 func emitAgentStep(emit func(agentStep), step agentStep) {
