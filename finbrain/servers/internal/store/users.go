@@ -32,7 +32,7 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, passwordH
 	if err != nil {
 		return User{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO user_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, u.ID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO user_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING /* OWNED user_preferences */`, u.ID); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -45,13 +45,13 @@ func (s *Store) GetPasswordIdentity(ctx context.Context, username string) (Passw
 	var p PasswordIdentity
 	err := s.pool.QueryRow(ctx, `
 		SELECT i.id, i.user_id, i.identifier, i.secret, i.must_change_password,
-		       u.display_name, u.is_active, u.created_at, u.updated_at
+		       u.display_name, u.is_active, u.avatar_updated_at, u.created_at, u.updated_at
 		FROM user_identities i
 		JOIN users u ON u.id = i.user_id
 		WHERE i.provider = 'password' AND i.identifier = $1 AND u.is_active`,
 		username).
 		Scan(&p.ID, &p.UserID, &p.Identifier, &p.Secret, &p.MustChangePassword,
-			&p.User.DisplayName, &p.User.IsActive, &p.User.CreatedAt, &p.User.UpdatedAt)
+			&p.User.DisplayName, &p.User.IsActive, &p.User.AvatarUpdatedAt, &p.User.CreatedAt, &p.User.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PasswordIdentity{}, ErrNotFound
 	}
@@ -67,13 +67,13 @@ func (s *Store) GetPasswordIdentityByUserID(ctx context.Context, userID int64) (
 	var p PasswordIdentity
 	err := s.pool.QueryRow(ctx, `
 		SELECT i.id, i.user_id, i.identifier, i.secret, i.must_change_password,
-		       u.display_name, u.is_active, u.created_at, u.updated_at
+		       u.display_name, u.is_active, u.avatar_updated_at, u.created_at, u.updated_at
 		FROM user_identities i
 		JOIN users u ON u.id = i.user_id
 		WHERE i.provider = 'password' AND i.user_id = $1 AND u.is_active`,
 		userID).
 		Scan(&p.ID, &p.UserID, &p.Identifier, &p.Secret, &p.MustChangePassword,
-			&p.User.DisplayName, &p.User.IsActive, &p.User.CreatedAt, &p.User.UpdatedAt)
+			&p.User.DisplayName, &p.User.IsActive, &p.User.AvatarUpdatedAt, &p.User.CreatedAt, &p.User.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PasswordIdentity{}, ErrNotFound
 	}
@@ -88,18 +88,62 @@ func (s *Store) GetPasswordIdentityByUserID(ctx context.Context, userID int64) (
 func (s *Store) GetUser(ctx context.Context, id int64) (User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
-		SELECT u.id, u.display_name, u.is_active,
+		SELECT u.id, COALESCE(i.identifier, '') AS username, u.display_name, u.is_active,
 		       COALESCE(i.must_change_password, false) AS must_change_password,
-		       u.created_at, u.updated_at
+		       u.avatar_updated_at, u.created_at, u.updated_at
 		FROM users u
 		LEFT JOIN user_identities i ON i.user_id = u.id AND i.provider = 'password'
 		WHERE u.id = $1 AND u.is_active`,
 		id).
-		Scan(&u.ID, &u.DisplayName, &u.IsActive, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.IsActive, &u.MustChangePassword, &u.AvatarUpdatedAt, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	return u, err
+}
+
+// UpdateUserDisplayName updates the logged-in user's display name (the UI nickname; the
+// login username in user_identities is unchanged), then returns the refreshed user.
+func (s *Store) UpdateUserDisplayName(ctx context.Context, userID int64, displayName string) (User, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET display_name = $2, updated_at = now() WHERE id = $1 AND is_active`, userID, displayName)
+	if err != nil {
+		return User{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return User{}, ErrNotFound
+	}
+	return s.GetUser(ctx, userID)
+}
+
+// SetUserAvatar stores the user's avatar bytes + mime and returns the new version stamp.
+func (s *Store) SetUserAvatar(ctx context.Context, userID int64, mime string, data []byte) (time.Time, error) {
+	var updatedAt time.Time
+	err := s.pool.QueryRow(ctx, `
+		UPDATE users SET avatar_data = $2, avatar_mime = $3, avatar_updated_at = now(), updated_at = now()
+		WHERE id = $1 AND is_active
+		RETURNING avatar_updated_at`,
+		userID, data, mime).Scan(&updatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, ErrNotFound
+	}
+	return updatedAt, err
+}
+
+// GetUserAvatar returns the stored avatar bytes + mime; ErrNotFound when the user has none.
+func (s *Store) GetUserAvatar(ctx context.Context, userID int64) (string, []byte, error) {
+	var mime *string
+	var data []byte
+	err := s.pool.QueryRow(ctx, `SELECT avatar_mime, avatar_data FROM users WHERE id = $1 AND is_active`, userID).Scan(&mime, &data)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil, ErrNotFound
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	if mime == nil || len(data) == 0 {
+		return "", nil, ErrNotFound
+	}
+	return *mime, data, nil
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) (Session, error) {

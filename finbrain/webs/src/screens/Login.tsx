@@ -98,6 +98,11 @@ export function Login({
             <button type="button" className="auth-switch" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
               {mode === 'login' ? '没有账号，去注册' : '已有账号，去登录'}
             </button>
+            {mode === 'login' ? (
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', margin: '2px 0 0' }}>
+                忘记密码？请联系管理员重置；登录后可在「设置 · 账号与安全」自助修改。
+              </p>
+            ) : null}
           </form>
         )}
       </div>

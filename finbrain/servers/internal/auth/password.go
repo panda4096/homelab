@@ -47,6 +47,15 @@ func VerifyPassword(password, encoded string) bool {
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
+// VerifyPasswordDummy runs the same expensive password verification work for
+// unknown users, so login timing does not reveal whether a username exists.
+func VerifyPasswordDummy(password string) bool {
+	salt := []byte("finbrain_dummy_salt")
+	want := []byte("finbrain_dummy_password_hash_32b")
+	got := argon2.IDKey([]byte(password), salt, passwordHashTime, passwordHashMemoryKB, passwordHashThreads, uint32(len(want)))
+	return subtle.ConstantTimeCompare(got, want) == 1
+}
+
 type hashParams struct {
 	memoryKB uint32
 	time     uint32

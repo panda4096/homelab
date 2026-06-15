@@ -98,7 +98,7 @@ func userIDFromContext(ctx context.Context) int64 {
 	if id, ok := ctx.Value(ctxUserID).(int64); ok && id > 0 {
 		return id
 	}
-	return 1
+	return 0
 }
 
 func isDevDefaultUser(r *http.Request) bool {

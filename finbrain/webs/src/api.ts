@@ -24,9 +24,11 @@ export type PreferencesPatch = Partial<
 
 export interface AuthUser {
   id: number
+  username: string
   display_name: string
   is_active: boolean
   must_change_password: boolean
+  avatar_updated_at?: string | null
   created_at: string
   updated_at: string
 }
@@ -491,6 +493,25 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
     method: 'POST',
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   })
+}
+
+export function updateProfile(displayName: string): Promise<{ user: AuthUser }> {
+  return request<{ user: AuthUser }>('/api/auth/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({ display_name: displayName }),
+  })
+}
+
+export function uploadAvatar(blob: Blob): Promise<{ avatar_updated_at: string }> {
+  return request<{ avatar_updated_at: string }>('/api/auth/avatar', {
+    method: 'POST',
+    headers: { 'Content-Type': blob.type || 'image/jpeg' },
+    body: blob,
+  })
+}
+
+export function avatarUrl(version?: string | null): string {
+  return version ? `/api/auth/avatar?v=${encodeURIComponent(version)}` : '/api/auth/avatar'
 }
 
 export function getPreferences(): Promise<Preferences> {

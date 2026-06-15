@@ -4,7 +4,7 @@ import { Icon, Segmented } from '../ds'
 import { NAV } from '../nav'
 import { CopilotPanel } from './CopilotPanel'
 import wordmark from '../assets/logo/finbrain-wordmark.svg'
-import type { AuthUser } from '../api'
+import { avatarUrl, type AuthUser } from '../api'
 
 const COPILOT_WIDTH_KEY = 'finbrain.copilotSidebarWidth'
 const COPILOT_DEFAULT_WIDTH = 360
@@ -193,6 +193,7 @@ export function Sidebar({
                 width: 28,
                 height: 28,
                 borderRadius: '50%',
+                overflow: 'hidden',
                 background: 'var(--gradient-gold)',
                 display: 'flex',
                 alignItems: 'center',
@@ -203,19 +204,14 @@ export function Sidebar({
                 flex: 'none',
               }}
             >
-              业
+              {user?.avatar_updated_at ? (
+                <img src={avatarUrl(user.avatar_updated_at)} alt="头像" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                (user?.display_name ?? '用').trim().charAt(0).toUpperCase() || '用'
+              )}
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>{user?.display_name ?? '用户'}</div>
-              <div
-                style={{
-                  fontSize: 10.5,
-                  color: 'var(--text-tertiary)',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                user:{user?.id ?? 1}
-              </div>
             </div>
             <button
               type="button"

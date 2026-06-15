@@ -32,6 +32,9 @@ migrate: ; go run ./cmd/finbrain migrate up
 migrate-down: ; go run ./cmd/finbrain migrate down
 migrate-status: ; go run ./cmd/finbrain migrate status
 seed seed-test: ; go run ./cmd/finbrain seed
+# Reset a user's password to a temporary one (they'll be forced to change it on next login).
+# Usage: make set-password USER=owner PW='your-temp-password'
+set-password: ; go run ./cmd/finbrain-admin set-password $(USER) $(PW)
 test: ; go test ./...
 fmt: ; gofmt -w .
 vet: ; go vet ./...

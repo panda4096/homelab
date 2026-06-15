@@ -20,11 +20,12 @@ type Server struct {
 	llmProbeMu       sync.Mutex
 	llmProbe         llmProbeCache
 	llmProbeInFlight chan struct{}
+	authLimiter      *authRateLimiter
 }
 
 // NewRouter builds the HTTP handler: /healthz, /api/*, and optional static frontend.
 func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
-	s := &Server{cfg: cfg, store: st, llm: llm.New(cfg)}
+	s := &Server{cfg: cfg, store: st, llm: llm.New(cfg), authLimiter: newAuthRateLimiter()}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RealIP)
@@ -44,6 +45,9 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 				r.Post("/logout", s.logout)
 				r.Get("/me", s.me)
 				r.Post("/change-password", s.changePassword)
+				r.Patch("/profile", s.updateProfile)
+				r.Post("/avatar", s.uploadAvatar)
+				r.Get("/avatar", s.getAvatar)
 			})
 		})
 

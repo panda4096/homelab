@@ -26,3 +26,9 @@ func TestVerifyPasswordRejectsNonArgon2ID(t *testing.T) {
 		t.Fatal("expected non-argon2id hash to be rejected")
 	}
 }
+
+func TestVerifyPasswordDummyAlwaysRejectsButRuns(t *testing.T) {
+	if VerifyPasswordDummy("anything") {
+		t.Fatal("dummy verifier must never authenticate")
+	}
+}

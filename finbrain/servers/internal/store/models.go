@@ -19,12 +19,14 @@ type Preferences struct {
 // User is an application account owner. Login identities live separately so
 // password login can coexist with future OAuth-style providers.
 type User struct {
-	ID                 int64     `json:"id"`
-	DisplayName        string    `json:"display_name"`
-	IsActive           bool      `json:"is_active"`
-	MustChangePassword bool      `json:"must_change_password"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ID                 int64      `json:"id"`
+	Username           string     `json:"username"`
+	DisplayName        string     `json:"display_name"`
+	IsActive           bool       `json:"is_active"`
+	MustChangePassword bool       `json:"must_change_password"`
+	AvatarUpdatedAt    *time.Time `json:"avatar_updated_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 type PasswordIdentity struct {
