@@ -55,6 +55,21 @@ spec:
       containers:
         - name: postgres
           image: postgres:17-alpine
+          # Sized for a constrained/shared cloud node (everything is moving to cloud). Modest
+          # buffers fit a 512Mi limit and still help the net-worth trend's concurrent per-date
+          # valuations (sorts/LATERAL scans). Scale up only where a node has spare CPU/RAM.
+          args:
+            - postgres
+            - -c
+            - shared_buffers=128MB
+            - -c
+            - effective_cache_size=384MB
+            - -c
+            - work_mem=8MB
+            - -c
+            - maintenance_work_mem=64MB
+            - -c
+            - max_connections=50
           ports:
             - containerPort: 5432
               name: postgres
@@ -85,11 +100,11 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: 25m
-              memory: 96Mi
+              cpu: 100m
+              memory: 192Mi
             limits:
-              cpu: 250m
-              memory: 256Mi
+              cpu: "1"
+              memory: 512Mi
   volumeClaimTemplates:
     - metadata:
         name: data
