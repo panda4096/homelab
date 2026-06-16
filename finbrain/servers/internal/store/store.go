@@ -6,6 +6,10 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,12 +25,24 @@ type rowScanner interface{ Scan(dest ...any) error }
 
 // Store wraps a pgx pool.
 type Store struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	market *marketCache // global price/FX cache (TTL); shared, user-independent data
 }
 
 // New opens and verifies a connection pool.
 func New(ctx context.Context, databaseURL string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	// Modest floor so the parallel net-worth trend (up to FINBRAIN_TREND_CONCURRENCY per-date
+	// valuations) plus normal traffic don't starve, without hogging a small cloud DB's
+	// max_connections (shared with other clients). Raise it for higher concurrency via the
+	// DATABASE_URL, e.g. ?pool_max_conns=20 — an explicit URL value above this floor wins.
+	if cfg.MaxConns < 12 {
+		cfg.MaxConns = 12
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +50,19 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{pool: pool}, nil
+	ttl := 5 * time.Minute
+	if v := strings.TrimSpace(os.Getenv("FINBRAIN_MARKET_CACHE_TTL")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			ttl = d
+		}
+	}
+	maxBars := 200_000 // ~25 MB of price bars; bounds cache memory regardless of #users/instruments
+	if v := strings.TrimSpace(os.Getenv("FINBRAIN_MARKET_CACHE_MAX_BARS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxBars = n
+		}
+	}
+	return &Store{pool: pool, market: newMarketCache(pool, ttl, maxBars)}, nil
 }
 
 // Close releases the pool.

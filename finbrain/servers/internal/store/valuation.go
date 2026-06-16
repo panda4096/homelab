@@ -106,6 +106,9 @@ func (s *Store) GetValuation(ctx context.Context, userID int64, onDate, displayC
 
 	alloc := newAllocationBuilder()
 	fx := &fxResolver{store: s, ctx: ctx, mode: fxMode, onDate: onDate, cache: map[string]fxResult{}}
+	if s.market != nil {
+		fx.lookupFn = s.market.FxLookup // serve FX from the global TTL cache (same selection as the SQL)
+	}
 
 	cashRows, err := s.currentCashRows(ctx, userID, onDate)
 	if err != nil {
@@ -157,6 +160,14 @@ func (s *Store) GetValuation(ctx context.Context, userID int64, onDate, displayC
 		return Valuation{}, err
 	}
 
+	// Per-position transaction replay is a guaranteed no-op when the user has no transactions
+	// on/before onDate, so check once and skip its per-position query. This is the dominant
+	// cost of the per-date net-worth trend for snapshot-only portfolios (~15 queries/date).
+	hasTxns, err := s.userHasTransactionsAsOf(ctx, userID, onDate)
+	if err != nil {
+		return Valuation{}, err
+	}
+
 	positionValue := decZero
 	positionCost := decZero
 	positionNetCost := decZero
@@ -164,9 +175,14 @@ func (s *Store) GetValuation(ctx context.Context, userID int64, onDate, displayC
 	costForPL := decZero
 
 	for _, p := range positionRows {
-		replay, hasReplay, err := s.applyReplayToPositionRow(ctx, userID, &p, onDate)
-		if err != nil {
-			return Valuation{}, err
+		var replay HoldingState
+		hasReplay := false
+		if hasTxns {
+			r, hr, err := s.applyReplayToPositionRow(ctx, userID, &p, onDate)
+			if err != nil {
+				return Valuation{}, err
+			}
+			replay, hasReplay = r, hr
 		}
 		qty, err := decimalFromString(p.Quantity)
 		if err != nil {
@@ -463,6 +479,14 @@ func prevYearEndDate(year string) string {
 	return fmt.Sprintf("%04d-12-31", y-1)
 }
 
+// userHasTransactionsAsOf reports whether the user has any transaction on/before onDate.
+// Used to skip per-position replay (a no-op without transactions) in valuation.
+func (s *Store) userHasTransactionsAsOf(ctx context.Context, userID int64, onDate string) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transactions WHERE user_id=$1 AND trade_date <= $2::date /* OWNED transactions */)`, userID, onDate).Scan(&ok)
+	return ok, err
+}
+
 func (s *Store) applyReplayToPositionRow(ctx context.Context, userID int64, p *valuationPositionRow, onDate string) (HoldingState, bool, error) {
 	rep, err := s.ReplayHolding(ctx, userID, p.AccountID, p.Symbol, onDate, false)
 	if err != nil {
@@ -507,10 +531,16 @@ func holdingDaysBetween(start, end string) *int {
 func (s *Store) currentCashRows(ctx context.Context, userID int64, onDate string) ([]valuationCashRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_balance AS (
+			-- Same carry rule as positions: latest balance snapshot on/before onDate, else the
+			-- earliest snapshot projected backward, so the net-worth curve before the first
+			-- 盘点 includes cash instead of dropping it (positions there move with price).
 			SELECT DISTINCT ON (account_id) account_id, snapshot_date, balance
 			FROM balance_snapshots
-			WHERE user_id=$1 AND snapshot_date <= $2::date /* OWNED balance_snapshots */
-			ORDER BY account_id, snapshot_date DESC
+			WHERE user_id=$1 /* OWNED balance_snapshots */
+			ORDER BY account_id,
+				(snapshot_date <= $2::date) DESC,
+				CASE WHEN snapshot_date <= $2::date THEN snapshot_date END DESC,
+				snapshot_date ASC
 		)
 		SELECT a.id, a.name, a.currency, a.kind, i.name, lb.snapshot_date::text, lb.balance::text
 		FROM latest_balance lb
@@ -536,11 +566,19 @@ func (s *Store) currentCashRows(ctx context.Context, userID int64, onDate string
 func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate string) ([]valuationPositionRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_position AS (
+			-- Carry holdings to onDate: prefer the latest snapshot on/before onDate; when none
+			-- exists yet (a date before this position's first 盘点) project the EARLIEST snapshot
+			-- backward, so the trend values the held quantity at each day's historical price
+			-- instead of showing zero before the first snapshot. For onDate on/after the first
+			-- snapshot this is identical to "latest snapshot <= onDate".
 			SELECT DISTINCT ON (account_id, symbol)
 				account_id, symbol, quantity, avg_cost, cost_currency, snapshot_date
 			FROM position_snapshots
-			WHERE user_id=$1 AND snapshot_date <= $2::date /* OWNED position_snapshots */
-			ORDER BY account_id, symbol, snapshot_date DESC
+			WHERE user_id=$1 /* OWNED position_snapshots */
+			ORDER BY account_id, symbol,
+				(snapshot_date <= $2::date) DESC,
+				CASE WHEN snapshot_date <= $2::date THEN snapshot_date END DESC,
+				snapshot_date ASC
 		),
 		position_keys AS (
 			SELECT account_id, symbol
@@ -555,20 +593,13 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 		       ins.display_name, ins.market, ins.quote_currency, ins.asset_kind,
 		       COALESCE(lp.quantity, 0)::text, lp.avg_cost::text, lp.cost_currency,
 		       COALESCE(lp.snapshot_date::text, first_txn.first_trade_date::text, ''),
-		       pr.price_date::text, pr.price::text, pr.currency,
+		       NULL::text, NULL::text, NULL::text,  -- price filled from the global price cache (see below)
 		       hs.holding_start_date::text, ($2::date - hs.holding_start_date)::int
 		FROM position_keys pk
 		JOIN accounts a ON a.id = pk.account_id AND a.user_id = $1 /* OWNED accounts */
 		JOIN institutions inst ON inst.id = a.institution_id AND inst.user_id = a.user_id /* OWNED institutions via scoped accounts */
 		LEFT JOIN latest_position lp ON lp.account_id = pk.account_id AND lp.symbol = pk.symbol
 		LEFT JOIN instruments ins ON ins.symbol = pk.symbol
-		LEFT JOIN LATERAL (
-			SELECT price_date, price, currency
-			FROM prices p
-			WHERE p.symbol = pk.symbol AND p.price_date <= $2::date
-			ORDER BY p.price_date DESC, (p.currency = COALESCE(ins.quote_currency, '')) DESC, p.id DESC
-			LIMIT 1
-		) pr ON true
 		LEFT JOIN LATERAL (
 			SELECT MIN(t.trade_date) AS first_trade_date
 			FROM transactions t /* OWNED transactions */
@@ -614,7 +645,25 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Fill prices from the global TTL cache (replaces the per-row price subquery). Same
+	// selection as the old LATERAL — latest price on/before onDate, preferring the
+	// instrument's quote currency. Positions with no price keep nil → MissingPrice downstream.
+	if s.market != nil {
+		for i := range out {
+			px, ccy, pdate, ok, err := s.market.PriceAsOf(ctx, out[i].Symbol, onDate, ptrValue(out[i].QuoteCurrency))
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				pxs, c, d := px.String(), ccy, pdate
+				out[i].Price, out[i].PriceCurrency, out[i].PriceDate = &pxs, &c, &d
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) currentLiabilityRows(ctx context.Context, userID int64, onDate string) ([]valuationLiabilityRow, error) {

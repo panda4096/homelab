@@ -2,8 +2,14 @@ package store
 
 import (
 	"context"
+	"sync"
 	"time"
 )
+
+// maxTrendPoints is the in-store fallback cap used when the caller passes maxPoints <= 0
+// (production passes config.TrendMaxPoints). A chart is only a few hundred px wide, so
+// denser sampling adds latency without visible detail.
+const maxTrendPoints = 90
 
 // TrendPoint is one cross-section of net worth (§6.5). Money fields are decimal
 // strings in the requested display currency.
@@ -45,7 +51,13 @@ func (s *Store) netWorthAt(ctx context.Context, userID int64, onDate, displayCur
 
 // NetWorthTrend computes a net-worth cross-section at each section date in
 // [from, to] for the granularity (day|month|quarter|year), per §6.5.
-func (s *Store) NetWorthTrend(ctx context.Context, userID int64, from, to, granularity, displayCurrency, fxMode string) (TrendSeries, error) {
+func (s *Store) NetWorthTrend(ctx context.Context, userID int64, from, to, granularity, displayCurrency, fxMode string, maxPoints, concurrency int) (TrendSeries, error) {
+	if maxPoints <= 0 {
+		maxPoints = maxTrendPoints
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
 	loc := time.UTC
 	fromT, err := time.ParseInLocation("2006-01-02", from, loc)
 	if err != nil {
@@ -58,16 +70,106 @@ func (s *Store) NetWorthTrend(ctx context.Context, userID int64, from, to, granu
 	if toT.Before(fromT) {
 		fromT, toT = toT, fromT
 	}
-	dates := sectionDates(fromT, toT, granularity)
-	out := TrendSeries{From: from, To: to, Granularity: granularity, DisplayCurrency: displayCurrency, FxMode: fxMode, Points: []TrendPoint{}}
-	for _, d := range dates {
-		pt, err := s.netWorthAt(ctx, userID, d.Format("2006-01-02"), displayCurrency, fxMode)
-		if err != nil {
-			return TrendSeries{}, err
+	dates := capDates(sectionDates(fromT, toT, granularity), maxPoints)
+	out := TrendSeries{From: from, To: to, Granularity: granularity, DisplayCurrency: displayCurrency, FxMode: fxMode, Points: make([]TrendPoint, len(dates))}
+	if len(dates) == 0 {
+		return out, nil
+	}
+	dateStrs := make([]string, len(dates))
+	for i, d := range dates {
+		dateStrs[i] = d.Format("2006-01-02")
+	}
+
+	// Fast path: a user with no transactions on/before the range end has fixed holdings (no
+	// replay), so load their snapshots ONCE and compute every date in memory against the
+	// cached prices/FX — zero per-date DB queries, so even serial is instant. Transaction
+	// users fall back to the per-date engine, which replays correctly.
+	if s.market != nil {
+		if has, err := s.userHasTransactionsAsOf(ctx, userID, dateStrs[len(dateStrs)-1]); err == nil && !has {
+			if pts, err := s.netWorthTrendInMemory(ctx, userID, dateStrs, displayCurrency, fxMode); err == nil {
+				out.Points = pts
+				return out, nil
+			}
+			// fall through to the per-date engine on any error
 		}
-		out.Points = append(out.Points, pt)
+	}
+
+	// Per-date engine (transaction users / fallback). Pre-warm the price cache, then fan the
+	// independent valuations out across a bounded worker pool (concurrency=1 ⇒ serial).
+	if s.market != nil {
+		if syms, err := s.heldSymbols(ctx, userID); err == nil {
+			_ = s.market.EnsurePrices(ctx, syms)
+		}
+	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	for i, d := range dates {
+		if firstErr != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, ds string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			pt, err := s.netWorthAt(ctx, userID, ds, displayCurrency, fxMode)
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				return
+			}
+			out.Points[i] = pt
+		}(i, d.Format("2006-01-02"))
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return TrendSeries{}, firstErr
 	}
 	return out, nil
+}
+
+// heldSymbols lists the distinct instruments the user has ever snapshotted, for pre-warming
+// the price cache before a trend computation.
+func (s *Store) heldSymbols(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT symbol FROM position_snapshots WHERE user_id=$1 /* OWNED position_snapshots */`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var sym string
+		if err := rows.Scan(&sym); err != nil {
+			return nil, err
+		}
+		out = append(out, sym)
+	}
+	return out, rows.Err()
+}
+
+// capDates downsamples to at most maxN evenly-spaced dates, always keeping the first and
+// last. Returns the input unchanged when it already fits.
+func capDates(dates []time.Time, maxN int) []time.Time {
+	n := len(dates)
+	if n <= maxN || maxN < 2 {
+		return dates
+	}
+	out := make([]time.Time, 0, maxN)
+	last := -1
+	for i := 0; i < maxN; i++ {
+		idx := i * (n - 1) / (maxN - 1) // maps [0,maxN-1] -> [0,n-1], includes both ends
+		if idx == last {
+			continue
+		}
+		out = append(out, dates[idx])
+		last = idx
+	}
+	return out
 }
 
 // sectionDates enumerates cross-section dates. Daily ranges over ~370 days fall

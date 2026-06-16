@@ -30,6 +30,14 @@ type Config struct {
 	MarketDataInterval      time.Duration // FINBRAIN_MARKETDATA_INTERVAL (default 30m)
 	MarketDataProxy         string        // FINBRAIN_MARKETDATA_PROXY; optional, only if a non-China source is added
 	MarketDataBackfillYears int           // FINBRAIN_MARKETDATA_BACKFILL_YEARS (default 10; <=0 = full history)
+
+	// Net-worth trend tuning. The common path (no transactions) loads the user's snapshots
+	// once and computes every date in memory against the cached prices/FX — no per-date DB
+	// queries, so it's ~0.1s regardless of point count or concurrency. Concurrency only
+	// matters for the per-date FALLBACK used by transaction users (replay). cap bounds the
+	// chart's point count (a chart can't resolve more than ~150 anyway).
+	TrendMaxPoints   int // FINBRAIN_TREND_MAX_POINTS (default 120)
+	TrendConcurrency int // FINBRAIN_TREND_CONCURRENCY (fallback path only; default 4; 1 = serial)
 }
 
 // Load reads configuration from the environment and validates it.
@@ -50,6 +58,9 @@ func Load() (*Config, error) {
 		MarketDataInterval:      getenvDuration("FINBRAIN_MARKETDATA_INTERVAL", 30*time.Minute),
 		MarketDataProxy:         os.Getenv("FINBRAIN_MARKETDATA_PROXY"),
 		MarketDataBackfillYears: getenvInt("FINBRAIN_MARKETDATA_BACKFILL_YEARS", 10),
+
+		TrendMaxPoints:   getenvInt("FINBRAIN_TREND_MAX_POINTS", 120),
+		TrendConcurrency: getenvInt("FINBRAIN_TREND_CONCURRENCY", 4),
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
