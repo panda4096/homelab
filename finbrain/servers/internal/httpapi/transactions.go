@@ -33,6 +33,8 @@ func (s *Server) createTransaction(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, r, err)
 		return
 	}
+	// A trade may introduce a new instrument → backfill its history (idempotent, non-blocking).
+	s.market.TriggerEnsureBackfilled(out.Symbol)
 	writeJSON(w, http.StatusOK, out)
 }
 

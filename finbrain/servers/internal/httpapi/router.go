@@ -9,6 +9,7 @@ import (
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/config"
 	"github.com/panda4096/homelab/finbrain/servers/internal/llm"
+	"github.com/panda4096/homelab/finbrain/servers/internal/market"
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
@@ -17,6 +18,7 @@ type Server struct {
 	cfg              *config.Config
 	store            *store.Store
 	llm              *llm.Client
+	market           *market.Service
 	llmProbeMu       sync.Mutex
 	llmProbe         llmProbeCache
 	llmProbeInFlight chan struct{}
@@ -24,8 +26,9 @@ type Server struct {
 }
 
 // NewRouter builds the HTTP handler: /healthz, /api/*, and optional static frontend.
-func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
-	s := &Server{cfg: cfg, store: st, llm: llm.New(cfg), authLimiter: newAuthRateLimiter()}
+// mkt may be nil when the market-data feed is disabled.
+func NewRouter(cfg *config.Config, st *store.Store, mkt *market.Service) http.Handler {
+	s := &Server{cfg: cfg, store: st, llm: llm.New(cfg), market: mkt, authLimiter: newAuthRateLimiter()}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RealIP)
@@ -109,6 +112,11 @@ func NewRouter(cfg *config.Config, st *store.Store) http.Handler {
 			r.Get("/valuation", s.getValuation)
 			r.Get("/trend", s.getTrend)
 			r.Get("/attribution", s.getAttribution)
+
+			// Market-data auto-feed (Eastmoney): status + manual refresh/backfill triggers.
+			r.Get("/market/status", s.marketStatus)
+			r.Post("/market/refresh", s.marketRefresh)
+			r.Post("/market/backfill", s.marketBackfill)
 
 			// P3: monthly review and credit-card liabilities
 			r.Get("/credit-card-bills", s.listCreditCardBills)

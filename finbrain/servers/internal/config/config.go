@@ -4,6 +4,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -21,6 +23,13 @@ type Config struct {
 	DeepSeekAPIKey  string // DEEPSEEK_API_KEY
 	AnthropicAPIKey string // ANTHROPIC_API_KEY (fallback)
 	LLMModel        string // FINBRAIN_LLM_MODEL; optional override (default deepseek-v4-flash)
+
+	// Market data auto-fetch (Eastmoney, key-less). The scheduler polls the latest
+	// price for every instrument and backfills history for newly added ones.
+	MarketDataEnabled       bool          // FINBRAIN_MARKETDATA_ENABLED (default true)
+	MarketDataInterval      time.Duration // FINBRAIN_MARKETDATA_INTERVAL (default 30m)
+	MarketDataProxy         string        // FINBRAIN_MARKETDATA_PROXY; optional, only if a non-China source is added
+	MarketDataBackfillYears int           // FINBRAIN_MARKETDATA_BACKFILL_YEARS (default 10; <=0 = full history)
 }
 
 // Load reads configuration from the environment and validates it.
@@ -36,6 +45,11 @@ func Load() (*Config, error) {
 		DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
 		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
 		LLMModel:        os.Getenv("FINBRAIN_LLM_MODEL"),
+
+		MarketDataEnabled:       getenvBool("FINBRAIN_MARKETDATA_ENABLED", true),
+		MarketDataInterval:      getenvDuration("FINBRAIN_MARKETDATA_INTERVAL", 30*time.Minute),
+		MarketDataProxy:         os.Getenv("FINBRAIN_MARKETDATA_PROXY"),
+		MarketDataBackfillYears: getenvInt("FINBRAIN_MARKETDATA_BACKFILL_YEARS", 10),
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
@@ -45,6 +59,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid FINBRAIN_TIMEZONE %q: %w", c.Timezone, err)
 	}
 	c.Location = loc
+	if c.MarketDataInterval < time.Minute {
+		c.MarketDataInterval = time.Minute
+	}
 	return c, nil
 }
 
@@ -54,6 +71,35 @@ func (c *Config) IsDev() bool { return c.Env != "production" }
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+func getenvBool(k string, def bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(k))) {
+	case "":
+		return def
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func getenvDuration(k string, def time.Duration) time.Duration {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return def
+}
+
+func getenvInt(k string, def int) int {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return def
 }

@@ -52,6 +52,8 @@ func (s *Server) upsertInstrument(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, r, err)
 		return
 	}
+	// New instrument → fetch its full price history right away (idempotent, non-blocking).
+	s.market.TriggerEnsureBackfilled(out.Symbol)
 	writeJSON(w, http.StatusOK, out)
 }
 

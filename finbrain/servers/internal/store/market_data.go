@@ -130,6 +130,90 @@ func upsertPriceTx(ctx context.Context, tx pgx.Tx, p Price) (Price, error) {
 	return out, nil
 }
 
+// BatchUpsertAutoPrices writes prices from an automated feed. Unlike BatchUpsertPrices
+// it NEVER overwrites a row whose source is 'manual' (the operator's hand corrections
+// always win), via a WHERE guard on the conflict update. Returns the number of rows
+// actually inserted or updated (manual rows are skipped and not counted).
+func (s *Store) BatchUpsertAutoPrices(ctx context.Context, prices []Price) (int, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	written := 0
+	for _, p := range prices {
+		if p.Source == "" || p.Source == "manual" {
+			p.Source = "auto"
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO instruments (symbol, quote_currency) VALUES ($1, $2) ON CONFLICT (symbol) DO NOTHING`, p.Symbol, p.Currency); err != nil {
+			return written, err
+		}
+		ct, err := tx.Exec(ctx, `
+			INSERT INTO prices (symbol, price_date, price, currency, source, note, updated_at)
+			VALUES ($1, $2::date, $3::numeric, $4, $5, $6, now())
+			ON CONFLICT (symbol, price_date, currency) DO UPDATE SET
+				price = EXCLUDED.price, source = EXCLUDED.source,
+				note = EXCLUDED.note, updated_at = now()
+			WHERE prices.source <> 'manual'`,
+			p.Symbol, p.PriceDate, p.Price, p.Currency, p.Source, p.Note)
+		if err != nil {
+			return written, err
+		}
+		written += int(ct.RowsAffected())
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return written, err
+	}
+	return written, nil
+}
+
+// MarketBackfillDone reports whether the symbol's full price history has been fetched.
+// This is a dedicated marker (not "has any price row") because the latest-price refresh
+// writes a few recent bars, which must not be mistaken for a completed history backfill.
+func (s *Store) MarketBackfillDone(ctx context.Context, symbol string) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM market_backfill_state WHERE symbol = $1)`, symbol).Scan(&ok)
+	return ok, err
+}
+
+// MarkMarketBackfilled records that the symbol's history has been fetched (set only on a
+// successful backfill, so a failed attempt is retried on the next sweep).
+func (s *Store) MarkMarketBackfilled(ctx context.Context, symbol string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO market_backfill_state (symbol, backfilled_at) VALUES ($1, now())
+		ON CONFLICT (symbol) DO UPDATE SET backfilled_at = now()`, symbol)
+	return err
+}
+
+// MarketStatusRow is the latest stored price for one symbol (for staleness display).
+type MarketStatusRow struct {
+	Symbol     string `json:"symbol"`
+	LatestDate string `json:"latest_date"`
+	Source     string `json:"source"`
+}
+
+// MarketDataStatus returns the most recent price row per symbol, newest date per symbol.
+func (s *Store) MarketDataStatus(ctx context.Context) ([]MarketStatusRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (symbol) symbol, price_date::text, source
+		FROM prices
+		ORDER BY symbol, price_date DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MarketStatusRow{}
+	for rows.Next() {
+		var r MarketStatusRow
+		if err := rows.Scan(&r.Symbol, &r.LatestDate, &r.Source); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // UpdatePrice edits one existing price row. symbol is immutable; changing date
 // and currency may conflict with another row for the same symbol.
 func (s *Store) UpdatePrice(ctx context.Context, id int64, p Price) (Price, error) {
@@ -242,6 +326,38 @@ func (s *Store) BatchUpsertFxRates(ctx context.Context, rates []FxRate) ([]FxRat
 		return nil, err
 	}
 	return out, nil
+}
+
+// BatchUpsertAutoFxRates writes FX rates from an automated feed without overwriting
+// manual rows. Returns the number of rows inserted or updated.
+func (s *Store) BatchUpsertAutoFxRates(ctx context.Context, rates []FxRate) (int, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	written := 0
+	for _, f := range rates {
+		if f.Source == "" || f.Source == "manual" {
+			f.Source = "auto"
+		}
+		ct, err := tx.Exec(ctx, `
+			INSERT INTO fx_rates (base_currency, quote_currency, rate_date, rate, source, note, updated_at)
+			VALUES ($1, $2, $3::date, $4::numeric, $5, $6, now())
+			ON CONFLICT (base_currency, quote_currency, rate_date) DO UPDATE SET
+				rate = EXCLUDED.rate, source = EXCLUDED.source, note = EXCLUDED.note, updated_at = now()
+			WHERE fx_rates.source <> 'manual'`,
+			f.BaseCurrency, f.QuoteCurrency, f.RateDate, f.Rate, f.Source, f.Note)
+		if err != nil {
+			return written, err
+		}
+		written += int(ct.RowsAffected())
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return written, err
+	}
+	return written, nil
 }
 
 func (s *Store) UpdateFxRate(ctx context.Context, id int64, f FxRate) (FxRate, error) {
