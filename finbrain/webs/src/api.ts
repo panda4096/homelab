@@ -737,6 +737,18 @@ export function listPrices(filter: PriceFilter = {}): Promise<ListEnvelope<Price
   return request<ListEnvelope<Price>>(`/api/prices${queryString(filter)}`)
 }
 
+export interface MarketStatus {
+  enabled: boolean
+  interval: string
+  items: Array<{ symbol: string; latest_date: string; source: string }>
+}
+
+// marketStatus reports the auto-fetch feed state (prices are now fetched automatically, not
+// hand-maintained): the latest stored price date per instrument.
+export function marketStatus(): Promise<MarketStatus> {
+  return request<MarketStatus>('/api/market/status')
+}
+
 export function upsertPrice(input: CreatePriceInput): Promise<Price> {
   return request<Price>('/api/prices', {
     method: 'POST',

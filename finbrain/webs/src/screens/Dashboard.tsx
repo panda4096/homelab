@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { Badge, Button, Card, Icon } from '../ds'
+import { Badge, Button, Card, Icon, Segmented } from '../ds'
 import {
   getAccountReconciliation,
   getAllocationTargetDrift,
@@ -11,6 +12,7 @@ import {
   listAccounts,
   listAnnotations,
   listCreditCardBills,
+  marketStatus,
   type AccountTemplate,
   type CreditCardBill,
   type ValuationBucket,
@@ -20,11 +22,13 @@ import {
   CurrencyValue,
   DeltaValue,
   Donut,
+  LineChart,
   Sparkline,
   VIZ,
   num,
   shortMoney,
   type DonutItem,
+  type LineSeriesPoint,
 } from '../lib/finance'
 import { usePrefStore } from '../store'
 import { useUiStore } from '../uiStore'
@@ -34,6 +38,7 @@ export function Dashboard() {
   const openBuild = useUiStore((s) => s.openBuild)
   const displayCurrency = usePrefStore((s) => s.displayCurrency)
   const fxMode = usePrefStore((s) => s.fxMode)
+  const [allocDim, setAllocDim] = useState<'kind' | 'currency' | 'quote_currency' | 'institution'>('kind')
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['accounts'],
@@ -80,6 +85,11 @@ export function Dashboard() {
     queryFn: () => listAnnotations({ from: oneYearAgoISO(), to: new Date().toISOString().slice(0, 10) }),
     enabled: accounts.length > 0,
   })
+  const market = useQuery({
+    queryKey: ['market-status', 'dashboard'],
+    queryFn: marketStatus,
+    enabled: accounts.length > 0,
+  })
   const hasAccounts = accounts.length > 0
 
   if (!hasAccounts && !accountsLoading) {
@@ -112,14 +122,13 @@ export function Dashboard() {
 
   const v = valuation.data
   const trendPts = trend.data?.points ?? []
-  const netWorthSeries = trendPts.map((p) => num(p.net_worth) ?? 0)
   const positionSeries = trendPts.map((p) => num(p.position_value) ?? 0)
   const positionTrend = positionSeries.length >= 2 ? positionSeries : staticTrend(v.position_value)
-  const netWorthTrend = netWorthSeries.length >= 2 ? netWorthSeries : staticTrend(v.net_worth)
-  const trendIsReal = netWorthSeries.length >= 2
+  const netWorthLine: LineSeriesPoint[] = trendPts.map((p) => ({ m: p.date, v: num(p.net_worth) ?? 0 }))
+  const trendIsReal = trendPts.length >= 2
   const missingPriceCount = v.warnings.filter((w) => w.kind === 'missing_price').length
   const fxFallbackCount = v.warnings.filter((w) => w.kind === 'fx_fallback').length
-  const liabilityValue = num(v.total_liabilities) ?? 0
+  const marketLatest = (market.data?.items ?? []).reduce((mx, it) => (it.latest_date > mx ? it.latest_date : mx), '')
   const driftAlerts = driftQueries.flatMap((q) => (q.data?.items ?? []).filter((i) => i.over_threshold).map((i) => `${q.data?.name ?? '目标'} · ${i.dimension_value} ${i.drift ?? '0.00'}%`))
   const reconAlerts = reconQueries
     .map((q) => q.data)
@@ -235,72 +244,48 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="fb-grid db-21">
+      {/* Allocation (single donut + dimension toggle) + the real net-worth trend chart. */}
+      <div className="fb-grid db-12">
         <Card
-          eyebrow="估值状态"
-          title="数据完整性"
+          eyebrow="资产配置"
           actions={
-            v.warnings.length ? <Badge tone="warning" dot>{v.warnings.length} 项</Badge> : <Badge tone="success">正常</Badge>
+            <Segmented
+              size="sm"
+              value={allocDim}
+              onChange={(val) => setAllocDim(val as typeof allocDim)}
+              options={[
+                { value: 'kind', label: '用途' },
+                { value: 'currency', label: '账户币种' },
+                { value: 'quote_currency', label: '暴露' },
+                { value: 'institution', label: '机构' },
+              ]}
+            />
           }
         >
-          {v.warnings.length ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {v.warnings.slice(0, 5).map((w, i) => (
-                <div
-                  key={`${w.kind}-${w.key}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '9px 0',
-                    borderBottom: i < Math.min(v.warnings.length, 5) - 1 ? '1px solid var(--divider)' : 'none',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: '50%',
-                      background: 'var(--surface-inset)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 10,
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--text-tertiary)',
-                      flex: 'none',
-                    }}
-                  >
-                    {i + 1}
-                  </span>
-                  <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{w.message}</span>
-                </div>
-              ))}
+          <AllocationDonut dim={allocDim} buckets={v.allocations[allocDim] ?? []} currency={v.display_currency} />
+        </Card>
+        <Card
+          eyebrow="净资产趋势 · 近 12 月"
+          actions={
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 11, color: 'var(--text-tertiary)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 12, height: 2, background: 'var(--accent)' }} />
+                净资产
+              </span>
             </div>
+          }
+        >
+          {netWorthLine.length >= 2 ? (
+            <LineChart series={netWorthLine} height={232} yFmt={(x) => shortMoney(x, v.display_currency)} tooltipDelta />
           ) : (
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-              当前持仓都有可用价格，涉及币种都有可用汇率。估值按 {v.as_of} 的账户和持仓记录计算。
+            <div style={{ height: 232, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 12.5, color: 'var(--text-tertiary)', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)' }}>
+              历史趋势待更多月度盘点生成
             </div>
           )}
         </Card>
-        <div className="fb-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="fb-card__eyebrow">估值口径</div>
-          <StatusBox icon="landmark" label="现金账户" value={shortMoney(v.cash_value, v.display_currency)} />
-          <StatusBox icon="receipt" label="信用卡负债" value={shortMoney(v.total_liabilities, v.display_currency)} warning={liabilityValue > 0} />
-          <StatusBox icon="badge-alert" label="无价格持仓" value={`${missingPriceCount} 项`} warning={missingPriceCount > 0} />
-          <StatusBox icon="repeat-2" label="汇率降级" value={`${fxFallbackCount} 项`} warning={fxFallbackCount > 0} />
-          <Button
-            variant="secondary"
-            size="sm"
-            block
-            iconRight={<Icon name="arrow-right" size={14} />}
-            onClick={() => navigate('/market')}
-          >
-            维护价格 / 汇率
-          </Button>
-        </div>
       </div>
 
+      {/* Action signals. */}
       <div className="fb-grid kpi-4">
         <SignalCard
           icon="target"
@@ -340,75 +325,60 @@ export function Dashboard() {
         />
       </div>
 
-      <div className="fb-grid kpi-4">
-        <AllocationCard title="按用途" dim="kind" buckets={v.allocations.kind ?? []} currency={v.display_currency} />
-        <AllocationCard title="按账户币种" dim="currency" buckets={v.allocations.currency ?? []} currency={v.display_currency} />
-        <AllocationCard title="按真实计价币种" dim="quote_currency" buckets={v.allocations.quote_currency ?? []} currency={v.display_currency} />
-        <AllocationCard title="按机构" dim="institution" buckets={v.allocations.institution ?? []} currency={v.display_currency} />
-      </div>
-
-      <div className="fb-grid db-12">
-        <Card
-          eyebrow={trendIsReal ? '净资产趋势 · 近 12 月' : '净资产趋势 · 静态预览'}
-          actions={
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 11, color: 'var(--text-tertiary)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 12, height: 2, background: 'var(--accent)' }} />
-                净资产
-              </span>
-            </div>
-          }
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 18, alignItems: 'center' }}>
-            <Sparkline data={netWorthTrend} width={720} height={130} tone="accent" />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 4 }}>当前净资产</div>
-                <CurrencyValue value={v.net_worth} currency={v.display_currency} compact size="22px" />
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-                {trendIsReal ? '按月度盘点截面插值生成（§6.14）；缺历史价格的持仓不计入当期市值。' : '历史趋势待更多盘点快照生成；当前仅展示当日估值结构。'}
-              </div>
-            </div>
-          </div>
-        </Card>
-      </div>
+      {/* Market-data status — prices are auto-fetched now, not hand-maintained. */}
+      {market.data ? (
+        <div className="fb-card" style={{ padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
+            <Icon name="refresh-cw" size={13} color="var(--accent)" /> 行情自动更新
+          </span>
+          {marketLatest ? (
+            <span style={{ color: 'var(--text-tertiary)' }}>最新 {marketLatest} · {market.data.items.length} 个标的</span>
+          ) : null}
+          {v.warnings.length ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--warning)' }}>
+              <Icon name="triangle-alert" size={13} />
+              {v.warnings.length} 项估值降级
+              {missingPriceCount ? ` · ${missingPriceCount} 缺价格` : ''}
+              {fxFallbackCount ? ` · ${fxFallbackCount} 汇率回退` : ''}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--gain)' }}>估值数据完整</span>
+          )}
+          <Button variant="ghost" size="sm" iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate('/market')} style={{ marginLeft: 'auto' }}>
+            行情数据
+          </Button>
+        </div>
+      ) : null}
     </Page>
   )
 }
 
-function AllocationCard({
-  title,
+function AllocationDonut({
   dim,
   buckets,
   currency,
 }: {
-  title: string
   dim: string
   buckets: ValuationBucket[]
   currency: string
 }) {
   const items = toDonutItems(dim, buckets)
-  // quote_currency mixes signed asset/liability exposure → center on gross (= the abs ring).
-  // Asset dims (kind/currency/institution) must show the true SIGNED total under '总资产',
-  // so a rare negative bucket (overdraft) can't make the headline overstate.
+  // quote_currency mixes signed asset/liability exposure → center on gross (= the abs ring);
+  // asset dims show the true SIGNED total so a rare overdraft can't overstate the headline.
   const donutTotal = items.reduce((sum, it) => sum + it.value, 0)
   const signedTotal = buckets.reduce((sum, b) => sum + (num(b.value) ?? 0), 0)
   const centerVal = dim === 'quote_currency' ? donutTotal : signedTotal
+  if (!items.length) {
+    return <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: '32px 0', textAlign: 'center' }}>暂无可估值资产。</div>
+  }
   return (
-    <Card eyebrow="资产配置" title={title}>
-      {items.length ? (
-        <Donut
-          items={items}
-          centerLabel={shortMoney(centerVal, currency)}
-          centerSub={dim === 'quote_currency' ? '暴露' : '总资产'}
-          size={116}
-          thickness={12}
-        />
-      ) : (
-        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>暂无可估值资产。</div>
-      )}
-    </Card>
+    <Donut
+      items={items}
+      centerLabel={shortMoney(centerVal, currency)}
+      centerSub={dim === 'quote_currency' ? '暴露' : '净资产'}
+      size={150}
+      thickness={16}
+    />
   )
 }
 
@@ -468,37 +438,6 @@ function SignalCard({
       <Button variant="ghost" size="sm" iconRight={<Icon name="arrow-right" size={13} />} onClick={onAction} style={{ marginTop: 'auto', alignSelf: 'flex-start' }}>
         {action}
       </Button>
-    </div>
-  )
-}
-
-function StatusBox({
-  icon,
-  label,
-  value,
-  warning,
-}: {
-  icon: string
-  label: string
-  value: string
-  warning?: boolean
-}) {
-  return (
-    <div
-      style={{
-        background: warning ? 'var(--warning-bg)' : 'var(--surface-inset)',
-        border: warning ? '1px solid rgba(221,162,62,0.3)' : '1px solid var(--border-default)',
-        borderRadius: 'var(--radius-md)',
-        padding: '10px 12px',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: warning ? 'var(--warning)' : 'var(--text-secondary)' }}>
-        <Icon name={icon} size={14} />
-        <span className="fb-num" style={{ fontSize: 18, fontWeight: 600, color: warning ? 'var(--warning)' : 'var(--text-strong)' }}>
-          {value}
-        </span>
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{label}</div>
     </div>
   )
 }
