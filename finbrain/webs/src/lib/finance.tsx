@@ -224,11 +224,14 @@ export function LineChart({
   benchmarks = [],
   height = 240,
   yFmt,
+  tooltipDelta = false,
 }: {
   series: LineSeriesPoint[]
   benchmarks?: LineBenchmark[]
   height?: number
   yFmt?: (v: number) => string
+  /** show a "vs 区间首日 ±x%" line in the hover tooltip (used by the price chart) */
+  tooltipDelta?: boolean
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const gradientId = `lineArea${useId().replace(/:/g, '')}`
@@ -271,14 +274,16 @@ export function LineChart({
     v: min + span * (1 - t),
     y: padT + ih * t,
   }))
+  // Adaptive tick density: ~one label per 90px of plot width, 2–7 ticks.
+  const tickCount = Math.min(7, Math.max(2, Math.floor(iw / 90)))
   const xTicks = Array.from(
     new Set(
-      [0, 0.33, 0.66, 1]
-        .map((t) => Math.round(t * (data.length - 1)))
+      Array.from({ length: tickCount }, (_, k) => Math.round((k / (tickCount - 1)) * (data.length - 1)))
         .filter((i) => i >= 0 && i < data.length),
     ),
   )
   const hoverPoint = hover == null ? null : data[hover]
+  const hoverPct = hoverPoint && data[0].v ? (hoverPoint.v - data[0].v) / data[0].v : 0
 
   const onMouseMove = (e: MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -344,6 +349,22 @@ export function LineChart({
       {hover != null && hoverPoint ? (
         <g>
           <line x1={x(hover)} y1={padT} x2={x(hover)} y2={padT + ih} stroke="var(--border-strong)" />
+          {/* project the hovered value onto the y-axis: dashed guide + value chip */}
+          <line
+            x1={padL}
+            y1={y(hoverPoint.v)}
+            x2={x(hover)}
+            y2={y(hoverPoint.v)}
+            stroke="var(--border-strong)"
+            strokeDasharray="3 3"
+            opacity="0.7"
+          />
+          <g transform={`translate(0, ${y(hoverPoint.v)})`}>
+            <rect x="2" y="-8" width={padL - 6} height="16" rx="3" fill="var(--accent)" />
+            <text x={padL - 7} y="3.5" textAnchor="end" fontFamily="var(--font-mono)" fontSize="9.5" fill="var(--accent-text)">
+              {fmt(hoverPoint.v)}
+            </text>
+          </g>
           <circle
             cx={x(hover)}
             cy={y(hoverPoint.v)}
@@ -353,13 +374,25 @@ export function LineChart({
             strokeWidth="2"
           />
           <g transform={`translate(${Math.min(x(hover) + 8, width - 132)}, ${padT + 6})`}>
-            <rect width="124" height="42" rx="6" fill="var(--surface-overlay)" stroke="var(--border-default)" />
+            <rect width="124" height={tooltipDelta ? 58 : 42} rx="6" fill="var(--surface-overlay)" stroke="var(--border-default)" />
             <text x="9" y="16" fontFamily="var(--font-mono)" fontSize="9.5" fill="var(--text-tertiary)">
               {hoverPoint.m}
             </text>
             <text x="9" y="32" fontFamily="var(--font-num)" fontSize="12.5" fontWeight="600" fill="var(--text-strong)">
               {fmt(hoverPoint.v)}
             </text>
+            {tooltipDelta ? (
+              <text
+                x="9"
+                y="49"
+                fontFamily="var(--font-num)"
+                fontSize="10.5"
+                fontWeight="600"
+                fill={hoverPct > 0 ? 'var(--gain)' : hoverPct < 0 ? 'var(--loss)' : 'var(--text-tertiary)'}
+              >
+                {hoverPct >= 0 ? '+' : ''}{(hoverPct * 100).toFixed(2)}% · 区间
+              </text>
+            ) : null}
           </g>
         </g>
       ) : null}

@@ -101,13 +101,16 @@ export function MarketData() {
           : ''
   const selectedFx = parseFxPair(selectedFxPair)
   const priceHistory = useQuery({
+    // Fetch newest-first so the 5000-row cap keeps the MOST RECENT history (a long-lived
+    // symbol can have >5000 daily rows; date_asc would return the oldest window). The
+    // managers re-sort ascending for plotting.
     queryKey: ['prices', 'history', historySymbol],
-    queryFn: () => listPrices({ symbol: historySymbol, sort: 'date_asc' }),
+    queryFn: () => listPrices({ symbol: historySymbol, sort: 'date_desc' }),
     enabled: !!historySymbol && tab !== 'fx',
   })
   const fxHistory = useQuery({
     queryKey: ['fx-rates', 'history', selectedFx?.base, selectedFx?.quote],
-    queryFn: () => listFxRates({ base: selectedFx?.base, quote: selectedFx?.quote, sort: 'date_asc' }),
+    queryFn: () => listFxRates({ base: selectedFx?.base, quote: selectedFx?.quote, sort: 'date_desc' }),
     enabled: tab === 'fx' && selectedFx != null,
   })
 
@@ -191,6 +194,7 @@ export function MarketData() {
             listTruncated={fxRates.data?.truncated}
             historyTruncated={fxHistory.data?.truncated}
             limit={fxRates.data?.limit}
+            loading={fxHistory.isLoading}
             onEdit={(r) => setEditor({ kind: 'fx', item: r })}
             onDelete={(r) => removeFx.mutate(r.id)}
           />
@@ -204,6 +208,7 @@ export function MarketData() {
             rows={selectedPriceRows}
             historyTruncated={priceHistory.data?.truncated}
             limit={priceHistory.data?.limit}
+            loading={priceHistory.isLoading}
             onEditInstrument={(m) => setEditor({ kind: 'instrument', item: m })}
             onDeleteInstrument={(m) => removeInstrument.mutate(m.symbol)}
             onAddPrice={(m) =>
@@ -222,6 +227,7 @@ export function MarketData() {
             rows={selectedPriceRows}
             historyTruncated={priceHistory.data?.truncated}
             limit={priceHistory.data?.limit}
+            loading={priceHistory.isLoading}
             onEditInstrument={(m) => setEditor({ kind: 'instrument', item: m, benchmark: true })}
             onRemoveBenchmark={(m) => removeBenchmark.mutate(m.symbol)}
             onAddPrice={(m) =>
@@ -269,6 +275,7 @@ function FxManager({
   listTruncated,
   historyTruncated,
   limit,
+  loading,
   onEdit,
   onDelete,
 }: {
@@ -281,6 +288,7 @@ function FxManager({
   listTruncated?: boolean
   historyTruncated?: boolean
   limit?: number
+  loading?: boolean
   onEdit: (rate: FxRate) => void
   onDelete: (rate: FxRate) => void
 }) {
@@ -325,6 +333,7 @@ function FxManager({
       <HistoryChart
         series={series}
         yFmt={formatAxisRate}
+        loading={loading}
         emptyText={
           series.length === 0
             ? '暂无历史汇率'
@@ -346,6 +355,7 @@ function InstrumentManager({
   rows,
   historyTruncated,
   limit,
+  loading,
   onEditInstrument,
   onDeleteInstrument,
   onAddPrice,
@@ -360,6 +370,7 @@ function InstrumentManager({
   rows: Price[]
   historyTruncated?: boolean
   limit?: number
+  loading?: boolean
   onEditInstrument: (instrument: Instrument) => void
   onDeleteInstrument: (instrument: Instrument) => void
   onAddPrice: (instrument: Instrument) => void
@@ -404,6 +415,7 @@ function InstrumentManager({
           <HistoryChart
             series={series}
             yFmt={(v) => native(v, currency, 4)}
+            loading={loading}
             emptyText={series.length === 0 ? '暂无历史价格' : '历史价格不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'}
             pointLabel="价格点"
           />
@@ -425,6 +437,7 @@ function BenchmarkManager({
   rows,
   historyTruncated,
   limit,
+  loading,
   onEditInstrument,
   onRemoveBenchmark,
   onAddPrice,
@@ -439,6 +452,7 @@ function BenchmarkManager({
   rows: Price[]
   historyTruncated?: boolean
   limit?: number
+  loading?: boolean
   onEditInstrument: (instrument: Instrument) => void
   onRemoveBenchmark: (instrument: Instrument) => void
   onAddPrice: (instrument: Instrument) => void
@@ -491,6 +505,7 @@ function BenchmarkManager({
           <HistoryChart
             series={series}
             yFmt={(v) => native(v, currency, 4)}
+            loading={loading}
             emptyText={series.length === 0 ? '暂无历史价格' : '历史价格不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'}
             pointLabel="价格点"
           />
@@ -659,22 +674,99 @@ function HistoryToolbar({
   )
 }
 
+const RANGE_OPTIONS = [
+  { value: '1m', label: '1月' },
+  { value: '3m', label: '3月' },
+  { value: '6m', label: '6月' },
+  { value: '1y', label: '1年' },
+  { value: 'all', label: '全部' },
+]
+
+// sliceByRange keeps the points within `range` of the latest date (client-side window;
+// the full series is already in hand). Falls back to the full series if the window would
+// leave fewer than 2 points, so a chart always renders when any history exists.
+function sliceByRange(series: LineSeriesPoint[], range: string): LineSeriesPoint[] {
+  if (range === 'all' || series.length < 2) return series
+  const months = range === '1m' ? 1 : range === '3m' ? 3 : range === '6m' ? 6 : 12
+  const [y, mo, d] = series[series.length - 1].m.split('-').map(Number)
+  const fromISO = new Date(Date.UTC(y, mo - 1 - months, d)).toISOString().slice(0, 10)
+  const view = series.filter((p) => p.m >= fromISO)
+  return view.length >= 2 ? view : series
+}
+
+function rangeStats(series: LineSeriesPoint[]) {
+  if (series.length === 0) return null
+  const vs = series.map((p) => p.v)
+  const first = series[0].v
+  const last = series[series.length - 1].v
+  return { high: Math.max(...vs), low: Math.min(...vs), last, changePct: first ? (last - first) / first : 0 }
+}
+
+function ChartStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <span style={{ display: 'inline-flex', gap: 5, alignItems: 'baseline' }}>
+      <span style={{ color: 'var(--text-tertiary)' }}>{label}</span>
+      <span className="fb-num" style={{ color: color ?? 'var(--text-secondary)', fontWeight: color ? 600 : 400 }}>{value}</span>
+    </span>
+  )
+}
+
 function HistoryChart({
   series,
   yFmt,
   emptyText,
   pointLabel,
+  loading = false,
 }: {
   series: LineSeriesPoint[]
   yFmt: (v: number) => string
   emptyText: string
   pointLabel: string
+  loading?: boolean
 }) {
+  const [range, setRange] = useState('1y')
   const hints = historyHints(series, pointLabel)
+  const view = useMemo(() => sliceByRange(series, range), [series, range])
+  const stats = rangeStats(view)
+  const hasData = series.length >= 2
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {series.length >= 2 ? (
-        <LineChart series={series} height={210} yFmt={yFmt} />
+      {hasData && !loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <Segmented size="sm" value={range} onChange={setRange} options={RANGE_OPTIONS} />
+          {stats ? (
+            <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', fontSize: 11.5 }}>
+              <ChartStat label="现价" value={yFmt(stats.last)} />
+              <ChartStat label="最高" value={yFmt(stats.high)} />
+              <ChartStat label="最低" value={yFmt(stats.low)} />
+              <ChartStat
+                label="区间"
+                value={`${stats.changePct >= 0 ? '+' : ''}${(stats.changePct * 100).toFixed(2)}%`}
+                color={stats.changePct > 0 ? 'var(--gain)' : stats.changePct < 0 ? 'var(--loss)' : undefined}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {loading ? (
+        <div
+          style={{
+            height: 210,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 12.5,
+            color: 'var(--text-tertiary)',
+            background: 'var(--surface-inset)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
+          加载中…
+        </div>
+      ) : hasData ? (
+        <LineChart series={view} height={210} yFmt={yFmt} tooltipDelta />
       ) : (
         <div
           style={{
