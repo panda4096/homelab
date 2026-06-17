@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Field, Icon, IconButton, Input, Select } from '../ds'
+import { Badge, Button, DateField, Field, Icon, IconButton, Input, Select } from '../ds'
 import {
   createTransfer,
   deleteTransfer,
@@ -120,7 +120,7 @@ function TransferModal({ item, accounts, onClose }: { item?: Transfer; accounts:
         <Field label="转入账户" error={invalid && fromId === toId ? '不能相同' : undefined}>
           <Select value={toId} onChange={(e) => setToId(e.target.value)} options={accounts.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name + ' (' + a.currency + ')' }))} />
         </Field>
-        <Field label="转账日期"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="转账日期"><DateField value={date} onChange={setDate} /></Field>
         <Field label={`转出额 ${fromAcct ? '(' + fromAcct.currency + ')' : ''}`} error={invalid && !fromAmt.trim() ? '必填' : undefined}>
           <Input numeric value={fromAmt} onChange={(e) => setFromAmt(e.target.value)} placeholder="10000" />
         </Field>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Card, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
+import { Badge, Button, Card, DateField, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
 import {
   deleteFxRate,
   deleteInstrument,
@@ -1038,7 +1038,7 @@ function PriceModal({
           <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} disabled={!!item} placeholder="0700.HK" />
         </Field>
         <Field label="日期">
-          <Input type="date" value={priceDate} onChange={(e) => setPriceDate(e.target.value)} />
+          <DateField value={priceDate} onChange={setPriceDate} />
         </Field>
         <Field label="价格" error={invalid && !price.trim() ? '必填' : undefined}>
           <Input numeric value={price} onChange={(e) => setPrice(e.target.value)} placeholder="401.20" />
@@ -1120,7 +1120,7 @@ function FxModal({ item, onClose }: { item?: FxRate; onClose: () => void }) {
           <Select value={quote} onChange={(e) => setQuote(e.target.value)} disabled={!!item} options={currencyOptions()} />
         </Field>
         <Field label="日期">
-          <Input type="date" value={rateDate} onChange={(e) => setRateDate(e.target.value)} />
+          <DateField value={rateDate} onChange={setRateDate} />
         </Field>
         <Field label="汇率" error={invalid && rateBad ? (!rate.trim() ? '必填' : '需为正数') : undefined}>
           <Input numeric value={rate} onChange={(e) => setRate(e.target.value)} placeholder="7.2000" />

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Field, Icon, Input, Segmented, Select } from '../ds'
+import { Badge, Button, DateField, Field, Icon, Input, Segmented, Select } from '../ds'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 import { useUiStore, type QuickEntryState, type QuickEntryType } from '../uiStore'
@@ -286,12 +286,11 @@ function QuickEntryInner({
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="日期" hint={`默认今天 · 最晚 ${maxDate}`} error={touched ? errs.date : undefined}>
-            <Input
-              type="date"
+            <DateField
               value={date}
               max={maxDate}
               invalid={touched && !!errs.date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={setDate}
             />
           </Field>
           {type === 'balance' ? (

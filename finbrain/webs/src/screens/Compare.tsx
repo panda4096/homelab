@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Segmented, Input } from '../ds'
+import { Segmented, DateField } from '../ds'
 import { getAttribution, getValuation, type Valuation } from '../api'
 import { bucketName, native } from '../lib/format'
 import { num } from '../lib/finance'
@@ -51,9 +51,9 @@ export function Compare() {
   return (
     <Page>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Input type="date" size="sm" value={from} onChange={(e) => setFrom(e.target.value)} style={{ maxWidth: 160 }} />
+        <DateField size="sm" value={from} onChange={setFrom} style={{ maxWidth: 160 }} />
         <span style={{ color: 'var(--text-tertiary)' }}>→</span>
-        <Input type="date" size="sm" value={to} onChange={(e) => setTo(e.target.value)} style={{ maxWidth: 160 }} />
+        <DateField size="sm" value={to} onChange={setTo} style={{ maxWidth: 160 }} />
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-tertiary)' }}>{displayCurrency} · {fxMode === 'current' ? '当前汇率' : '历史汇率'}</span>
       </div>
 

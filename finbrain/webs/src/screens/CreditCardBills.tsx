@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Card, Field, Icon, IconButton, Input, Select } from '../ds'
+import { Badge, Button, Card, DateField, Field, Icon, IconButton, Input, Select } from '../ds'
 import { ConfirmDialog } from '../shell/ConfirmDialog'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
@@ -249,7 +249,7 @@ export function CreditCardBillModal({
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="出账日">
-            <Input type="date" value={statementDate} max={maxSnapshotDateISO(timezone)} onChange={(e) => setStatementDate(e.target.value)} />
+            <DateField value={statementDate} max={maxSnapshotDateISO(timezone)} onChange={setStatementDate} />
           </Field>
           <Field label="账单总额" error={touched && (!isNumericString(amountTotal) || Number(amountTotal) <= 0) ? '请输入大于 0 的金额' : undefined}>
             <Input numeric prefix={currency} placeholder="0.00" value={amountTotal} onChange={(e) => setAmountTotal(e.target.value)} />
@@ -289,7 +289,7 @@ export function CreditCardBillModal({
         {paid ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="还款日期">
-              <Input type="date" value={paidAt} max={maxSnapshotDateISO(timezone)} onChange={(e) => setPaidAt(e.target.value)} />
+              <DateField value={paidAt} max={maxSnapshotDateISO(timezone)} onChange={setPaidAt} />
             </Field>
             <Field label="还款账户">
               <Select

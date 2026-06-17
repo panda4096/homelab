@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
+import { Badge, Button, DateField, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
 import {
   createTransaction,
   deleteTransaction,
@@ -183,8 +183,8 @@ function TxnModal({
             {(instruments.data ?? []).map((i) => <option key={i.symbol} value={i.symbol} />)}
           </datalist>
         </Field>
-        <Field label="成交日"><Input type="date" value={tradeDate} onChange={(e) => setTradeDate(e.target.value)} /></Field>
-        <Field label="结算日（可选）"><Input type="date" value={settleDate} onChange={(e) => setSettleDate(e.target.value)} /></Field>
+        <Field label="成交日"><DateField value={tradeDate} onChange={setTradeDate} /></Field>
+        <Field label="结算日（可选）"><DateField value={settleDate} onChange={setSettleDate} /></Field>
       </div>
       <div className="fb-form form-4 form-lead" style={{ marginTop: 12 }}>
         <Field label="数量" error={invalid && !qty.trim() ? '必填' : undefined}><Input numeric value={qty} onChange={(e) => setQty(e.target.value)} placeholder="100" /></Field>

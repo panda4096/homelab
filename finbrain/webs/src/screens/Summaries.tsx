@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Field, Icon, IconButton, Input, Segmented } from '../ds'
+import { Badge, Button, DateField, Field, Icon, IconButton, Segmented } from '../ds'
 import { deleteSummary, generateSummary, listSummaries, type Summary } from '../api'
 import { usePrefStore } from '../store'
 import { useToast } from '../shell/Toast'
@@ -51,8 +51,8 @@ export function Summaries() {
     <Page>
       <div className="fb-card" style={{ padding: 16, display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
         <Field label="周期"><Segmented size="sm" value={kind} onChange={pickKind} options={[{ value: 'month', label: '月度' }, { value: 'quarter', label: '季度' }, { value: 'year', label: '年度' }]} /></Field>
-        <Field label="期初"><Input type="date" value={range[0]} onChange={(e) => setRange([e.target.value, range[1]])} /></Field>
-        <Field label="期末"><Input type="date" value={range[1]} onChange={(e) => setRange([range[0], e.target.value])} /></Field>
+        <Field label="期初"><DateField value={range[0]} onChange={(v) => setRange([v, range[1]])} /></Field>
+        <Field label="期末"><DateField value={range[1]} onChange={(v) => setRange([range[0], v])} /></Field>
         <Button variant="primary" size="sm" disabled={gen.isPending} iconLeft={<Icon name="sparkles" size={14} />} onClick={() => gen.mutate()}>{gen.isPending ? '生成中…' : '生成阶段总结'}</Button>
         <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)', marginLeft: 'auto' }}>需配置 LLM(DeepSeek)· {displayCurrency}</span>
       </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
+import { Badge, Button, DateField, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
 import {
   createIncomeEvent,
   deleteIncomeEvent,
@@ -138,7 +138,7 @@ function IncomeModal({ item, accounts, onClose }: { item?: IncomeEvent; accounts
           <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} list="fb-inc-instruments" placeholder="GOOG" />
           <datalist id="fb-inc-instruments">{(instruments.data ?? []).map((i) => <option key={i.symbol} value={i.symbol} />)}</datalist>
         </Field>
-        <Field label="事件日期"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="事件日期"><DateField value={date} onChange={setDate} /></Field>
         <Field label="金额" error={invalid && !amount.trim() ? '必填' : undefined}><Input numeric value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="312.00" /></Field>
       </div>
       <div className="fb-form form-4" style={{ marginTop: 12 }}>

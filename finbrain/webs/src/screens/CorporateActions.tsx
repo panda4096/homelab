@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Field, Icon, IconButton, Input, Segmented } from '../ds'
+import { Badge, Button, DateField, Field, Icon, IconButton, Input, Segmented } from '../ds'
 import {
   createCorporateAction,
   deleteCorporateAction,
@@ -128,7 +128,7 @@ function CaModal({ item, onClose }: { item?: CorporateAction; onClose: () => voi
           <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} disabled={!!item} list="fb-ca-instruments" placeholder="GOOG" />
           <datalist id="fb-ca-instruments">{(instruments.data ?? []).map((i) => <option key={i.symbol} value={i.symbol} />)}</datalist>
         </Field>
-        <Field label="除权日"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="除权日"><DateField value={date} onChange={setDate} /></Field>
         {!isRights ? (
           <>
             <Field label={action === 'split' ? '拆为 (N)' : '合为 (1)'} error={invalid && !num.trim() ? '必填' : undefined}><Input numeric value={num} onChange={(e) => setNum(e.target.value)} /></Field>
