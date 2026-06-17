@@ -80,7 +80,8 @@ export function Compare() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Segmented size="sm" value={dim} onChange={setDim} options={DIMENSIONS} />
       </div>
-      <div className="fb-card" style={{ overflowX: 'auto' }}>
+      <div className="fb-card">
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
           <thead><tr><th style={th}>{DIMENSIONS.find((d) => d.value === dim)?.label}</th><th style={thR}>期初</th><th style={thR}>期末</th><th style={thR}>变化</th><th style={thR}>变化率</th></tr></thead>
           <tbody>
@@ -100,6 +101,7 @@ export function Compare() {
             {!dimRows.length ? <tr><td style={td} colSpan={5}>{valA.isLoading || valB.isLoading ? '加载中…' : '该区间两端均无数据'}</td></tr> : null}
           </tbody>
         </table>
+        </div>
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>对比两个截面的资产构成差异；增长归因按价格、数量 / 余额、收益事件、汇率 / 其他四桶拆解。</div>
     </Page>

@@ -43,7 +43,7 @@ interface HoldingRow {
 export function Holdings() {
   const displayCurrency = usePrefStore((s) => s.displayCurrency)
   const fxMode = usePrefStore((s) => s.fxMode)
-  const [group, setGroup] = useState('account')
+  const [group, setGroup] = useState('symbol')
   const [filter, setFilter] = useState('all')
   const [costMode, setCostMode] = useState<'weighted' | 'net'>('weighted')
   const [sort, setSort] = useState<{ key: SortKey | null; dir: number }>({ key: null, dir: 1 })
