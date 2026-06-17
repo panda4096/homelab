@@ -26,10 +26,15 @@ import (
 
 const sourceTag = "eastmoney"
 
-// fetchAdjust=0 (raw, unadjusted) is used for both latest and backfill: finbrain values
-// holdings as price × shares-held-on-that-date, so the real traded price per day is
-// correct (and it avoids forward-adjustment's negative very-old values).
-const fetchAdjust = 0
+// priceAdjust=1 (前复权 / forward-adjusted) for equity & index klines: a constant share count
+// valued across a stock split must stay continuous. qfq keeps the latest bar at the real current
+// price (so current valuation is unchanged) and scales pre-split history down — otherwise today's
+// post-split shares × the raw pre-split price massively overstates past net worth (e.g. NVDA's
+// 4:1 + 10:1 splits). FX central-parity rates don't split/pay dividends, so they stay raw.
+const (
+	priceAdjust = 1 // 前复权 — stocks / indices
+	fxAdjust    = 0 // raw — FX
+)
 
 // forexSecid maps a quote currency to its Eastmoney CNY central-parity secid.
 var forexSecid = map[string]string{
@@ -253,7 +258,7 @@ func (s *Service) Resolve(ctx context.Context, symbol, market, assetKind string)
 		if err != nil {
 			return ResolveResult{Reason: resolveErrMessage(err)}
 		}
-		name, bars, err := s.em.DailyKlineNamed(ctx, secid, fetchAdjust, "")
+		name, bars, err := s.em.DailyKlineNamed(ctx, secid, priceAdjust, "")
 		if err != nil {
 			return ResolveResult{Reason: resolveErrMessage(err)}
 		}
@@ -276,7 +281,7 @@ func (s *Service) latestFx(ctx context.Context, currencies map[string]struct{}) 
 			s.log.Printf("no FX source for %s/CNY", cur)
 			continue
 		}
-		bars, err := s.em.DailyKline(ctx, secid, fetchAdjust, "")
+		bars, err := s.em.DailyKline(ctx, secid, fxAdjust, "")
 		if err != nil || len(bars) == 0 {
 			s.log.Printf("fx %s/CNY: %v", cur, err)
 			continue
@@ -313,7 +318,7 @@ func (s *Service) latestForInstrument(ctx context.Context, inst store.Instrument
 		if err != nil {
 			return nil, err
 		}
-		bars, err := s.em.DailyKline(ctx, secid, fetchAdjust, "")
+		bars, err := s.em.DailyKline(ctx, secid, priceAdjust, "")
 		if err != nil {
 			return nil, err
 		}
@@ -389,7 +394,7 @@ func (s *Service) backfillInstrument(ctx context.Context, inst store.Instrument)
 		if e != nil {
 			return e
 		}
-		bars, err = s.em.DailyKline(ctx, secid, fetchAdjust, s.backfillBeg())
+		bars, err = s.em.DailyKline(ctx, secid, priceAdjust, s.backfillBeg())
 	default:
 		return nil
 	}
@@ -429,7 +434,7 @@ func (s *Service) backfillFx(ctx context.Context, insts []store.Instrument) {
 			continue
 		}
 		seen[cur] = struct{}{}
-		bars, err := s.em.DailyKline(ctx, secid, fetchAdjust, s.backfillBeg())
+		bars, err := s.em.DailyKline(ctx, secid, fxAdjust, s.backfillBeg())
 		if err != nil {
 			s.log.Printf("backfill fx %s/CNY: %v", cur, err)
 			continue

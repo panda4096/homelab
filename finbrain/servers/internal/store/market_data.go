@@ -186,6 +186,29 @@ func (s *Store) MarkMarketBackfilled(ctx context.Context, symbol string) error {
 	return err
 }
 
+// DeleteAutoPrices removes auto-fetched price rows (source <> 'manual'), keeping hand-entered
+// prices. Empty symbols = all instruments. Used to fully re-fetch history after the adjustment
+// basis changes (e.g. switching to 前复权), so no stale unadjusted rows can survive an overwrite.
+func (s *Store) DeleteAutoPrices(ctx context.Context, symbols ...string) (int64, error) {
+	if len(symbols) == 0 {
+		tag, err := s.pool.Exec(ctx, `DELETE FROM prices WHERE source <> 'manual'`)
+		return tag.RowsAffected(), err
+	}
+	tag, err := s.pool.Exec(ctx, `DELETE FROM prices WHERE source <> 'manual' AND symbol = ANY($1)`, symbols)
+	return tag.RowsAffected(), err
+}
+
+// ResetMarketBackfill clears the backfill markers (all, or the given symbols) so the history
+// sweep re-fetches from scratch. Pair with DeleteAutoPrices for a clean re-backfill.
+func (s *Store) ResetMarketBackfill(ctx context.Context, symbols ...string) error {
+	if len(symbols) == 0 {
+		_, err := s.pool.Exec(ctx, `DELETE FROM market_backfill_state`)
+		return err
+	}
+	_, err := s.pool.Exec(ctx, `DELETE FROM market_backfill_state WHERE symbol = ANY($1)`, symbols)
+	return err
+}
+
 // MarketStatusRow is the latest stored price for one symbol (for staleness display).
 type MarketStatusRow struct {
 	Symbol     string `json:"symbol"`

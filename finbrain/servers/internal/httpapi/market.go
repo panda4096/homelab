@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 )
@@ -55,10 +56,24 @@ func (s *Server) marketBackfill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "market_disabled", "行情自动获取未启用")
 		return
 	}
+	// ?reset=true first wipes auto-fetched prices (keeps manual) + clears markers, for a clean
+	// re-fetch after the adjustment basis changes. Destructive but bounded to source<>'manual'.
+	reset := r.URL.Query().Get("reset") == "true"
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
+		if reset {
+			n, err := s.store.DeleteAutoPrices(ctx)
+			if err != nil {
+				log.Printf("[market] backfill reset (prices): %v", err)
+				return
+			}
+			log.Printf("[market] backfill reset: deleted %d auto price rows", n)
+			if err := s.store.ResetMarketBackfill(ctx); err != nil {
+				log.Printf("[market] backfill reset (markers): %v", err)
+			}
+		}
 		_ = s.market.Backfill(ctx)
 	}()
-	writeJSON(w, http.StatusAccepted, map[string]any{"status": "backfill_started"})
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "backfill_started", "reset": reset})
 }

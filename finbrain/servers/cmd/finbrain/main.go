@@ -34,14 +34,36 @@ func main() {
 
 	switch cmd {
 	case "backfill":
+		// finbrain backfill [--reset] [sym…]
+		// --reset first DELETEs auto-fetched prices (keeps manual) + clears backfill markers, so
+		// history is re-fetched from scratch (use after changing the adjustment basis).
 		ctx := context.Background()
+		reset := false
+		var syms []string
+		for _, a := range os.Args[2:] {
+			if a == "--reset" {
+				reset = true
+			} else {
+				syms = append(syms, a)
+			}
+		}
 		st, err := store.New(ctx, cfg.DatabaseURL)
 		if err != nil {
 			log.Fatalf("db: %v", err)
 		}
 		defer st.Close()
 		mkt := market.New(cfg, st)
-		if err := mkt.Backfill(ctx, os.Args[2:]...); err != nil {
+		if reset {
+			n, err := st.DeleteAutoPrices(ctx, syms...)
+			if err != nil {
+				log.Fatalf("backfill reset (prices): %v", err)
+			}
+			if err := st.ResetMarketBackfill(ctx, syms...); err != nil {
+				log.Fatalf("backfill reset (markers): %v", err)
+			}
+			log.Printf("backfill reset: deleted %d auto price rows", n)
+		}
+		if err := mkt.Backfill(ctx, syms...); err != nil {
 			log.Fatalf("backfill: %v", err)
 		}
 		log.Print("backfill: ok")
