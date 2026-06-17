@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Card, Icon, IconButton, Input, Select } from '../ds'
+import { Badge, Button, Card, DateField, Icon, IconButton, Input, Select } from '../ds'
 import { SectionHint } from '../lib/ui'
 import {
   ACCOUNT_CURRENCIES,
@@ -48,6 +48,7 @@ interface BalanceDraft {
   balance: string
   skip: boolean
   note: string
+  touched?: boolean // user typed a custom 当日余额 (vs. the last-value default)
 }
 
 interface PositionDraft {
@@ -151,6 +152,7 @@ export function ReviewWizard() {
   const [incomeEvents, setIncomeEvents] = useState<IncomeDraft[]>([])
   const [draftLoaded, setDraftLoaded] = useState(false)
   const [initialized, setInitialized] = useState(false)
+  const [reconciled, setReconciled] = useState(false)
   const [batchErrors, setBatchErrors] = useState<string[]>([])
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
@@ -248,6 +250,39 @@ export function ReviewWizard() {
     setBills([])
     setInitialized(true)
   }, [accountsLoading, balanceAccounts, balanceQueries, draftLoaded, initialized, positionAccounts, positionQueries])
+
+  // Reconcile a restored draft against the LIVE active accounts: a draft can reference accounts
+  // deleted/archived since it was saved (e.g. 招商银行) or miss newly added ones. The live list is
+  // authoritative for WHICH balance rows exist; draft-entered values are kept by account_id.
+  // Positions are pruned to still-active accounts. Runs once, after accounts + snapshots load.
+  useEffect(() => {
+    if (!draftLoaded || !initialized || reconciled || accountsLoading) return
+    if (balanceQueries.some((q) => q.isLoading) || positionQueries.some((q) => q.isLoading)) return
+    setBalances((prev) => {
+      const byId = new Map(prev.map((r) => [r.account_id, r] as const))
+      return balanceAccounts.map((account, index) => {
+        const draftRow = byId.get(account.id)
+        const last = balanceQueries[index].data?.[0]?.balance ?? account.current_balance ?? ''
+        // Default to the CURRENT last value; keep a draft balance only if the user actually typed
+        // one (touched). A stale unedited default — whose last value has since changed — resets,
+        // instead of lingering as a phantom "changed" amount.
+        const touched = !!draftRow?.touched
+        return {
+          account_id: account.id,
+          account_label: accountLabel(account),
+          currency: account.currency,
+          last_balance: last,
+          balance: touched ? draftRow!.balance : last,
+          skip: draftRow?.skip ?? false,
+          note: draftRow?.note ?? '',
+          touched,
+        }
+      })
+    })
+    const liveIds = new Set(positionAccounts.map((a) => a.id))
+    setPositions((prev) => prev.filter((p) => liveIds.has(p.account_id)))
+    setReconciled(true)
+  }, [accountsLoading, balanceAccounts, balanceQueries, draftLoaded, initialized, positionAccounts, positionQueries, reconciled])
 
   useEffect(() => {
     if (!draftLoaded || !initialized) return
@@ -398,7 +433,7 @@ export function ReviewWizard() {
             title={<span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name={current.icon} size={17} color="var(--accent)" />{current.label}</span>}
             subtitle={subtitleForStep(step)}
             actions={step === 2 ? (
-              <Button variant="secondary" size="sm" iconLeft={<Icon name="copy" size={14} />} onClick={() => setBalances((items) => items.map((b) => ({ ...b, balance: b.last_balance, skip: false })))}>
+              <Button variant="secondary" size="sm" iconLeft={<Icon name="copy" size={14} />} onClick={() => setBalances((items) => items.map((b) => ({ ...b, balance: b.last_balance, skip: false, touched: false })))}>
                 全部保留上次
               </Button>
             ) : null}
@@ -538,7 +573,7 @@ function StepRail({ step, onStep }: { step: number; onStep: (step: number) => vo
 function DateStep({ reviewDate, onChange }: { reviewDate: string; onChange: (v: string) => void }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 18, alignItems: 'start' }}>
-      <Input type="date" value={reviewDate} onChange={(e) => onChange(e.target.value)} />
+      <DateField value={reviewDate} onChange={(v) => onChange(v)} />
       <SectionHint>盘点日期会作为本批余额和持仓记录的日期；同账户同日期提交会幂等覆盖。</SectionHint>
     </div>
   )
@@ -565,11 +600,11 @@ function BalanceStep({ rows, setRows }: { rows: BalanceDraft[]; setRows: (rows: 
             prefix={row.currency}
             value={row.balance}
             disabled={row.skip}
-            onChange={(e) => setRows((items) => items.map((it, i) => (i === index ? { ...it, balance: e.target.value, skip: false } : it)))}
+            onChange={(e) => setRows((items) => items.map((it, i) => (i === index ? { ...it, balance: e.target.value, skip: false, touched: true } : it)))}
             size="sm"
           />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-            <Button variant="ghost" size="xs" onClick={() => setRows((items) => items.map((it, i) => (i === index ? { ...it, balance: it.last_balance, skip: false } : it)))}>
+            <Button variant="ghost" size="xs" onClick={() => setRows((items) => items.map((it, i) => (i === index ? { ...it, balance: it.last_balance, skip: false, touched: false } : it)))}>
               保留上次
             </Button>
             <Button variant="ghost" size="xs" onClick={() => setRows((items) => items.map((it, i) => (i === index ? { ...it, skip: true } : it)))}>
@@ -757,7 +792,7 @@ function TransactionDraftRow({
         <Icon name="x" size={13} />
       </IconButton>
       <div style={{ gridColumn: '1 / 3' }}>
-        <Input type="date" value={row.trade_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ trade_date: e.target.value })} size="sm" />
+        <DateField value={row.trade_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ trade_date: v })} size="sm" />
       </div>
       <div style={{ gridColumn: '3 / -1' }}>
         <Input placeholder="备注" value={row.notes} onChange={(e) => patch({ notes: e.target.value })} size="sm" />
@@ -802,7 +837,7 @@ function CorporateActionDraftRow({
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(130px, 1fr) 94px 126px 112px 112px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
       <Input placeholder="标的" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
       <Select size="sm" value={row.action} onChange={(e) => patch({ action: e.target.value as 'split' | 'merge' | 'rights' })} options={[{ value: 'split', label: '拆股' }, { value: 'merge', label: '合股' }, { value: 'rights', label: '配股' }]} />
-      <Input type="date" value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
+      <DateField value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ event_date: v })} size="sm" />
       <Input numeric placeholder="比例分子" value={row.ratio_numerator} onChange={(e) => patch({ ratio_numerator: e.target.value })} size="sm" />
       <Input numeric placeholder="比例分母" value={row.ratio_denominator} onChange={(e) => patch({ ratio_denominator: e.target.value })} size="sm" />
       <IconButton aria-label="移除公司动作" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
@@ -857,7 +892,7 @@ function TransferDraftRow({
       <Select size="sm" value={row.to_account_id} onChange={(e) => patch({ to_account_id: e.target.value })} placeholder="转入账户" options={accounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))} />
       <Input numeric placeholder="转出金额" value={row.from_amount} onChange={(e) => patch({ from_amount: e.target.value })} size="sm" />
       <Input numeric placeholder="转入金额" value={row.to_amount} onChange={(e) => patch({ to_amount: e.target.value })} size="sm" />
-      <Input type="date" value={row.transfer_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ transfer_date: e.target.value })} size="sm" />
+      <DateField value={row.transfer_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ transfer_date: v })} size="sm" />
       <IconButton aria-label="移除转账" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
         <Icon name="x" size={13} />
       </IconButton>
@@ -925,7 +960,7 @@ function IncomeDraftRow({
       <Input placeholder="标的可空" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
       <Input numeric placeholder="金额" value={row.amount} onChange={(e) => patch({ amount: e.target.value })} size="sm" />
       <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
-      <Input type="date" value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ event_date: e.target.value })} size="sm" />
+      <DateField value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ event_date: v })} size="sm" />
       <Input numeric placeholder="税费" value={row.tax_withheld} onChange={(e) => patch({ tax_withheld: e.target.value })} size="sm" />
       <IconButton aria-label="移除收益" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
         <Icon name="x" size={13} />
@@ -992,7 +1027,7 @@ function BillStep({
     ])
   }
   if (!creditAccounts.length) {
-    return <EmptyLine text="暂无信用卡账户。可先在账户列表创建 kind=credit_card 的信用卡合计账户。" />
+    return <EmptyLine text="暂无信用卡账户。可先在「账户列表」新增一个信用卡账户。" />
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1033,13 +1068,13 @@ function BillDraftRow({
         }}
         options={creditAccounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))}
       />
-      <Input type="date" value={row.statement_date} max={maxSnapshotDateISO(timezone)} onChange={(e) => patch({ statement_date: e.target.value })} size="sm" />
+      <DateField value={row.statement_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ statement_date: v })} size="sm" />
       <Input numeric prefix={row.currency} placeholder="账单总额" value={row.amount_total} min="0.01" onChange={(e) => patch({ amount_total: e.target.value })} size="sm" />
       <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
         <input type="checkbox" checked={row.paid} onChange={(e) => patch({ paid: e.target.checked })} /> 已还
       </label>
-      <Input type="date" value={row.paid_at} max={maxSnapshotDateISO(timezone)} disabled={!row.paid} onChange={(e) => patch({ paid_at: e.target.value })} size="sm" />
+      <DateField value={row.paid_at} max={maxSnapshotDateISO(timezone)} disabled={!row.paid} onChange={(v) => patch({ paid_at: v })} size="sm" />
       <Select
         size="sm"
         value={row.payment_account_id}
