@@ -83,6 +83,14 @@ type fxResolver struct {
 // is kept for API compatibility; current FX mode intentionally uses the latest
 // available rate with no date upper bound.
 func (s *Store) GetValuation(ctx context.Context, userID int64, onDate, displayCurrency, fxMode, currentRateDate string) (Valuation, error) {
+	return s.getValuation(ctx, userID, onDate, displayCurrency, fxMode, currentRateDate, true)
+}
+
+// getValuation is GetValuation's body. withKPIs gates the year-to-date realized-P&L / income
+// KPIs, which cost several replay + income-event queries: the net-worth trend recomputes a
+// valuation per section date but discards those KPIs (TrendPoint never reads them), so it passes
+// withKPIs=false to drop that per-date cost.
+func (s *Store) getValuation(ctx context.Context, userID int64, onDate, displayCurrency, fxMode, currentRateDate string, withKPIs bool) (Valuation, error) {
 	_ = currentRateDate
 	val := Valuation{
 		AsOf:            onDate,
@@ -384,12 +392,14 @@ func (s *Store) GetValuation(ctx context.Context, userID int64, onDate, displayC
 	})
 	val.PositionGroups = buildSymbolPositionGroups(val.Positions, positionValue, netWorth, displayCurrency)
 
-	realizedYtd, incomeYtd, err := s.tradeKPIs(ctx, userID, onDate, displayCurrency, fx)
-	if err != nil {
-		return Valuation{}, err
+	if withKPIs {
+		realizedYtd, incomeYtd, err := s.tradeKPIs(ctx, userID, onDate, displayCurrency, fx)
+		if err != nil {
+			return Valuation{}, err
+		}
+		val.RealizedPLYtd = formatMoneyDecimal(realizedYtd)
+		val.IncomeYtd = formatMoneyDecimal(incomeYtd)
 	}
-	val.RealizedPLYtd = formatMoneyDecimal(realizedYtd)
-	val.IncomeYtd = formatMoneyDecimal(incomeYtd)
 
 	return val, nil
 }
@@ -652,6 +662,15 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 	// selection as the old LATERAL — latest price on/before onDate, preferring the
 	// instrument's quote currency. Positions with no price keep nil → MissingPrice downstream.
 	if s.market != nil {
+		// Bulk-warm the cache once so a cold/expired cache costs a single query instead of one
+		// per held symbol (PriceAsOf below then all hit the warm cache).
+		syms := make([]string, 0, len(out))
+		for i := range out {
+			syms = append(syms, out[i].Symbol)
+		}
+		if err := s.market.EnsurePrices(ctx, syms); err != nil {
+			return nil, err
+		}
 		for i := range out {
 			px, ccy, pdate, ok, err := s.market.PriceAsOf(ctx, out[i].Symbol, onDate, ptrValue(out[i].QuoteCurrency))
 			if err != nil {

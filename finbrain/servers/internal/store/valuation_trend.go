@@ -35,7 +35,7 @@ type TrendSeries struct {
 // same valuation engine as the current dashboard so transaction replay, pricing,
 // liabilities, and FX handling stay consistent across current and trend views.
 func (s *Store) netWorthAt(ctx context.Context, userID int64, onDate, displayCurrency, fxMode string) (TrendPoint, error) {
-	val, err := s.GetValuation(ctx, userID, onDate, displayCurrency, fxMode, onDate)
+	val, err := s.getValuation(ctx, userID, onDate, displayCurrency, fxMode, onDate, false)
 	if err != nil {
 		return TrendPoint{}, err
 	}
@@ -106,7 +106,10 @@ func (s *Store) NetWorthTrend(ctx context.Context, userID int64, from, to, granu
 	var mu sync.Mutex
 	var firstErr error
 	for i, d := range dates {
-		if firstErr != nil {
+		mu.Lock()
+		stop := firstErr != nil
+		mu.Unlock()
+		if stop {
 			break
 		}
 		wg.Add(1)

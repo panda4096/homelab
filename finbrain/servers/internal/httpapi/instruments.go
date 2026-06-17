@@ -53,7 +53,9 @@ func (s *Server) upsertInstrument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// New instrument → fetch its full price history right away (idempotent, non-blocking).
-	s.market.TriggerEnsureBackfilled(out.Symbol)
+	if s.market != nil {
+		s.market.TriggerEnsureBackfilled(out.Symbol)
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -135,7 +137,7 @@ func normalizeInstrumentText(in *store.Instrument) {
 		in.DisplayName = &v
 	}
 	if in.Market != nil {
-		v := strings.TrimSpace(*in.Market)
+		v := strings.ToUpper(strings.TrimSpace(*in.Market))
 		in.Market = &v
 	}
 	if in.QuoteCurrency != nil {
@@ -143,10 +145,18 @@ func normalizeInstrumentText(in *store.Instrument) {
 		in.QuoteCurrency = &v
 	}
 	if in.AssetKind != nil {
-		v := strings.TrimSpace(*in.AssetKind)
+		v := strings.ToLower(strings.TrimSpace(*in.AssetKind))
 		in.AssetKind = &v
 	}
 }
+
+// Known enums for instruments. quote_currency feeds the valuation FX resolver and a bogus value
+// silently degrades to a 1:1 fallback rate, so it (and market / asset_kind) is validated rather
+// than stored as free text. Sets cover existing data plus the UI's options.
+var (
+	allowedMarkets    = map[string]bool{"US": true, "HK": true, "CN": true, "CRYPTO": true, "INDEX": true}
+	allowedAssetKinds = map[string]bool{"equity": true, "etf": true, "fund": true, "crypto": true, "index": true, "cash": true}
+)
 
 func validateInstrumentText(in store.Instrument) string {
 	if msg := validateTextLen("symbol", in.Symbol, maxSymbolLen); msg != "" {
@@ -160,6 +170,15 @@ func validateInstrumentText(in store.Instrument) string {
 	}
 	if msg := validateOptionalTextLen("asset_kind", in.AssetKind, maxKindLen); msg != "" {
 		return msg
+	}
+	if in.QuoteCurrency != nil && *in.QuoteCurrency != "" && !currencyRe.MatchString(*in.QuoteCurrency) {
+		return "quote_currency 须为 3 位 ISO 货币代码（如 USD / HKD / CNY）"
+	}
+	if in.Market != nil && *in.Market != "" && !allowedMarkets[*in.Market] {
+		return "market 不支持：仅 US / HK / CN / CRYPTO / INDEX"
+	}
+	if in.AssetKind != nil && *in.AssetKind != "" && !allowedAssetKinds[*in.AssetKind] {
+		return "asset_kind 不支持：仅 equity / etf / fund / crypto / index / cash"
 	}
 	return validateOptionalTextLen("note", in.Note, maxNoteLen)
 }
