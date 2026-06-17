@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { Badge, Button, Card, Icon, Segmented } from '../ds'
+import { Badge, Button, Card, Icon } from '../ds'
 import {
   getAccountReconciliation,
   getAllocationTargetDrift,
@@ -17,11 +17,10 @@ import {
   type CreditCardBill,
   type ValuationBucket,
 } from '../api'
-import { currencyLabel, KIND_LABEL, KIND_TONE, MARKET_TONE, native, supportsBalanceSnapshots, supportsPositionSnapshots } from '../lib/format'
+import { bucketName, KIND_LABEL, KIND_TONE, MARKET_TONE, native, supportsBalanceSnapshots, supportsPositionSnapshots } from '../lib/format'
 import {
   CurrencyValue,
   DeltaValue,
-  Donut,
   LineChart,
   Sparkline,
   VIZ,
@@ -38,7 +37,6 @@ export function Dashboard() {
   const openBuild = useUiStore((s) => s.openBuild)
   const displayCurrency = usePrefStore((s) => s.displayCurrency)
   const fxMode = usePrefStore((s) => s.fxMode)
-  const [allocDim, setAllocDim] = useState<'kind' | 'currency' | 'quote_currency' | 'institution'>('kind')
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ['accounts'],
@@ -246,23 +244,8 @@ export function Dashboard() {
 
       {/* Allocation (single donut + dimension toggle) + the real net-worth trend chart. */}
       <div className="fb-grid db-12">
-        <Card
-          eyebrow="资产配置"
-          actions={
-            <Segmented
-              size="sm"
-              value={allocDim}
-              onChange={(val) => setAllocDim(val as typeof allocDim)}
-              options={[
-                { value: 'kind', label: '用途' },
-                { value: 'currency', label: '账户币种' },
-                { value: 'quote_currency', label: '暴露' },
-                { value: 'institution', label: '机构' },
-              ]}
-            />
-          }
-        >
-          <AllocationDonut dim={allocDim} buckets={v.allocations[allocDim] ?? []} currency={v.display_currency} />
+        <Card eyebrow="资产配置" actions={<span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>按用途分类</span>}>
+          <AllocationDonut buckets={v.allocations.kind ?? []} currency={v.display_currency} />
         </Card>
         <Card
           eyebrow="净资产趋势 · 近 12 月"
@@ -353,32 +336,70 @@ export function Dashboard() {
   )
 }
 
-function AllocationDonut({
-  dim,
-  buckets,
-  currency,
-}: {
-  dim: string
-  buckets: ValuationBucket[]
-  currency: string
-}) {
-  const items = toDonutItems(dim, buckets)
-  // quote_currency mixes signed asset/liability exposure → center on gross (= the abs ring);
-  // asset dims show the true SIGNED total so a rare overdraft can't overstate the headline.
-  const donutTotal = items.reduce((sum, it) => sum + it.value, 0)
-  const signedTotal = buckets.reduce((sum, b) => sum + (num(b.value) ?? 0), 0)
-  const centerVal = dim === 'quote_currency' ? donutTotal : signedTotal
+// Dashboard allocation by account-purpose (用途) only. A bold hollow-center ring with a rich
+// legend (label · amount · share), hover-synced between ring and rows — no center total, no
+// dimension toggle.
+function AllocationDonut({ buckets, currency }: { buckets: ValuationBucket[]; currency: string }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const items = toDonutItems('kind', buckets)
   if (!items.length) {
-    return <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: '32px 0', textAlign: 'center' }}>暂无可估值资产。</div>
+    return <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: '44px 0', textAlign: 'center' }}>暂无可估值资产。</div>
   }
+  const total = items.reduce((s, it) => s + Math.max(0, it.value), 0) || 1
+  const size = 188
+  const thickness = 26
+  const cx = size / 2
+  const cy = size / 2
+  const r = size / 2 - thickness / 2 - 1
+  const C = 2 * Math.PI * r
+  const gapPx = items.length > 1 ? 3 : 0
+  let acc = 0
+  const arcs = items.map((it, i) => {
+    const seg = (Math.max(0, it.value) / total) * C
+    const a = { ...it, i, frac: Math.max(0, it.value) / total, dash: Math.max(0, seg - gapPx), off: acc }
+    acc += seg
+    return a
+  })
+  const dim = (i: number) => (hover == null || hover === i ? 1 : 0.32)
   return (
-    <Donut
-      items={items}
-      centerLabel={shortMoney(centerVal, currency)}
-      centerSub={dim === 'quote_currency' ? '暴露' : '净资产'}
-      size={150}
-      thickness={16}
-    />
+    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 28, flexWrap: 'wrap', padding: '4px 0' }}>
+      <svg width={size} height={size} style={{ flex: 'none', transform: 'rotate(-90deg)', transformOrigin: 'center' }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--surface-inset)" strokeWidth={thickness} />
+        {arcs.map((s) => (
+          <circle
+            key={s.key}
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={thickness}
+            strokeDasharray={`${s.dash} ${C - s.dash}`}
+            strokeDashoffset={-s.off}
+            onMouseEnter={() => setHover(s.i)}
+            onMouseLeave={() => setHover(null)}
+            style={{ cursor: 'default', opacity: dim(s.i), transition: 'opacity .16s' }}
+          />
+        ))}
+      </svg>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 168 }}>
+        {arcs.map((s) => (
+          <div
+            key={s.key}
+            onMouseEnter={() => setHover(s.i)}
+            onMouseLeave={() => setHover(null)}
+            style={{ display: 'grid', gridTemplateColumns: '10px 1fr auto', columnGap: 11, alignItems: 'center', opacity: dim(s.i), transition: 'opacity .16s', cursor: 'default' }}
+          >
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</div>
+              <div className="fb-num" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>{shortMoney(s.value, currency)}</div>
+            </div>
+            <span className="fb-num" style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-strong)', textAlign: 'right' }}>{(s.frac * 100).toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -553,17 +574,10 @@ function TemplatesPreview({ onBuild }: { onBuild: () => void }) {
 function toDonutItems(dim: string, buckets: ValuationBucket[]): DonutItem[] {
   return buckets.map((b, i) => ({
     key: b.key,
-    name: bucketName(dim, b),
+    name: bucketName(dim, b.key, b.name),
     value: Math.abs(num(b.value) ?? 0),
     color: bucketColor(dim, b.key, i),
   }))
-}
-
-function bucketName(dim: string, b: ValuationBucket) {
-  if (dim === 'kind') return KIND_LABEL[b.key] ?? b.name
-  if (dim === 'currency' || dim === 'quote_currency') return currencyLabel(b.key).replace(`${b.key} · `, '')
-  if (dim === 'market') return b.key === 'CASH' ? '现金' : b.key
-  return b.name
 }
 
 function bucketColor(dim: string, key: string, index: number) {
