@@ -17,7 +17,7 @@ function Page({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 22, maxWidth: 1120, margin: '0 auto' }}>{children}</div>
 }
 
-type Range = '12m' | 'ytd' | 'all'
+type Range = '12m' | 'ytd' | '3y' | '5y'
 type Subject = 'net_worth' | 'total_assets' | 'cash_value' | 'position_value'
 type BenchmarkMode = 'off' | 'rebase' | 'excess'
 
@@ -41,9 +41,8 @@ export function TrendAnalysis() {
   const to = today.toISOString().slice(0, 10)
   const from = useMemo(() => {
     if (range === 'ytd') return `${today.getFullYear()}-01-01`
-    if (range === 'all') return '2015-01-01'
     const d = new Date(today)
-    d.setFullYear(d.getFullYear() - 1)
+    d.setFullYear(d.getFullYear() - (range === '5y' ? 5 : range === '3y' ? 3 : 1))
     return d.toISOString().slice(0, 10)
   }, [range])
 
@@ -165,7 +164,7 @@ export function TrendAnalysis() {
     <Page>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <Segmented size="sm" value={range} onChange={(v) => setRange(v as Range)}
-          options={[{ value: '12m', label: '近 12 月' }, { value: 'ytd', label: '今年' }, { value: 'all', label: '全部' }]} />
+          options={[{ value: '12m', label: '近 12 月' }, { value: 'ytd', label: '今年' }, { value: '3y', label: '近 3 年' }, { value: '5y', label: '近 5 年' }]} />
         <Segmented size="sm" value={gran} onChange={(v) => setGran(v as TimeAggregation)}
           options={[{ value: 'day', label: '日' }, { value: 'month', label: '月' }, { value: 'quarter', label: '季' }, { value: 'year', label: '年' }]} />
         <Segmented size="sm" value={subject} onChange={(v) => setSubject(v as Subject)}
