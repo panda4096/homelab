@@ -130,6 +130,7 @@ func (c *Client) doGet(ctx context.Context, rawURL, referer string) ([]byte, err
 type klineResp struct {
 	Data *struct {
 		Code   string   `json:"code"`
+		Name   string   `json:"name"`
 		Klines []string `json:"klines"`
 	} `json:"data"`
 }
@@ -141,6 +142,17 @@ type klineResp struct {
 // which is both faster and less likely to trip Eastmoney's throttle. fqt is the adjustment
 // mode: 0=raw, 1=forward-adjusted, 2=back-adjusted.
 func (c *Client) DailyKline(ctx context.Context, secid string, fqt int, beg string) ([]Bar, error) {
+	_, bars, err := c.dailyKline(ctx, secid, fqt, beg)
+	return bars, err
+}
+
+// DailyKlineNamed is DailyKline plus the instrument's display name (data.name from the same
+// response) — used by the resolve/validation probe to auto-fill the name without a 2nd request.
+func (c *Client) DailyKlineNamed(ctx context.Context, secid string, fqt int, beg string) (string, []Bar, error) {
+	return c.dailyKline(ctx, secid, fqt, beg)
+}
+
+func (c *Client) dailyKline(ctx context.Context, secid string, fqt int, beg string) (string, []Bar, error) {
 	q := url.Values{}
 	q.Set("secid", secid)
 	q.Set("klt", "101") // daily
@@ -155,14 +167,14 @@ func (c *Client) DailyKline(ctx context.Context, secid string, fqt int, beg stri
 	}
 	body, err := c.get(ctx, "https://push2his.eastmoney.com/api/qt/stock/kline/get?"+q.Encode(), "https://quote.eastmoney.com/")
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	var kr klineResp
 	if err := json.Unmarshal(body, &kr); err != nil {
-		return nil, fmt.Errorf("eastmoney kline %s: %w", secid, err)
+		return "", nil, fmt.Errorf("eastmoney kline %s: %w", secid, err)
 	}
 	if kr.Data == nil {
-		return nil, fmt.Errorf("eastmoney kline %s: no data (bad secid?)", secid)
+		return "", nil, fmt.Errorf("eastmoney kline %s: no data (bad secid?)", secid)
 	}
 	out := make([]Bar, 0, len(kr.Data.Klines))
 	for _, line := range kr.Data.Klines {
@@ -172,7 +184,7 @@ func (c *Client) DailyKline(ctx context.Context, secid string, fqt int, beg stri
 		}
 		out = append(out, Bar{Date: parts[0], Close: parts[2]}) // f51=date, f53=close
 	}
-	return out, nil
+	return kr.Data.Name, out, nil
 }
 
 type lsjzResp struct {
@@ -223,6 +235,7 @@ var fundgzRe = regexp.MustCompile(`jsonpgz\((\{.*?\})\);?`)
 
 // FundEstimate is the intraday estimated NAV plus the latest officially published NAV.
 type FundEstimate struct {
+	Name         string // fund display name (e.g. 华夏成长混合)
 	OfficialDate string // jzrq: date of the last published unit NAV
 	OfficialNav  string // dwjz
 	EstDate      string // date portion of gztime (the estimate's day)
@@ -241,6 +254,7 @@ func (c *Client) FundEstimate(ctx context.Context, fundCode string) (FundEstimat
 		return FundEstimate{}, fmt.Errorf("eastmoney fundgz %s: unexpected body", fundCode)
 	}
 	var raw struct {
+		Name   string `json:"name"`
 		JZRQ   string `json:"jzrq"`
 		DWJZ   string `json:"dwjz"`
 		GSZ    string `json:"gsz"`
@@ -249,7 +263,7 @@ func (c *Client) FundEstimate(ctx context.Context, fundCode string) (FundEstimat
 	if err := json.Unmarshal(m[1], &raw); err != nil {
 		return FundEstimate{}, fmt.Errorf("eastmoney fundgz %s: %w", fundCode, err)
 	}
-	est := FundEstimate{OfficialDate: raw.JZRQ, OfficialNav: raw.DWJZ, EstNav: raw.GSZ}
+	est := FundEstimate{Name: raw.Name, OfficialDate: raw.JZRQ, OfficialNav: raw.DWJZ, EstNav: raw.GSZ}
 	if len(raw.GZTime) >= 10 {
 		est.EstDate = raw.GZTime[:10] // "2006-01-02 15:04" -> "2006-01-02"
 	}

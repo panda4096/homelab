@@ -8,6 +8,7 @@ import {
   listFxRates,
   listInstruments,
   listPrices,
+  resolveInstrument,
   updateFxRate,
   updateInstrument,
   updatePrice,
@@ -52,6 +53,22 @@ const MARKET_OPTIONS = ['US', 'HK', 'CN', 'CRYPTO', 'INDEX'].map((value) => ({ v
 // market.defaultBenchmarks). Other INDEX symbols can be created but their closing prices must be
 // maintained by hand — the modal warns when that's the case.
 const BUILTIN_INDEX_SYMBOLS = ['HSI', 'SPX', 'NDX', 'CSI300']
+
+// Per-market input help: example code, format hint, and the default quote currency.
+const SYMBOL_PLACEHOLDER: Record<string, string> = { US: 'AAPL', HK: '0700', CN: '600519', CRYPTO: 'BTC', INDEX: 'HSI' }
+const SYMBOL_HINT: Record<string, string> = {
+  US: '美股代码，如 AAPL / GOOG',
+  HK: '港股代码，如 0700 / 0005（不足 5 位自动补零）',
+  CN: 'A股代码，如 600519 / 000001',
+  CRYPTO: '如 BTC / ETH',
+  INDEX: '内置指数：HSI / SPX / NDX / CSI300',
+}
+const MARKET_CCY: Record<string, string> = { US: 'USD', HK: 'HKD', CN: 'CNY', CRYPTO: 'USD' }
+
+// Normalize a pasted symbol: upper-case, trim, strip a trailing exchange suffix (e.g. 0700.HK).
+function normalizeSymbol(raw: string): string {
+  return raw.toUpperCase().trim().replace(/\.(HK|SS|SZ|SH|US|O|N)$/i, '')
+}
 const ASSET_KIND_OPTIONS = [
   { value: 'equity', label: '股票' },
   { value: 'fund', label: '基金' },
@@ -1055,7 +1072,9 @@ function FxModal({ item, onClose }: { item?: FxRate; onClose: () => void }) {
   const [source, setSource] = useState(item?.source ?? 'manual')
   const [note, setNote] = useState(item?.note ?? '')
   const [touched, setTouched] = useState(false)
-  const invalid = touched && (!rate.trim() || base === quote)
+  const rateNum = Number(rate)
+  const rateBad = !rate.trim() || !Number.isFinite(rateNum) || rateNum <= 0
+  const invalid = touched && (rateBad || base === quote)
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -1083,7 +1102,7 @@ function FxModal({ item, onClose }: { item?: FxRate; onClose: () => void }) {
             variant="primary"
             onClick={() => {
               setTouched(true)
-              if (!rate.trim() || base === quote) return
+              if (rateBad || base === quote) return
               mutation.mutate()
             }}
             disabled={mutation.isPending}
@@ -1103,7 +1122,7 @@ function FxModal({ item, onClose }: { item?: FxRate; onClose: () => void }) {
         <Field label="日期">
           <Input type="date" value={rateDate} onChange={(e) => setRateDate(e.target.value)} />
         </Field>
-        <Field label="汇率" error={invalid && !rate.trim() ? '必填' : undefined}>
+        <Field label="汇率" error={invalid && rateBad ? (!rate.trim() ? '必填' : '需为正数') : undefined}>
           <Input numeric value={rate} onChange={(e) => setRate(e.target.value)} placeholder="7.2000" />
         </Field>
       </div>
@@ -1141,6 +1160,26 @@ function InstrumentModal({
   const [note, setNote] = useState(item?.note ?? '')
   const [touched, setTouched] = useState(false)
   const invalid = touched && !symbol.trim()
+
+  // Validate against the upstream feed — catches typos / wrong-market entries we can't fetch.
+  const [check, setCheck] = useState<{ state: 'idle' | 'running' | 'ok' | 'fail'; msg?: string }>({ state: 'idle' })
+  const runCheck = async () => {
+    const sym = normalizeSymbol(symbol)
+    if (!sym) { setCheck({ state: 'fail', msg: '请先填写代码' }); return }
+    setCheck({ state: 'running' })
+    try {
+      const r = await resolveInstrument({ symbol: sym, market, asset_kind: assetKind })
+      if (r.ok) {
+        setCheck({ state: 'ok', msg: `已找到${r.name ? ` · ${r.name}` : ''} · 最新 ${r.price ?? ''} ${r.currency ?? ''} · ${r.price_date ?? ''}` })
+        if (r.currency) setQuoteCurrency(r.currency)
+        if (r.name && !displayName.trim()) setDisplayName(r.name) // auto-fill name; don't clobber a user-typed one
+      } else {
+        setCheck({ state: 'fail', msg: r.reason || '未找到该代码' })
+      }
+    } catch (e) {
+      setCheck({ state: 'fail', msg: e instanceof Error ? e.message : '校验失败' })
+    }
+  }
 
   const payload = {
     display_name: displayName || null,
@@ -1184,14 +1223,24 @@ function InstrumentModal({
       }
     >
       <div className="fb-form form-4">
-        <Field label="标的代码" error={invalid ? '必填' : undefined}>
-          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} disabled={!!item} placeholder="GOOG" />
+        <Field label="标的代码" error={invalid ? '必填' : undefined} hint={!item ? SYMBOL_HINT[market] : undefined}>
+          <Input
+            value={symbol}
+            onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setCheck({ state: 'idle' }) }}
+            onBlur={(e) => setSymbol(normalizeSymbol(e.target.value))}
+            disabled={!!item}
+            placeholder={SYMBOL_PLACEHOLDER[market] ?? 'AAPL'}
+          />
         </Field>
         <Field label="显示名">
           <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Alphabet" />
         </Field>
         <Field label="市场">
-          <Select value={market} onChange={(e) => setMarket(e.target.value)} options={MARKET_OPTIONS} />
+          <Select
+            value={market}
+            onChange={(e) => { const m = e.target.value; setMarket(m); if (MARKET_CCY[m]) setQuoteCurrency(MARKET_CCY[m]); setCheck({ state: 'idle' }) }}
+            options={MARKET_OPTIONS}
+          />
         </Field>
         <Field label="计价币种">
           <Select value={quoteCurrency} onChange={(e) => setQuoteCurrency(e.target.value)} options={currencyOptions()} />
@@ -1217,6 +1266,22 @@ function InstrumentModal({
           自动行情仅支持内置指数（HSI / SPX / NDX / CSI300）；其他「指数」标的需在「价格」页手动维护收盘价。
         </div>
       ) : null}
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <Button size="sm" variant="secondary" disabled={check.state === 'running' || !symbol.trim()} iconLeft={<Icon name="clipboard-check" size={13} />} onClick={runCheck}>
+          {check.state === 'running' ? '校验中…' : '校验代码'}
+        </Button>
+        {check.state === 'ok' ? (
+          <span style={{ fontSize: 12, color: 'var(--gain)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Icon name="circle-check-big" size={13} /> {check.msg}
+          </span>
+        ) : check.state === 'fail' ? (
+          <span style={{ fontSize: 12, color: 'var(--loss)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Icon name="circle-alert" size={13} /> {check.msg}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>保存前可校验该代码能否自动获取行情</span>
+        )}
+      </div>
     </Modal>
   )
 }

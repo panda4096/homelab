@@ -21,6 +21,9 @@ type fakeProvider struct {
 func (f *fakeProvider) DailyKline(_ context.Context, secid string, _ int, _ string) ([]eastmoney.Bar, error) {
 	return f.klines[secid], nil
 }
+func (f *fakeProvider) DailyKlineNamed(_ context.Context, secid string, _ int, _ string) (string, []eastmoney.Bar, error) {
+	return secid, f.klines[secid], nil
+}
 func (f *fakeProvider) FundNavHistory(_ context.Context, code string) ([]eastmoney.Bar, error) {
 	return f.fundHist[code], nil
 }

@@ -115,6 +115,7 @@ func NewRouter(cfg *config.Config, st *store.Store, mkt *market.Service) http.Ha
 
 			// Market-data auto-feed (Eastmoney): status + manual refresh/backfill triggers.
 			r.Get("/market/status", s.marketStatus)
+			r.Get("/market/resolve", s.marketResolve)
 			r.Post("/market/refresh", s.marketRefresh)
 			r.Post("/market/backfill", s.marketBackfill)
 

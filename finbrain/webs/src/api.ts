@@ -529,6 +529,22 @@ export function listInstruments(): Promise<Instrument[]> {
   return request<Instrument[]>('/api/instruments')
 }
 
+export interface ResolveResult {
+  ok: boolean
+  name?: string
+  currency?: string
+  price?: string
+  price_date?: string
+  reason?: string
+}
+
+// resolveInstrument probes the upstream feed to check a symbol/market is actually fetchable
+// before the user saves it (returns the latest price on success, or a reason on failure).
+export function resolveInstrument(input: { symbol: string; market: string; asset_kind: string }): Promise<ResolveResult> {
+  const q = new URLSearchParams({ symbol: input.symbol, market: input.market, asset_kind: input.asset_kind })
+  return request<ResolveResult>(`/api/market/resolve?${q.toString()}`)
+}
+
 export function upsertInstrument(input: UpsertInstrumentInput): Promise<Instrument> {
   return request<Instrument>('/api/instruments', {
     method: 'POST',

@@ -20,6 +20,20 @@ func (s *Server) marketStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// marketResolve validates a user-entered instrument: it probes the upstream feed for the given
+// symbol/market/asset_kind and reports whether a price is fetchable (with the latest value).
+func (s *Server) marketResolve(w http.ResponseWriter, r *http.Request) {
+	if s.market == nil {
+		writeError(w, http.StatusServiceUnavailable, "market_disabled", "行情自动获取未启用")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	q := r.URL.Query()
+	res := s.market.Resolve(ctx, q.Get("symbol"), q.Get("market"), q.Get("asset_kind"))
+	writeJSON(w, http.StatusOK, res)
+}
+
 // marketRefresh triggers an immediate latest-price refresh and waits for it (bounded).
 func (s *Server) marketRefresh(w http.ResponseWriter, r *http.Request) {
 	if s.market == nil {

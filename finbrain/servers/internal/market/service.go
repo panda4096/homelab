@@ -10,9 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -63,6 +65,7 @@ var indexSecid = func() map[string]string {
 
 type provider interface {
 	DailyKline(ctx context.Context, secid string, fqt int, beg string) ([]eastmoney.Bar, error)
+	DailyKlineNamed(ctx context.Context, secid string, fqt int, beg string) (string, []eastmoney.Bar, error)
 	FundNavHistory(ctx context.Context, fundCode string) ([]eastmoney.Bar, error)
 	FundEstimate(ctx context.Context, fundCode string) (eastmoney.FundEstimate, error)
 	ResolveUSSecid(ctx context.Context, ticker string) (string, error)
@@ -75,9 +78,10 @@ type Service struct {
 	em    provider
 	log   *log.Logger
 
-	secid    sync.Map // US symbol -> resolved secid (cache)
-	inflight sync.Map // symbol -> struct{} (dedup concurrent backfills)
-	runMu    sync.Mutex
+	secid       sync.Map // US symbol -> resolved secid (cache)
+	inflight    sync.Map // symbol -> struct{} (dedup concurrent backfills)
+	runMu       sync.Mutex
+	backfilling atomic.Bool // guards the full-history Backfill sweep from stacking
 }
 
 // New builds the market service. The Eastmoney client honours cfg.MarketDataProxy.
@@ -190,6 +194,80 @@ func (s *Service) RefreshLatest(ctx context.Context) error {
 	return nil
 }
 
+// ResolveResult reports whether a symbol/market is actually fetchable from the upstream feed.
+// Used to validate a user-entered instrument before it is saved.
+type ResolveResult struct {
+	OK        bool   `json:"ok"`
+	Name      string `json:"name,omitempty"` // instrument display name from the feed, for auto-fill
+	Currency  string `json:"currency,omitempty"`
+	Price     string `json:"price,omitempty"`
+	PriceDate string `json:"price_date,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// resolveErrMessage turns a raw upstream/transport error into a short, user-facing reason —
+// never leaking the full request URL. Transport/timeout errors mean the feed is unreachable
+// (e.g. an IP being throttled), which is NOT the user's symbol being wrong, so we say so.
+func resolveErrMessage(err error) string {
+	var urlErr *url.Error
+	msg := err.Error()
+	if errors.As(err, &urlErr) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		strings.Contains(msg, "eastmoney") || strings.Contains(msg, "EOF") || strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "no such host") || strings.Contains(msg, "connection refused") {
+		return "行情源暂时不可用，请稍后重试（不一定是代码有误）"
+	}
+	if len(msg) > 60 {
+		msg = msg[:60] + "…"
+	}
+	return "查询失败：" + msg
+}
+
+// Resolve probes the upstream feed for symbol/market/assetKind via the SAME path the collector
+// uses, so a positive result means auto-fetch will work. It makes one or two (globally paced)
+// upstream requests — callers must bound it with a context timeout.
+func (s *Service) Resolve(ctx context.Context, symbol, market, assetKind string) ResolveResult {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return ResolveResult{Reason: "代码为空"}
+	}
+	mkt := strings.ToUpper(strings.TrimSpace(market))
+	ak := strings.ToLower(strings.TrimSpace(assetKind))
+	inst := store.Instrument{Symbol: symbol, Market: &mkt, AssetKind: &ak}
+	cur := s.currencyOf(inst)
+	switch s.kindOf(inst) {
+	case kindFund:
+		est, err := s.em.FundEstimate(ctx, symbol)
+		if err != nil {
+			return ResolveResult{Reason: resolveErrMessage(err)}
+		}
+		price, date := est.OfficialNav, est.OfficialDate
+		if validNum(est.EstNav) && est.EstDate > est.OfficialDate {
+			price, date = est.EstNav, est.EstDate
+		}
+		if !validNum(price) {
+			return ResolveResult{Reason: "未获取到行情，请确认代码与市场是否匹配"}
+		}
+		return ResolveResult{OK: true, Name: est.Name, Currency: cur, Price: price, PriceDate: date}
+	case kindStock:
+		secid, err := s.secidOf(ctx, inst)
+		if err != nil {
+			return ResolveResult{Reason: resolveErrMessage(err)}
+		}
+		name, bars, err := s.em.DailyKlineNamed(ctx, secid, fetchAdjust, "")
+		if err != nil {
+			return ResolveResult{Reason: resolveErrMessage(err)}
+		}
+		for i := len(bars) - 1; i >= 0; i-- { // last valid bar
+			if validNum(bars[i].Close) {
+				return ResolveResult{OK: true, Name: name, Currency: cur, Price: bars[i].Close, PriceDate: bars[i].Date}
+			}
+		}
+		return ResolveResult{Reason: "未获取到行情，请确认代码与市场是否匹配"}
+	default:
+		return ResolveResult{Reason: "暂不支持自动获取该市场 / 类型的行情，可手动维护价格"}
+	}
+}
+
 func (s *Service) latestFx(ctx context.Context, currencies map[string]struct{}) []store.FxRate {
 	var rates []store.FxRate
 	for cur := range currencies {
@@ -255,6 +333,13 @@ func (s *Service) latestForInstrument(ctx context.Context, inst store.Instrument
 // Backfill pulls full price history for the given symbols (all instruments when empty)
 // and FX history when no symbols are specified. Heavy/one-shot: runs symbols serially.
 func (s *Service) Backfill(ctx context.Context, symbols ...string) error {
+	// Self-serialize: the manual /market/backfill trigger spawns a detached 30-min goroutine,
+	// so without this a second click would stack another full sweep. Concurrent calls no-op.
+	if !s.backfilling.CompareAndSwap(false, true) {
+		s.log.Printf("backfill already in progress; skipping")
+		return nil
+	}
+	defer s.backfilling.Store(false)
 	var insts []store.Instrument
 	if len(symbols) == 0 {
 		all, err := s.store.ListInstruments(ctx)
