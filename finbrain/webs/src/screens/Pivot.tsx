@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button, Icon, Segmented } from '../ds'
 import { getValuation } from '../api'
-import { currencyLabel, KIND_LABEL, native } from '../lib/format'
+import { currencyLabel, KIND_LABEL, MARKET_LABEL, native } from '../lib/format'
 import { Donut, num, shortMoney, type DonutItem, VIZ } from '../lib/finance'
 import { usePrefStore } from '../store'
 import { Modal } from '../shell/Modal'
@@ -17,15 +17,6 @@ const DIMENSIONS = [
   { value: 'institution', label: '机构' },
   { value: 'symbol', label: '标的' },
 ]
-
-const MARKET_LABEL: Record<string, string> = {
-  CASH: '现金',
-  US: '美股',
-  HK: '港股',
-  CN: 'A股',
-  CRYPTO: '加密资产',
-  INDEX: '指数',
-}
 
 type PivotRow = { key: string; name: string; value: number; percent: string }
 

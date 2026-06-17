@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Segmented, Input } from '../ds'
 import { getAttribution, getValuation, type Valuation } from '../api'
-import { native } from '../lib/format'
+import { bucketName, native } from '../lib/format'
 import { num } from '../lib/finance'
 import { usePrefStore } from '../store'
 
@@ -89,7 +89,7 @@ export function Compare() {
               const pct = r.from !== 0 ? ((change / Math.abs(r.from)) * 100).toFixed(1) : null
               return (
                 <tr key={r.key} style={{ borderTop: '1px solid var(--divider)' }}>
-                  <td style={td}>{r.name}</td>
+                  <td style={td}>{bucketName(dim, r.key, r.name)}</td>
                   <td style={tdR}>{native(String(r.from), displayCurrency)}</td>
                   <td style={tdR}>{native(String(r.to), displayCurrency)}</td>
                   <td style={{ ...tdR, color: change > 0 ? 'var(--gain)' : change < 0 ? 'var(--loss)' : 'var(--text-tertiary)' }}>{change > 0 ? '+' : ''}{native(String(change), displayCurrency)}</td>

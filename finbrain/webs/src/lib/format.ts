@@ -37,6 +37,33 @@ export const KIND_LABEL: Record<string, string> = {
   crypto_wallet: '加密钱包',
 }
 
+// Market (exchange) labels. Shared by Holdings/Pivot/MarketData/Compare so no screen ships its
+// own copy. Unknown keys fall back to the raw code; empty/null renders as "—".
+export const MARKET_LABEL: Record<string, string> = {
+  CASH: '现金',
+  US: '美股',
+  HK: '港股',
+  CN: 'A股',
+  CRYPTO: '加密',
+  INDEX: '指数',
+  UNKNOWN: '—',
+}
+
+export function marketLabel(market: string | null | undefined): string {
+  if (!market) return '—'
+  return MARKET_LABEL[market] ?? market
+}
+
+// Localized label for an allocation bucket across the standard valuation dimensions
+// (kind/currency/quote_currency/market/...). Falls back to the bucket's own name. Shared by
+// the dashboard donut and the compare table so raw codes (brokerage, cash, …) never leak.
+export function bucketName(dim: string, key: string, name: string): string {
+  if (dim === 'kind') return KIND_LABEL[key] ?? name
+  if (dim === 'currency' || dim === 'quote_currency') return currencyLabel(key).replace(`${key} · `, '')
+  if (dim === 'market') return marketLabel(key)
+  return name
+}
+
 // Institution kind labels (open enum). Unknown/empty renders as "—".
 export const INSTITUTION_KIND_LABEL: Record<string, string> = {
   bank: '银行',

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Badge, Card, Icon, Segmented } from '../ds'
 import { getValuation, type ValuationPosition } from '../api'
-import { MARKET_TONE, native, quantity } from '../lib/format'
+import { marketLabel, MARKET_TONE, native, quantity } from '../lib/format'
 import { CurrencyValue, DeltaValue, StatCard, Tag, VIZ, num } from '../lib/finance'
 import { usePrefStore } from '../store'
 
@@ -480,12 +480,3 @@ function durationLabel(days: number | null) {
   return `${years.toFixed(years >= 10 ? 0 : 1)} 年`
 }
 
-function marketLabel(market: string) {
-  if (market === 'US') return '美股'
-  if (market === 'HK') return '港股'
-  if (market === 'CN') return 'A股'
-  if (market === 'CRYPTO') return '加密'
-  if (market === 'CASH') return '现金'
-  if (market === 'UNKNOWN') return '—'
-  return market
-}

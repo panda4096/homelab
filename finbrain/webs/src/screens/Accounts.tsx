@@ -67,6 +67,7 @@ function AccountTable({ children }: { children: ReactNode }) {
           <col style={{ width: 32 }} />
           <col style={{ width: 32 }} />
           <col />
+          <col style={{ width: 92 }} />
           <col style={{ width: 96 }} />
           <col style={{ width: 180 }} />
           <col style={{ width: 150 }} />
@@ -293,22 +294,21 @@ function AccountRow({
         />
       </Td>
       <Td style={{ overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-          <span
-            style={{
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              fontSize: 13,
-              color: 'var(--text-strong)',
-            }}
-          >
-            {a.name}
-          </span>
-          <span style={{ flex: '0 0 auto' }}>
-            <KindBadge kind={a.kind} />
-          </span>
-        </div>
+        <span
+          style={{
+            display: 'block',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            fontSize: 13,
+            color: 'var(--text-strong)',
+          }}
+        >
+          {a.name}
+        </span>
+      </Td>
+      <Td w={92}>
+        <KindBadge kind={a.kind} />
       </Td>
       <Td w={96}>
         <Badge tone="neutral">{a.currency}</Badge>

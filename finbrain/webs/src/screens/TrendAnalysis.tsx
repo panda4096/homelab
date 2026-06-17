@@ -222,25 +222,6 @@ export function TrendAnalysis() {
         </div>
       </div>
 
-      <div className="fb-card" style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
-          <thead><tr>
-            <th style={th}>日期</th><th style={thR}>净资产</th><th style={thR}>总资产</th><th style={thR}>负债</th><th style={thR}>持仓市值</th>
-          </tr></thead>
-          <tbody>
-            {[...pts].reverse().map((p) => (
-              <tr key={p.date} style={{ borderTop: '1px solid var(--divider)' }}>
-                <td style={td}>{p.date}</td>
-                <td style={tdR}>{native(p.net_worth, displayCurrency)}</td>
-                <td style={tdR}>{native(p.total_assets, displayCurrency)}</td>
-                <td style={tdR}>{native(p.total_liabilities, displayCurrency)}</td>
-                <td style={tdR}>{native(p.position_value, displayCurrency)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
       <div className="fb-card" style={{ padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <Icon name="bookmark" size={15} color="var(--accent)" />
@@ -347,8 +328,3 @@ function latestAtOrBefore(prices: { date: string; v: number }[], date: string): 
   }
   return result
 }
-
-const th: React.CSSProperties = { textAlign: 'left', padding: '9px 14px', fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400 }
-const thR: React.CSSProperties = { ...th, textAlign: 'right' }
-const td: React.CSSProperties = { padding: '9px 14px', fontSize: 12.5, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }
-const tdR: React.CSSProperties = { ...td, textAlign: 'right', color: 'var(--text-strong)' }

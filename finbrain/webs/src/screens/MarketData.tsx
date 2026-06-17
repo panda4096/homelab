@@ -18,7 +18,7 @@ import {
   type Instrument,
   type Price,
 } from '../api'
-import { ACCOUNT_CURRENCIES, MARKET_TONE, native, todayISO } from '../lib/format'
+import { ACCOUNT_CURRENCIES, marketLabel, MARKET_TONE, native, todayISO } from '../lib/format'
 import { LineChart, type LineSeriesPoint } from '../lib/finance'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
@@ -47,6 +47,11 @@ const TAB_OPTIONS = [
 ]
 
 const MARKET_OPTIONS = ['US', 'HK', 'CN', 'CRYPTO', 'INDEX'].map((value) => ({ value, label: value }))
+
+// Indices the backend collector has a secid for and auto-fetches (mirror of
+// market.defaultBenchmarks). Other INDEX symbols can be created but their closing prices must be
+// maintained by hand — the modal warns when that's the case.
+const BUILTIN_INDEX_SYMBOLS = ['HSI', 'SPX', 'NDX', 'CSI300']
 const ASSET_KIND_OPTIONS = [
   { value: 'equity', label: '股票' },
   { value: 'fund', label: '基金' },
@@ -74,8 +79,10 @@ export function MarketData() {
 
   const benchmarks = useMemo(() => (instruments.data ?? []).filter((i) => i.is_benchmark), [instruments.data])
   const fxPairs = useMemo(() => groupFxRates(fxRates.data?.items ?? []), [fxRates.data?.items])
+  // The "标的" tab lists tradable instruments only — benchmarks (e.g. the auto-created indices
+  // HSI/SPX/NDX/CSI300) live in their own tab and must not masquerade as tradable holdings.
   const filteredInstruments = useMemo(
-    () => filterInstruments(instruments.data ?? [], instrumentFilter),
+    () => filterInstruments((instruments.data ?? []).filter((i) => !i.is_benchmark), instrumentFilter),
     [instruments.data, instrumentFilter],
   )
   const filteredBenchmarks = useMemo(
@@ -1204,6 +1211,12 @@ function InstrumentModal({
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="可留空" />
         </Field>
       </div>
+      {market === 'INDEX' && !BUILTIN_INDEX_SYMBOLS.includes((item?.symbol ?? symbol).trim().toUpperCase()) ? (
+        <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="triangle-alert" size={13} />
+          自动行情仅支持内置指数（HSI / SPX / NDX / CSI300）；其他「指数」标的需在「价格」页手动维护收盘价。
+        </div>
+      ) : null}
     </Modal>
   )
 }
@@ -1324,12 +1337,11 @@ function currencyOptions() {
 }
 
 function MarketBadge({ market }: { market: string | null }) {
-  const key = market || '—'
   const color = market ? MARKET_TONE[market] ?? 'var(--text-secondary)' : 'var(--text-tertiary)'
   return (
     <span className="fb-badge fb-badge--neutral" style={{ color }}>
       <span className="fb-badge__dot" style={{ background: color }} />
-      {key}
+      {marketLabel(market)}
     </span>
   )
 }
