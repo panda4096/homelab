@@ -23,7 +23,7 @@ function Page({ children }: { children: React.ReactNode }) {
 
 type Range = '12m' | 'ytd' | 'all'
 type Subject = 'net_worth' | 'total_assets' | 'cash_value' | 'position_value'
-type BenchmarkMode = 'off' | 'absolute' | 'rebase' | 'excess'
+type BenchmarkMode = 'off' | 'rebase' | 'excess'
 
 const SUBJECTS: Record<Subject, string> = {
   net_worth: '净资产',
@@ -38,7 +38,7 @@ export function TrendAnalysis() {
   const [gran, setGran] = useState<TimeAggregation>('month')
   const [range, setRange] = useState<Range>('12m')
   const [subject, setSubject] = useState<Subject>('net_worth')
-  const [benchmarkMode, setBenchmarkMode] = useState<BenchmarkMode>('off')
+  const [benchmarkMode, setBenchmarkMode] = useState<BenchmarkMode>('rebase')
   const [selectedBenchmarks, setSelectedBenchmarks] = useState<string[]>([])
 
   const today = new Date()
@@ -91,7 +91,11 @@ export function TrendAnalysis() {
   const pts = trend.data?.points ?? []
   const rawSeries: LineSeriesPoint[] = pts.map((p) => ({ m: p.date, v: pointValue(p, subject) }))
   const rawVals = rawSeries.map((s) => s.v)
-  const subjectRebased = rebase(rawVals)
+  // Shared baseline = the subject's first positive point (period start). Every line — subject and
+  // each benchmark — rebases to this SAME index, so excess lead/lag is measured from one common
+  // t=0. A benchmark with no data at that date can't be fairly compared, so it drops out.
+  const baseIdx = Math.max(0, rawVals.findIndex((v) => v > 0))
+  const subjectRebased = rebaseFrom(rawVals, baseIdx)
   const chartSeries: LineSeriesPoint[] =
     benchmarkMode === 'rebase'
       ? subjectRebased.map((v, i) => ({ m: rawSeries[i].m, v }))
@@ -106,13 +110,11 @@ export function TrendAnalysis() {
       : (benchmarkPrices.data ?? [])
           .map((b, bi) => {
             const sampled = pts.map((p) => latestAtOrBefore(b.prices, p.date) ?? 0)
-            const rebased = rebase(sampled)
+            const rebased = rebaseFrom(sampled, baseIdx)
             const values =
-              benchmarkMode === 'absolute'
-                ? sampled
-                : benchmarkMode === 'rebase'
-                  ? rebased
-                  : rebased.map((v, i) => subjectRebased[i] - v + 100)
+              benchmarkMode === 'rebase'
+                ? rebased
+                : rebased.map((v, i) => subjectRebased[i] - v + 100)
             return {
               name: benchmarkMode === 'excess' ? `${SUBJECTS[subject]} - ${b.name}` : b.name,
               color: benchColors[bi % benchColors.length],
@@ -120,6 +122,44 @@ export function TrendAnalysis() {
             }
           })
           .filter((b) => b.series.length >= 2)
+
+  // Hover tooltip rows — one per visible line, worded for the active mode so the numbers explain
+  // themselves: Rebase shows each line's value + cumulative return; 超额 shows lead/lag vs each
+  // benchmark in points. Looked up by date so it's robust to series of differing length.
+  const tooltipRows =
+    benchmarkMode === 'off'
+      ? undefined
+      : (date: string) => {
+          const i = pts.findIndex((p) => p.date === date)
+          if (i < 0) return { rows: [] }
+          if (benchmarkMode === 'rebase') {
+            // Each line's own growth since 期初 — no cross-comparison, so no direction ambiguity.
+            const rows: { label: string; value: string; color: string }[] = []
+            if (Number.isFinite(subjectRebased[i])) rows.push({ label: SUBJECTS[subject], value: rebaseText(subjectRebased[i]), color: 'var(--accent)' })
+            for (const b of benchLines) {
+              const pt = b.series.find((s) => s.m === date)
+              if (pt) rows.push({ label: b.name, value: rebaseText(pt.v), color: b.color ?? 'var(--text-secondary)' })
+            }
+            return { caption: '较期初涨跌', rows }
+          }
+          // 超额: every row is the SUBJECT relative to that benchmark. The caption names the
+          // subject once; 领先(绿)/落后(红) then reads unambiguously as the subject's edge.
+          const rows = benchLines
+            .map((b) => {
+              const pt = b.series.find((s) => s.m === date)
+              if (!pt) return null
+              const d = pt.v - 100
+              const flat = Math.abs(d) < 0.05
+              return {
+                label: b.name.replace(`${SUBJECTS[subject]} - `, ''),
+                value: flat ? '持平' : `${d > 0 ? '领先' : '落后'} ${Math.abs(d).toFixed(1)}%`,
+                color: b.color ?? 'var(--text-secondary)',
+                valueColor: flat ? 'var(--text-tertiary)' : d > 0 ? 'var(--gain)' : 'var(--loss)',
+              }
+            })
+            .filter((r): r is NonNullable<typeof r> => r != null)
+          return { caption: `${SUBJECTS[subject]} vs 各基准`, rows }
+        }
 
   const startV = rawVals[0] ?? 0
   const endV = rawVals[rawVals.length - 1] ?? 0
@@ -161,10 +201,9 @@ export function TrendAnalysis() {
             value={benchmarkMode}
             onChange={(v) => setBenchmarkMode(v as BenchmarkMode)}
             options={[
-              { value: 'off', label: '无基准' },
-              { value: 'absolute', label: '绝对值' },
               { value: 'rebase', label: 'Rebase=100' },
               { value: 'excess', label: '超额' },
+              { value: 'off', label: '无基准' },
             ]}
           />
           {benchmarkMode !== 'off' ? (
@@ -208,7 +247,10 @@ export function TrendAnalysis() {
             series={chartSeries}
             benchmarks={benchLines}
             height={270}
-            yFmt={benchmarkMode === 'off' ? (v) => shortMoney(v, displayCurrency) : (v) => v.toFixed(0)}
+            yFmt={benchmarkMode === 'off' ? (v) => shortMoney(v, displayCurrency) : (v) => `${v - 100 >= 0 ? '+' : ''}${(v - 100).toFixed(0)}%`}
+            baseline={benchmarkMode === 'off' ? undefined : 100}
+            tooltipDelta={benchmarkMode === 'off'}
+            tooltipRows={tooltipRows}
           />
         ) : (
           <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
@@ -252,9 +294,19 @@ function pointValue(p: TrendPoint, subject: Subject) {
   return num(p[subject]) ?? 0
 }
 
-function rebase(vals: number[]) {
-  const base = vals.find((v) => v > 0)
-  return base ? vals.map((v) => (v > 0 ? (v / base) * 100 : NaN)) : vals
+// Rebase to the value at baseIdx (the shared period-start). Points before baseIdx, or any
+// non-positive point, become NaN (dropped from the chart). If the anchor itself isn't positive
+// the whole series is NaN — e.g. a benchmark with no price at the period start.
+function rebaseFrom(vals: number[], baseIdx: number) {
+  const base = vals[baseIdx]
+  if (!(base > 0)) return vals.map(() => NaN)
+  return vals.map((v, i) => (i >= baseIdx && v > 0 ? (v / base) * 100 : NaN))
+}
+
+// Rebase=100 reading: "<value> · <±change since period start>" (value−100 = cumulative return).
+function rebaseText(r: number) {
+  const d = r - 100
+  return `${r.toFixed(1)} · ${d >= 0 ? '+' : ''}${d.toFixed(1)}%`
 }
 
 function Legend({ subject, benchmarkLines }: { subject: string; benchmarkLines: LineBenchmark[] }) {

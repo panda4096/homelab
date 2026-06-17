@@ -225,6 +225,8 @@ export function LineChart({
   height = 240,
   yFmt,
   tooltipDelta = false,
+  tooltipRows,
+  baseline,
 }: {
   series: LineSeriesPoint[]
   benchmarks?: LineBenchmark[]
@@ -232,6 +234,11 @@ export function LineChart({
   yFmt?: (v: number) => string
   /** show a "vs 区间首日 ±x%" line in the hover tooltip (used by the price chart) */
   tooltipDelta?: boolean
+  /** draw a labelled horizontal reference line at this value (e.g. 100 = the rebase/excess 0% baseline) */
+  baseline?: number
+  /** rich multi-line hover tooltip: given the hovered date, return a caption + one row per
+   *  visible line. When rows is non-empty it replaces the default single-value tooltip. */
+  tooltipRows?: (date: string) => { caption?: string; rows: { label: string; value: string; color: string; valueColor?: string }[] }
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const gradientId = `lineArea${useId().replace(/:/g, '')}`
@@ -247,6 +254,11 @@ export function LineChart({
   if (data.length < 2) {
     return <span style={{ color: 'var(--text-tertiary)' }}>—</span>
   }
+
+  // Map each date to the subject's x-grid index so benchmark lines/dots are placed BY DATE, not
+  // by their own (possibly shorter) length — otherwise a benchmark missing early data gets
+  // stretched across the full width and detaches from the subject's crosshair.
+  const dateIndex = new Map(data.map((p, i) => [p.m, i] as const))
 
   const benchmarkSeries = benchmarks
     .map((b) => ({
@@ -328,10 +340,19 @@ export function LineChart({
           </text>
         </g>
       ))}
+      {baseline != null && baseline > min && baseline < max ? (
+        <g>
+          <line x1={padL} y1={y(baseline)} x2={width - padR} y2={y(baseline)} stroke="var(--text-tertiary)" strokeDasharray="2 3" opacity="0.55" />
+          <text x={width - padR} y={y(baseline) - 4} textAnchor="end" fontFamily="var(--font-mono)" fontSize="9" fill="var(--text-tertiary)">
+            0%
+          </text>
+        </g>
+      ) : null}
       <path d={area} fill={`url(#${gradientId})`} />
       {benchmarkSeries.map((b, bi) => {
         const d = b.series
-          .map((p, i) => `${i ? 'L' : 'M'}${x(i, b.series.length).toFixed(1)} ${y(p.v).toFixed(1)}`)
+          .filter((p) => dateIndex.has(p.m))
+          .map((p, i) => `${i ? 'L' : 'M'}${x(dateIndex.get(p.m)!).toFixed(1)} ${y(p.v).toFixed(1)}`)
           .join(' ')
         return (
           <path
@@ -365,6 +386,21 @@ export function LineChart({
               {fmt(hoverPoint.v)}
             </text>
           </g>
+          {benchmarkSeries.map((b, bi) => {
+            const bp = b.series.find((p) => p.m === hoverPoint.m)
+            if (!bp) return null
+            return (
+              <circle
+                key={b.name}
+                cx={x(hover)}
+                cy={y(bp.v)}
+                r="3"
+                fill={b.color ?? VIZ[(bi + 1) % VIZ.length]}
+                stroke="var(--surface-base)"
+                strokeWidth="1.5"
+              />
+            )
+          })}
           <circle
             cx={x(hover)}
             cy={y(hoverPoint.v)}
@@ -373,27 +409,50 @@ export function LineChart({
             stroke="var(--surface-base)"
             strokeWidth="2"
           />
-          <g transform={`translate(${Math.min(x(hover) + 8, width - 132)}, ${padT + 6})`}>
-            <rect width="124" height={tooltipDelta ? 58 : 42} rx="6" fill="var(--surface-overlay)" stroke="var(--border-default)" />
-            <text x="9" y="16" fontFamily="var(--font-mono)" fontSize="9.5" fill="var(--text-tertiary)">
-              {hoverPoint.m}
-            </text>
-            <text x="9" y="32" fontFamily="var(--font-num)" fontSize="12.5" fontWeight="600" fill="var(--text-strong)">
-              {fmt(hoverPoint.v)}
-            </text>
-            {tooltipDelta ? (
-              <text
-                x="9"
-                y="49"
-                fontFamily="var(--font-num)"
-                fontSize="10.5"
-                fontWeight="600"
-                fill={hoverPct > 0 ? 'var(--gain)' : hoverPct < 0 ? 'var(--loss)' : 'var(--text-tertiary)'}
-              >
-                {hoverPct >= 0 ? '+' : ''}{(hoverPct * 100).toFixed(2)}% · 区间
-              </text>
-            ) : null}
-          </g>
+          {(() => {
+            const content = tooltipRows?.(hoverPoint.m)
+            const rows = content?.rows ?? []
+            if (rows.length > 0) {
+              const caption = content?.caption
+              const firstRowY = caption ? 47 : 31
+              const tw = 238
+              const th = firstRowY + rows.length * 16 - 2
+              const tx = x(hover) + 12 + tw > width - padR ? x(hover) - tw - 12 : x(hover) + 12
+              return (
+                <g transform={`translate(${tx}, ${padT + 6})`}>
+                  <rect width={tw} height={th} rx="6" fill="var(--surface-overlay)" stroke="var(--border-default)" />
+                  <text x="12" y="17" fontFamily="var(--font-mono)" fontSize="9.5" fill="var(--text-tertiary)">{hoverPoint.m}</text>
+                  {caption ? <text x="12" y="32" fontFamily="var(--font-sans)" fontSize="9.5" fill="var(--text-tertiary)">{caption}</text> : null}
+                  {rows.map((r, ri) => (
+                    <g key={ri} transform={`translate(0, ${firstRowY + ri * 16})`}>
+                      <circle cx="16" cy="-3.2" r="3.2" fill={r.color} />
+                      <text x="25" y="0" fontFamily="var(--font-sans)" fontSize="10.5" fill="var(--text-secondary)">{r.label.length > 12 ? `${r.label.slice(0, 11)}…` : r.label}</text>
+                      <text x={tw - 12} y="0" textAnchor="end" fontFamily="var(--font-num)" fontSize="10.5" fontWeight="600" fill={r.valueColor ?? 'var(--text-strong)'}>{r.value}</text>
+                    </g>
+                  ))}
+                </g>
+              )
+            }
+            return (
+              <g transform={`translate(${Math.min(x(hover) + 8, width - 132)}, ${padT + 6})`}>
+                <rect width="124" height={tooltipDelta ? 58 : 42} rx="6" fill="var(--surface-overlay)" stroke="var(--border-default)" />
+                <text x="9" y="16" fontFamily="var(--font-mono)" fontSize="9.5" fill="var(--text-tertiary)">{hoverPoint.m}</text>
+                <text x="9" y="32" fontFamily="var(--font-num)" fontSize="12.5" fontWeight="600" fill="var(--text-strong)">{fmt(hoverPoint.v)}</text>
+                {tooltipDelta ? (
+                  <text
+                    x="9"
+                    y="49"
+                    fontFamily="var(--font-num)"
+                    fontSize="10.5"
+                    fontWeight="600"
+                    fill={hoverPct > 0 ? 'var(--gain)' : hoverPct < 0 ? 'var(--loss)' : 'var(--text-tertiary)'}
+                  >
+                    {hoverPct >= 0 ? '+' : ''}{(hoverPct * 100).toFixed(2)}% · 区间
+                  </text>
+                ) : null}
+              </g>
+            )
+          })()}
         </g>
       ) : null}
       {xTicks.map((i) => (
