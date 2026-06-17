@@ -7,6 +7,7 @@ package market
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -33,6 +34,32 @@ var forexSecid = map[string]string{
 	"USD": "120.USDCNYC",
 	"HKD": "120.HKDCNYC",
 }
+
+// benchmarkDef is an index auto-created as a benchmark (is_benchmark) so the trend-comparison
+// feature has data out of the box. Indices use Eastmoney market-prefixed secids that don't
+// follow the equity rules, so they're mapped explicitly. (market="INDEX" routes them through
+// the K-line fetch path; the currency is a nominal label — the chart rebases for comparison.)
+type benchmarkDef struct {
+	symbol      string
+	secid       string
+	currency    string
+	displayName string
+}
+
+var defaultBenchmarks = []benchmarkDef{
+	{symbol: "HSI", secid: "100.HSI", currency: "HKD", displayName: "恒生指数"},
+	{symbol: "SPX", secid: "100.SPX", currency: "USD", displayName: "标普500"},
+	{symbol: "NDX", secid: "100.NDX", currency: "USD", displayName: "纳斯达克100"},
+	{symbol: "CSI300", secid: "1.000300", currency: "CNY", displayName: "沪深300"},
+}
+
+var indexSecid = func() map[string]string {
+	m := make(map[string]string, len(defaultBenchmarks))
+	for _, b := range defaultBenchmarks {
+		m[b.symbol] = b.secid
+	}
+	return m
+}()
 
 type provider interface {
 	DailyKline(ctx context.Context, secid string, fqt int, beg string) ([]eastmoney.Bar, error)
@@ -63,10 +90,34 @@ func New(cfg *config.Config, st *store.Store) *Service {
 	}
 }
 
+// ensureDefaultBenchmarks creates the default index benchmarks (恒生/标普500/纳指100/沪深300)
+// if absent, flagged is_benchmark so the trend-comparison feature has data out of the box.
+// Created once — it never overwrites an existing instrument, so a user who edits or
+// un-benchmarks one keeps their change. They carry no positions, so they never enter net worth.
+func (s *Service) ensureDefaultBenchmarks(ctx context.Context) {
+	for _, b := range defaultBenchmarks {
+		if _, err := s.store.GetInstrument(ctx, b.symbol); err == nil {
+			continue
+		} else if !errors.Is(err, store.ErrNotFound) {
+			s.log.Printf("benchmark %s: %v", b.symbol, err)
+			continue
+		}
+		mkt, ccy, name, ak := "INDEX", b.currency, b.displayName, "index"
+		if _, err := s.store.UpsertInstrument(ctx, store.Instrument{
+			Symbol: b.symbol, Market: &mkt, QuoteCurrency: &ccy, DisplayName: &name, AssetKind: &ak, IsBenchmark: true,
+		}); err != nil {
+			s.log.Printf("seed benchmark %s: %v", b.symbol, err)
+		} else {
+			s.log.Printf("seeded benchmark %s (%s)", b.symbol, b.displayName)
+		}
+	}
+}
+
 // Start runs the scheduler until ctx is cancelled: an immediate refresh + history
 // backfill, then a refresh on every interval tick.
 func (s *Service) Start(ctx context.Context) {
 	s.log.Printf("scheduler on (interval=%s, proxy=%q)", s.cfg.MarketDataInterval, s.cfg.MarketDataProxy)
+	s.ensureDefaultBenchmarks(ctx)
 	s.tick(ctx)
 
 	t := time.NewTicker(s.cfg.MarketDataInterval)
@@ -386,6 +437,15 @@ const (
 )
 
 func (s *Service) kindOf(inst store.Instrument) instKind {
+	if deref(inst.Market) == "INDEX" {
+		// Indices fetch via the same daily K-line path, but only the ones we have a secid for.
+		// A user-created INDEX with an unknown symbol is skipped (not failed) so it can't spam
+		// refresh/backfill errors every cycle — its prices can still be maintained manually.
+		if _, ok := indexSecid[inst.Symbol]; ok {
+			return kindStock
+		}
+		return kindSkip
+	}
 	if deref(inst.AssetKind) == "fund" {
 		return kindFund
 	}
@@ -415,6 +475,11 @@ func (s *Service) currencyOf(inst store.Instrument) string {
 // padded code; US is resolved via the suggest API and cached.
 func (s *Service) secidOf(ctx context.Context, inst store.Instrument) (string, error) {
 	switch deref(inst.Market) {
+	case "INDEX":
+		if sec, ok := indexSecid[inst.Symbol]; ok {
+			return sec, nil
+		}
+		return "", fmt.Errorf("no index secid for %q", inst.Symbol)
 	case "HK":
 		return hkSecid(inst.Symbol)
 	case "US":
