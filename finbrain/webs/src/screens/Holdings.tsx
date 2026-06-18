@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Badge, Card, Icon, Segmented } from '../ds'
+import { Badge, Card, DateField, Icon, Segmented } from '../ds'
 import { getValuation, type ValuationPosition } from '../api'
 import { marketLabel, MARKET_TONE, native, quantity } from '../lib/format'
 import { CurrencyValue, DeltaValue, StatCard, Tag, VIZ, num } from '../lib/finance'
@@ -47,10 +47,12 @@ export function Holdings() {
   const [filter, setFilter] = useState('all')
   const [costMode, setCostMode] = useState<'weighted' | 'net'>('weighted')
   const [sort, setSort] = useState<{ key: SortKey | null; dir: number }>({ key: null, dir: 1 })
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const [asOf, setAsOf] = useState(todayISO)
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['valuation', displayCurrency, fxMode],
-    queryFn: () => getValuation({ display_currency: displayCurrency, fx_mode: fxMode }),
+    queryKey: ['valuation', asOf, displayCurrency, fxMode],
+    queryFn: () => getValuation({ date: asOf, display_currency: displayCurrency, fx_mode: fxMode }),
   })
 
   const rows = useMemo(() => {
@@ -180,6 +182,9 @@ export function Holdings() {
           </Tag>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>截至</span>
+          <DateField size="sm" value={asOf} max={todayISO} onChange={setAsOf} style={{ maxWidth: 150 }} />
+          <div style={{ width: 1, height: 22, background: 'var(--divider)' }} />
           <Icon name="columns-3" size={14} color="var(--text-tertiary)" />
           <Segmented
             size="sm"

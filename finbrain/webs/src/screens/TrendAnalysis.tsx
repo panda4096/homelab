@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Icon, Segmented } from '../ds'
+import { DateField, Icon, Segmented } from '../ds'
 import {
   getTrend,
   listIncomeEvents,
@@ -17,7 +17,7 @@ function Page({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 22, maxWidth: 1120, margin: '0 auto' }}>{children}</div>
 }
 
-type Range = '12m' | 'ytd' | '3y' | '5y'
+type Range = '12m' | 'ytd' | '3y' | '5y' | 'custom'
 type Subject = 'net_worth' | 'total_assets' | 'cash_value' | 'position_value'
 type BenchmarkMode = 'off' | 'rebase' | 'excess'
 
@@ -38,13 +38,21 @@ export function TrendAnalysis() {
   const [selectedBenchmarks, setSelectedBenchmarks] = useState<string[]>([])
 
   const today = new Date()
-  const to = today.toISOString().slice(0, 10)
+  const todayISO = today.toISOString().slice(0, 10)
+  const [customFrom, setCustomFrom] = useState(() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 1)
+    return d.toISOString().slice(0, 10)
+  })
+  const [customTo, setCustomTo] = useState(todayISO)
+  const to = range === 'custom' ? customTo : todayISO
   const from = useMemo(() => {
+    if (range === 'custom') return customFrom
     if (range === 'ytd') return `${today.getFullYear()}-01-01`
     const d = new Date(today)
     d.setFullYear(d.getFullYear() - (range === '5y' ? 5 : range === '3y' ? 3 : 1))
     return d.toISOString().slice(0, 10)
-  }, [range])
+  }, [range, customFrom])
 
   const trend = useQuery({
     queryKey: ['trend', from, to, gran, displayCurrency, fxMode],
@@ -164,13 +172,21 @@ export function TrendAnalysis() {
     <Page>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <Segmented size="sm" value={range} onChange={(v) => setRange(v as Range)}
-          options={[{ value: '12m', label: '近 12 月' }, { value: 'ytd', label: '今年' }, { value: '3y', label: '近 3 年' }, { value: '5y', label: '近 5 年' }]} />
+          options={[{ value: '12m', label: '近 12 月' }, { value: 'ytd', label: '今年' }, { value: '3y', label: '近 3 年' }, { value: '5y', label: '近 5 年' }, { value: 'custom', label: '自定义' }]} />
         <Segmented size="sm" value={gran} onChange={(v) => setGran(v as TimeAggregation)}
           options={[{ value: 'day', label: '日' }, { value: 'month', label: '月' }, { value: 'quarter', label: '季' }, { value: 'year', label: '年' }]} />
         <Segmented size="sm" value={subject} onChange={(v) => setSubject(v as Subject)}
           options={Object.entries(SUBJECTS).map(([value, label]) => ({ value, label }))} />
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-tertiary)' }}>{displayCurrency} · {fxMode === 'current' ? '当前汇率' : '历史汇率'}</span>
       </div>
+      {range === 'custom' ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>区间</span>
+          <DateField size="sm" value={customFrom} max={customTo || todayISO} onChange={setCustomFrom} style={{ maxWidth: 168 }} />
+          <span style={{ color: 'var(--text-tertiary)' }}>→</span>
+          <DateField size="sm" value={customTo} min={customFrom} max={todayISO} onChange={setCustomTo} style={{ maxWidth: 168 }} />
+        </div>
+      ) : null}
 
       <div className="fb-card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

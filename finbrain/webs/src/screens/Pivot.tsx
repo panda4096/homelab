@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Icon, Segmented } from '../ds'
+import { Button, DateField, Icon, Segmented } from '../ds'
 import { getValuation } from '../api'
 import { currencyLabel, KIND_LABEL, MARKET_LABEL, native } from '../lib/format'
 import { Donut, num, shortMoney, type DonutItem, VIZ } from '../lib/finance'
@@ -30,9 +30,11 @@ export function Pivot() {
   const [dim, setDim] = useState('kind')
   const [view, setView] = useState<'pivot' | 'flow'>('pivot')
   const [shareOpen, setShareOpen] = useState(false)
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const [asOf, setAsOf] = useState(todayISO)
   const val = useQuery({
-    queryKey: ['valuation', displayCurrency, fxMode],
-    queryFn: () => getValuation({ display_currency: displayCurrency, fx_mode: fxMode }),
+    queryKey: ['valuation', asOf, displayCurrency, fxMode],
+    queryFn: () => getValuation({ date: asOf, display_currency: displayCurrency, fx_mode: fxMode }),
   })
 
   const rows = useMemo(() => {
@@ -102,6 +104,8 @@ export function Pivot() {
             </Button>
           </>
         ) : null}
+        <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>截至</span>
+        <DateField size="sm" value={asOf} max={todayISO} onChange={setAsOf} style={{ maxWidth: 150 }} />
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-tertiary)' }}>
           {view === 'pivot' ? `${basisLabel} · ${displayCurrency}` : `资产结构流向 · ${displayCurrency}`}
         </span>
