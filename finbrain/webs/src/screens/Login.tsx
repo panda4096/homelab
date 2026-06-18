@@ -13,8 +13,8 @@ export function Login({
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -42,9 +42,15 @@ export function Login({
   async function submitPasswordChange(e: FormEvent) {
     e.preventDefault()
     setError('')
+    if (newPassword !== confirmPassword) {
+      setError('两次输入的新密码不一致')
+      return
+    }
     setBusy(true)
     try {
-      await changePassword(currentPassword, newPassword)
+      // Forced first-login change: already authenticated with the temp password, so no current
+      // password is required (the backend skips the check for a must-change session).
+      await changePassword('', newPassword)
       if (user) onAuthenticated({ ...user, must_change_password: false })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '请求失败')
@@ -67,15 +73,15 @@ export function Login({
         {mustChange ? (
           <form onSubmit={submitPasswordChange} className="auth-form">
             <label>
-              当前密码
-              <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoFocus />
+              新密码
+              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoFocus />
             </label>
             <label>
-              新密码
-              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              确认新密码
+              <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
             </label>
             {error ? <div className="auth-error">{error}</div> : null}
-            <Button type="submit" variant="primary" disabled={busy || !currentPassword || newPassword.length < 8}>
+            <Button type="submit" variant="primary" disabled={busy || newPassword.length < 8 || newPassword !== confirmPassword}>
               <Icon name="check" size={16} />
               保存新密码
             </Button>

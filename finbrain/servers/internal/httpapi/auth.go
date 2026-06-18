@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -122,6 +123,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, s.cfg.IsDev(), token, sess.ExpiresAt)
+	clearLogoutMarker(w, s.cfg.IsDev()) // a real login cancels any prior dev "stay logged out" marker
 	identity.User.MustChangePassword = identity.MustChangePassword
 	identity.User.Username = identity.Identifier
 	writeJSON(w, http.StatusOK, map[string]any{"user": identity.User})
@@ -129,12 +131,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if token := sessionTokenFromRequest(r); token != "" {
+		// Best-effort server-side revoke. Even if it fails (e.g. a transient DB error), we MUST
+		// still clear the cookie below — otherwise the HttpOnly cookie survives and the user is
+		// silently re-authenticated on next /auth/me, so "logout" wouldn't stick.
 		if err := s.store.RevokeSession(r.Context(), sha256hex(token)); err != nil && !errors.Is(err, store.ErrNotFound) {
-			writeInternal(w, r, err)
-			return
+			log.Printf("logout: revoke session failed (clearing cookie anyway): %v", err)
 		}
 	}
 	clearSessionCookie(w, s.cfg.IsDev())
+	setLogoutMarker(w, s.cfg.IsDev()) // dev: keep the dev-default user from silently re-authing
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -185,7 +190,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeInternal(w, r, err)
 		return
 	}
-	if !authpkg.VerifyPassword(body.CurrentPassword, identity.Secret) {
+	// A forced first-login change (must_change_password) is already authenticated via the temp
+	// password the user just logged in with, so we don't re-require it. A normal change (from
+	// Settings) still re-verifies the current password as a re-auth safeguard.
+	if !u.MustChangePassword && !authpkg.VerifyPassword(body.CurrentPassword, identity.Secret) {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "当前密码错误")
 		return
 	}
@@ -328,6 +336,34 @@ func setSessionCookie(w http.ResponseWriter, isDev bool, token string, expiresAt
 func clearSessionCookie(w http.ResponseWriter, isDev bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   !isDev,
+	})
+}
+
+// setLogoutMarker / clearLogoutMarker drive the dev-only "stay logged out" flag: dev otherwise
+// defaults to user 1 when there's no session, which would silently re-authenticate right after a
+// logout. The marker makes an explicit 退出 stick until the next real login. (Inert in prod —
+// prod has no dev-default fallback.)
+func setLogoutMarker(w http.ResponseWriter, isDev bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     loggedOutCookieName,
+		Value:    "1",
+		Path:     "/",
+		MaxAge:   30 * 24 * 3600,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   !isDev,
+	})
+}
+
+func clearLogoutMarker(w http.ResponseWriter, isDev bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     loggedOutCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,

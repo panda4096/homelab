@@ -10,7 +10,10 @@ import (
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
-const sessionCookieName = "fb_session"
+const (
+	sessionCookieName   = "fb_session"
+	loggedOutCookieName = "fb_logout" // dev-only marker: suppresses the dev-default user after an explicit logout
+)
 
 func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +23,9 @@ func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if s.cfg.IsDev() {
+			// Dev convenience: with no session, default to user 1 so you needn't log in during
+			// dev — UNLESS an explicit logout set the marker, so 退出 actually sticks locally.
+			if s.cfg.IsDev() && !hasLogoutMarker(r) {
 				ctx := context.WithValue(r.Context(), ctxUserID, int64(1))
 				ctx = context.WithValue(ctx, ctxDevDefault, true)
 				next.ServeHTTP(w, r.WithContext(ctx))
@@ -62,6 +67,11 @@ func mustChangePasswordAllowedPath(path string) bool {
 	default:
 		return false
 	}
+}
+
+func hasLogoutMarker(r *http.Request) bool {
+	c, err := r.Cookie(loggedOutCookieName)
+	return err == nil && c.Value == "1"
 }
 
 func sessionTokenFromRequest(r *http.Request) string {
