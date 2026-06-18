@@ -199,14 +199,18 @@ type lsjzResp struct {
 
 // FundNavHistory returns the full daily unit-NAV (单位净值) history for an open-end fund,
 // paging through Eastmoney's f10/lsjz endpoint. Bar.Close holds the unit NAV.
+//
+// lsjz CAPS the returned page at ~20 rows regardless of the requested pageSize, so paging must
+// advance by pageIndex and stop on TotalCount / an empty page — NOT on "returned < requested",
+// which quits after page 1 and truncates a multi-year fund to ~20 days of NAV.
 func (c *Client) FundNavHistory(ctx context.Context, fundCode string) ([]Bar, error) {
-	const pageSize = 200
 	var out []Bar
-	for page := 1; page <= 200; page++ { // hard cap ~40k rows
+	const maxPages = 3000 // backstop only (~20 rows/page still covers decades of daily NAV)
+	for page := 1; page <= maxPages; page++ {
 		q := url.Values{}
 		q.Set("fundCode", fundCode)
 		q.Set("pageIndex", fmt.Sprintf("%d", page))
-		q.Set("pageSize", fmt.Sprintf("%d", pageSize))
+		q.Set("pageSize", "200") // requested max; the server may return a smaller capped page
 		body, err := c.get(ctx, "https://api.fund.eastmoney.com/f10/lsjz?"+q.Encode(), "https://fundf10.eastmoney.com/")
 		if err != nil {
 			return nil, err
@@ -216,7 +220,7 @@ func (c *Client) FundNavHistory(ctx context.Context, fundCode string) ([]Bar, er
 			return nil, fmt.Errorf("eastmoney lsjz %s: %w", fundCode, err)
 		}
 		if len(lr.Data.LSJZList) == 0 {
-			break
+			break // past the last page
 		}
 		for _, row := range lr.Data.LSJZList {
 			if row.FSRQ == "" || row.DWJZ == "" {
@@ -224,8 +228,8 @@ func (c *Client) FundNavHistory(ctx context.Context, fundCode string) ([]Bar, er
 			}
 			out = append(out, Bar{Date: row.FSRQ, Close: row.DWJZ})
 		}
-		if len(out) >= lr.TotalCount || len(lr.Data.LSJZList) < pageSize {
-			break
+		if lr.TotalCount > 0 && len(out) >= lr.TotalCount {
+			break // collected the whole history
 		}
 	}
 	return out, nil

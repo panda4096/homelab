@@ -1,8 +1,9 @@
-// Package market auto-fetches instrument prices and FX rates from Eastmoney and writes
-// them into the store. It runs a background scheduler that polls the latest price for
-// every instrument (intraday during an open session, the close afterwards) and backfills
-// full history for newly added instruments. All writes go through the store's auto-upsert,
-// which never overwrites a manually corrected row.
+// Package market auto-fetches instrument prices and FX rates and writes them into the store.
+// It runs a background scheduler that polls the latest price for every instrument (intraday
+// during an open session, the close afterwards) and backfills full history for newly added
+// instruments. Stocks, indices, and FX come from Yahoo Finance (overseas, split-adjusted);
+// open-end fund NAV comes from Eastmoney/fundgz (domestic). All writes go through the store's
+// auto-upsert, which never overwrites a manually corrected row.
 package market
 
 import (
@@ -21,80 +22,77 @@ import (
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/config"
 	"github.com/panda4096/homelab/finbrain/servers/internal/market/eastmoney"
+	"github.com/panda4096/homelab/finbrain/servers/internal/market/yahoo"
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
-const sourceTag = "eastmoney"
-
-// priceAdjust=1 (前复权 / forward-adjusted) for equity & index klines: a constant share count
-// valued across a stock split must stay continuous. qfq keeps the latest bar at the real current
-// price (so current valuation is unchanged) and scales pre-split history down — otherwise today's
-// post-split shares × the raw pre-split price massively overstates past net worth (e.g. NVDA's
-// 4:1 + 10:1 splits). FX central-parity rates don't split/pay dividends, so they stay raw.
+// Source tags recorded on auto-fetched rows. Both are non-"manual", so the store treats them
+// as auto-upserts (never overwriting a manual correction) and the --reset re-backfill clears
+// either. Stocks/indices/FX come from Yahoo; open-end fund NAV from Eastmoney.
 const (
-	priceAdjust = 1 // 前复权 — stocks / indices
-	fxAdjust    = 0 // raw — FX
+	sourceQuote = "yahoo"
+	sourceFund  = "eastmoney"
 )
 
-// forexSecid maps a quote currency to its Eastmoney CNY central-parity secid.
-var forexSecid = map[string]string{
-	"USD": "120.USDCNYC",
-	"HKD": "120.HKDCNYC",
-}
-
 // benchmarkDef is an index auto-created as a benchmark (is_benchmark) so the trend-comparison
-// feature has data out of the box. Indices use Eastmoney market-prefixed secids that don't
-// follow the equity rules, so they're mapped explicitly. (market="INDEX" routes them through
-// the K-line fetch path; the currency is a nominal label — the chart rebases for comparison.)
+// feature has data out of the box. Indices use explicit Yahoo symbols (the equity rules don't
+// apply). market="INDEX" routes them through the K-line fetch path; the currency is a nominal
+// label — the chart rebases for comparison.
 type benchmarkDef struct {
 	symbol      string
-	secid       string
+	yahoo       string
 	currency    string
 	displayName string
 }
 
 var defaultBenchmarks = []benchmarkDef{
-	{symbol: "HSI", secid: "100.HSI", currency: "HKD", displayName: "恒生指数"},
-	{symbol: "SPX", secid: "100.SPX", currency: "USD", displayName: "标普500"},
-	{symbol: "NDX", secid: "100.NDX", currency: "USD", displayName: "纳斯达克100"},
-	{symbol: "CSI300", secid: "1.000300", currency: "CNY", displayName: "沪深300"},
+	{symbol: "HSI", yahoo: "^HSI", currency: "HKD", displayName: "恒生指数"},
+	{symbol: "SPX", yahoo: "^GSPC", currency: "USD", displayName: "标普500"},
+	{symbol: "NDX", yahoo: "^NDX", currency: "USD", displayName: "纳斯达克100"},
+	{symbol: "CSI300", yahoo: "000300.SS", currency: "CNY", displayName: "沪深300"},
 }
 
-var indexSecid = func() map[string]string {
+var yahooIndexSymbol = func() map[string]string {
 	m := make(map[string]string, len(defaultBenchmarks))
 	for _, b := range defaultBenchmarks {
-		m[b.symbol] = b.secid
+		m[b.symbol] = b.yahoo
 	}
 	return m
 }()
 
-type provider interface {
-	DailyKline(ctx context.Context, secid string, fqt int, beg string) ([]eastmoney.Bar, error)
-	DailyKlineNamed(ctx context.Context, secid string, fqt int, beg string) (string, []eastmoney.Bar, error)
+// fundSource fetches open-end fund NAV (Eastmoney/fundgz, a domestic source).
+type fundSource interface {
 	FundNavHistory(ctx context.Context, fundCode string) ([]eastmoney.Bar, error)
 	FundEstimate(ctx context.Context, fundCode string) (eastmoney.FundEstimate, error)
-	ResolveUSSecid(ctx context.Context, ticker string) (string, error)
 }
 
-// Service owns the Eastmoney client and the scheduler.
+// klineSource fetches daily split-adjusted closes for equities/indices/FX (Yahoo, overseas).
+type klineSource interface {
+	DailyCloses(ctx context.Context, symbol, beg string) ([]yahoo.Bar, error)
+	DailyClosesNamed(ctx context.Context, symbol, beg string) (string, []yahoo.Bar, error)
+}
+
+// Service owns the upstream clients and the scheduler.
 type Service struct {
 	cfg   *config.Config
 	store *store.Store
-	em    provider
+	em    fundSource  // open-end fund NAV (domestic)
+	yh    klineSource // equities / indices / FX (overseas, split-adjusted)
 	log   *log.Logger
 
-	secid       sync.Map // US symbol -> resolved secid (cache)
 	inflight    sync.Map // symbol -> struct{} (dedup concurrent backfills)
 	runMu       sync.Mutex
 	backfilling atomic.Bool // guards the full-history Backfill sweep from stacking
 }
 
-// New builds the market service. The Eastmoney client honours cfg.MarketDataProxy.
+// New builds the market service. The Eastmoney (fund) client connects directly per
+// cfg.MarketDataProxy; the Yahoo (quote) client honours the env proxy unless overridden.
 func New(cfg *config.Config, st *store.Store) *Service {
 	return &Service{
 		cfg:   cfg,
 		store: st,
 		em:    eastmoney.New(cfg.MarketDataProxy),
+		yh:    yahoo.New(cfg.MarketDataYahooProxy),
 		log:   log.New(os.Stderr, "[market] ", log.LstdFlags),
 	}
 }
@@ -125,7 +123,7 @@ func (s *Service) ensureDefaultBenchmarks(ctx context.Context) {
 // Start runs the scheduler until ctx is cancelled: an immediate refresh + history
 // backfill, then a refresh on every interval tick.
 func (s *Service) Start(ctx context.Context) {
-	s.log.Printf("scheduler on (interval=%s, proxy=%q)", s.cfg.MarketDataInterval, s.cfg.MarketDataProxy)
+	s.log.Printf("scheduler on (interval=%s, fund-proxy=%q, quote-proxy=%q)", s.cfg.MarketDataInterval, s.cfg.MarketDataProxy, s.cfg.MarketDataYahooProxy)
 	s.ensureDefaultBenchmarks(ctx)
 	s.tick(ctx)
 
@@ -142,8 +140,8 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 // tick refreshes the latest prices, then runs the backfill sweep. The sweep is a cheap
-// no-op for already-backfilled symbols and retries any that previously failed (EOF). All
-// upstream requests are globally paced by the client, so the two phases never burst.
+// no-op for already-backfilled symbols and retries any that previously failed. All
+// upstream requests are globally paced by each client, so the two phases never burst.
 func (s *Service) tick(ctx context.Context) {
 	if err := s.RefreshLatest(ctx); err != nil {
 		s.log.Printf("refresh: %v", err)
@@ -164,7 +162,7 @@ func (s *Service) RefreshLatest(ctx context.Context) error {
 	}
 
 	// Upsert per instrument so one bad symbol's batch can never roll back the others'.
-	// Request pacing is handled globally by the Eastmoney client.
+	// Request pacing is handled globally by each client.
 	written := 0
 	currencies := map[string]struct{}{}
 	for _, inst := range insts {
@@ -211,13 +209,13 @@ type ResolveResult struct {
 }
 
 // resolveErrMessage turns a raw upstream/transport error into a short, user-facing reason —
-// never leaking the full request URL. Transport/timeout errors mean the feed is unreachable
-// (e.g. an IP being throttled), which is NOT the user's symbol being wrong, so we say so.
+// never leaking the full request URL. Transport/timeout/throttle errors mean the feed is
+// unreachable (e.g. an IP being rate-limited), which is NOT the user's symbol being wrong.
 func resolveErrMessage(err error) string {
 	var urlErr *url.Error
 	msg := err.Error()
 	if errors.As(err, &urlErr) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
-		strings.Contains(msg, "eastmoney") || strings.Contains(msg, "EOF") || strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "eastmoney") || strings.Contains(msg, "yahoo") || strings.Contains(msg, "EOF") || strings.Contains(msg, "timeout") ||
 		strings.Contains(msg, "no such host") || strings.Contains(msg, "connection refused") {
 		return "行情源暂时不可用，请稍后重试（不一定是代码有误）"
 	}
@@ -228,8 +226,8 @@ func resolveErrMessage(err error) string {
 }
 
 // Resolve probes the upstream feed for symbol/market/assetKind via the SAME path the collector
-// uses, so a positive result means auto-fetch will work. It makes one or two (globally paced)
-// upstream requests — callers must bound it with a context timeout.
+// uses, so a positive result means auto-fetch will work. It makes one (globally paced) upstream
+// request — callers must bound it with a context timeout.
 func (s *Service) Resolve(ctx context.Context, symbol, market, assetKind string) ResolveResult {
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
 	if symbol == "" {
@@ -254,11 +252,11 @@ func (s *Service) Resolve(ctx context.Context, symbol, market, assetKind string)
 		}
 		return ResolveResult{OK: true, Name: est.Name, Currency: cur, Price: price, PriceDate: date}
 	case kindStock:
-		secid, err := s.secidOf(ctx, inst)
+		ysym, err := s.yahooSymbol(inst)
 		if err != nil {
 			return ResolveResult{Reason: resolveErrMessage(err)}
 		}
-		name, bars, err := s.em.DailyKlineNamed(ctx, secid, priceAdjust, "")
+		name, bars, err := s.yh.DailyClosesNamed(ctx, ysym, "")
 		if err != nil {
 			return ResolveResult{Reason: resolveErrMessage(err)}
 		}
@@ -276,12 +274,12 @@ func (s *Service) Resolve(ctx context.Context, symbol, market, assetKind string)
 func (s *Service) latestFx(ctx context.Context, currencies map[string]struct{}) []store.FxRate {
 	var rates []store.FxRate
 	for cur := range currencies {
-		secid, ok := forexSecid[cur]
+		ysym, ok := yahooFxSymbol(cur)
 		if !ok {
 			s.log.Printf("no FX source for %s/CNY", cur)
 			continue
 		}
-		bars, err := s.em.DailyKline(ctx, secid, fxAdjust, "")
+		bars, err := s.yh.DailyCloses(ctx, ysym, "")
 		if err != nil || len(bars) == 0 {
 			s.log.Printf("fx %s/CNY: %v", cur, err)
 			continue
@@ -290,7 +288,7 @@ func (s *Service) latestFx(ctx context.Context, currencies map[string]struct{}) 
 		if !validNum(b.Close) {
 			continue
 		}
-		rates = append(rates, store.FxRate{BaseCurrency: cur, QuoteCurrency: "CNY", RateDate: b.Date, Rate: b.Close, Source: sourceTag})
+		rates = append(rates, store.FxRate{BaseCurrency: cur, QuoteCurrency: "CNY", RateDate: b.Date, Rate: b.Close, Source: sourceQuote})
 	}
 	return rates
 }
@@ -306,19 +304,19 @@ func (s *Service) latestForInstrument(ctx context.Context, inst store.Instrument
 		}
 		var out []store.Price
 		if validNum(est.OfficialNav) && est.OfficialDate != "" {
-			out = append(out, store.Price{Symbol: inst.Symbol, PriceDate: est.OfficialDate, Price: est.OfficialNav, Currency: cur, Source: sourceTag})
+			out = append(out, store.Price{Symbol: inst.Symbol, PriceDate: est.OfficialDate, Price: est.OfficialNav, Currency: cur, Source: sourceFund})
 		}
 		// Today's estimate, only when newer than the last official NAV (T+1/T+2 funds).
 		if validNum(est.EstNav) && est.EstDate != "" && est.EstDate > est.OfficialDate {
-			out = append(out, store.Price{Symbol: inst.Symbol, PriceDate: est.EstDate, Price: est.EstNav, Currency: cur, Source: sourceTag})
+			out = append(out, store.Price{Symbol: inst.Symbol, PriceDate: est.EstDate, Price: est.EstNav, Currency: cur, Source: sourceFund})
 		}
 		return out, nil
 	case kindStock:
-		secid, err := s.secidOf(ctx, inst)
+		ysym, err := s.yahooSymbol(inst)
 		if err != nil {
 			return nil, err
 		}
-		bars, err := s.em.DailyKline(ctx, secid, priceAdjust, "")
+		bars, err := s.yh.DailyCloses(ctx, ysym, "")
 		if err != nil {
 			return nil, err
 		}
@@ -329,7 +327,7 @@ func (s *Service) latestForInstrument(ctx context.Context, inst store.Instrument
 		if !validNum(b.Close) {
 			return nil, nil
 		}
-		return []store.Price{{Symbol: inst.Symbol, PriceDate: b.Date, Price: b.Close, Currency: cur, Source: sourceTag}}, nil
+		return []store.Price{{Symbol: inst.Symbol, PriceDate: b.Date, Price: b.Close, Currency: cur, Source: sourceQuote}}, nil
 	default:
 		return nil, nil // unsupported market — skip silently
 	}
@@ -384,29 +382,36 @@ func (s *Service) Backfill(ctx context.Context, symbols ...string) error {
 
 func (s *Service) backfillInstrument(ctx context.Context, inst store.Instrument) error {
 	cur := s.currencyOf(inst)
-	var bars []eastmoney.Bar
-	var err error
+	var prices []store.Price
 	switch s.kindOf(inst) {
 	case kindFund:
-		bars, err = s.em.FundNavHistory(ctx, inst.Symbol)
-	case kindStock:
-		secid, e := s.secidOf(ctx, inst)
-		if e != nil {
-			return e
+		bars, err := s.em.FundNavHistory(ctx, inst.Symbol)
+		if err != nil {
+			return err
 		}
-		bars, err = s.em.DailyKline(ctx, secid, priceAdjust, s.backfillBeg())
+		for _, b := range bars {
+			if !validNum(b.Close) || b.Date == "" {
+				continue
+			}
+			prices = append(prices, store.Price{Symbol: inst.Symbol, PriceDate: b.Date, Price: b.Close, Currency: cur, Source: sourceFund})
+		}
+	case kindStock:
+		ysym, err := s.yahooSymbol(inst)
+		if err != nil {
+			return err
+		}
+		bars, err := s.yh.DailyCloses(ctx, ysym, s.backfillBeg())
+		if err != nil {
+			return err
+		}
+		for _, b := range bars {
+			if !validNum(b.Close) || b.Date == "" {
+				continue
+			}
+			prices = append(prices, store.Price{Symbol: inst.Symbol, PriceDate: b.Date, Price: b.Close, Currency: cur, Source: sourceQuote})
+		}
 	default:
 		return nil
-	}
-	if err != nil {
-		return err
-	}
-	prices := make([]store.Price, 0, len(bars))
-	for _, b := range bars {
-		if !validNum(b.Close) || b.Date == "" {
-			continue
-		}
-		prices = append(prices, store.Price{Symbol: inst.Symbol, PriceDate: b.Date, Price: b.Close, Currency: cur, Source: sourceTag})
 	}
 	if len(prices) == 0 {
 		return nil
@@ -426,7 +431,7 @@ func (s *Service) backfillFx(ctx context.Context, insts []store.Instrument) {
 		if cur == "" || cur == "CNY" {
 			continue
 		}
-		secid, ok := forexSecid[cur]
+		ysym, ok := yahooFxSymbol(cur)
 		if !ok {
 			continue
 		}
@@ -434,7 +439,7 @@ func (s *Service) backfillFx(ctx context.Context, insts []store.Instrument) {
 			continue
 		}
 		seen[cur] = struct{}{}
-		bars, err := s.em.DailyKline(ctx, secid, fxAdjust, s.backfillBeg())
+		bars, err := s.yh.DailyCloses(ctx, ysym, s.backfillBeg())
 		if err != nil {
 			s.log.Printf("backfill fx %s/CNY: %v", cur, err)
 			continue
@@ -444,7 +449,7 @@ func (s *Service) backfillFx(ctx context.Context, insts []store.Instrument) {
 			if !validNum(b.Close) || b.Date == "" {
 				continue
 			}
-			rates = append(rates, store.FxRate{BaseCurrency: cur, QuoteCurrency: "CNY", RateDate: b.Date, Rate: b.Close, Source: sourceTag})
+			rates = append(rates, store.FxRate{BaseCurrency: cur, QuoteCurrency: "CNY", RateDate: b.Date, Rate: b.Close, Source: sourceQuote})
 		}
 		if n, err := s.store.BatchUpsertAutoFxRates(ctx, rates); err != nil {
 			s.log.Printf("backfill fx %s/CNY: %v", cur, err)
@@ -456,9 +461,8 @@ func (s *Service) backfillFx(ctx context.Context, insts []store.Instrument) {
 
 // EnsureBackfilled backfills full history for a symbol unless it has already been
 // backfilled (tracked by an explicit marker, NOT by the presence of recent price rows).
-// The marker is set only on success, so a failed attempt (e.g. an Eastmoney EOF) is
-// retried on the next sweep. Idempotent and deduplicated — safe on every new-instrument
-// event and on every ticker sweep.
+// The marker is set only on success, so a failed attempt is retried on the next sweep.
+// Idempotent and deduplicated — safe on every new-instrument event and on every ticker sweep.
 func (s *Service) EnsureBackfilled(ctx context.Context, symbol string) error {
 	if _, busy := s.inflight.LoadOrStore(symbol, struct{}{}); busy {
 		return nil
@@ -499,7 +503,7 @@ func (s *Service) TriggerEnsureBackfilled(symbol string) {
 
 // EnsureAllBackfilled backfills any instrument not yet marked as backfilled. Runs each
 // tick; a no-op (one cheap marker query per symbol) for those already done, and a retry
-// for any whose earlier attempt failed. Upstream requests are paced by the client.
+// for any whose earlier attempt failed. Upstream requests are paced by each client.
 func (s *Service) EnsureAllBackfilled(ctx context.Context) {
 	insts, err := s.store.ListInstruments(ctx)
 	if err != nil {
@@ -528,10 +532,10 @@ const (
 
 func (s *Service) kindOf(inst store.Instrument) instKind {
 	if deref(inst.Market) == "INDEX" {
-		// Indices fetch via the same daily K-line path, but only the ones we have a secid for.
-		// A user-created INDEX with an unknown symbol is skipped (not failed) so it can't spam
-		// refresh/backfill errors every cycle — its prices can still be maintained manually.
-		if _, ok := indexSecid[inst.Symbol]; ok {
+		// Indices fetch via the same daily K-line path, but only the ones we have a Yahoo
+		// symbol for. A user-created INDEX with an unknown symbol is skipped (not failed) so it
+		// can't spam refresh/backfill errors every cycle — its prices can still be set manually.
+		if _, ok := yahooIndexSymbol[inst.Symbol]; ok {
 			return kindStock
 		}
 		return kindSkip
@@ -561,44 +565,56 @@ func (s *Service) currencyOf(inst store.Instrument) string {
 	}
 }
 
-// secidOf returns the Eastmoney secid for a stock/ETF instrument. HK is derived from the
-// padded code; US is resolved via the suggest API and cached.
-func (s *Service) secidOf(ctx context.Context, inst store.Instrument) (string, error) {
+// yahooSymbol maps an instrument to its Yahoo Finance symbol. US tickers pass through
+// (class-share dots become dashes, e.g. BRK.B -> BRK-B); HK codes are left-padded to 4 digits
+// with a .HK suffix; indices use an explicit table.
+func (s *Service) yahooSymbol(inst store.Instrument) (string, error) {
 	switch deref(inst.Market) {
 	case "INDEX":
-		if sec, ok := indexSecid[inst.Symbol]; ok {
-			return sec, nil
+		if y, ok := yahooIndexSymbol[inst.Symbol]; ok {
+			return y, nil
 		}
-		return "", fmt.Errorf("no index secid for %q", inst.Symbol)
+		return "", fmt.Errorf("no yahoo symbol for index %q", inst.Symbol)
 	case "HK":
-		return hkSecid(inst.Symbol)
+		return yahooHKSymbol(inst.Symbol)
 	case "US":
-		if v, ok := s.secid.Load(inst.Symbol); ok {
-			return v.(string), nil
-		}
-		id, err := s.em.ResolveUSSecid(ctx, inst.Symbol)
-		if err != nil {
-			return "", err
-		}
-		s.secid.Store(inst.Symbol, id)
-		return id, nil
+		return yahooUSSymbol(inst.Symbol), nil
 	default:
-		return "", fmt.Errorf("no secid for market %q", deref(inst.Market))
+		return "", fmt.Errorf("no yahoo symbol for market %q", deref(inst.Market))
 	}
 }
 
-// hkSecid maps "0700.HK" -> "116.00700" (strip suffix, left-pad the code to 5 digits).
-func hkSecid(symbol string) (string, error) {
+// yahooUSSymbol normalises a US ticker for Yahoo: upper-case, class-share dot -> dash.
+func yahooUSSymbol(symbol string) string {
+	return strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(symbol)), ".", "-")
+}
+
+// yahooHKSymbol maps "0700.HK"/"700.HK" -> "0700.HK" and "09988.HK"/"9988.HK" -> "9988.HK".
+// Yahoo's HK tickers use the significant digits zero-padded to a MINIMUM width of 4: a 4-digit
+// listing keeps its leading zero (0700.HK), but a 5-significant-digit code is NOT zero-padded
+// (9988.HK — Yahoo 404s the padded "09988.HK"). So strip leading zeros first, then re-pad to 4.
+func yahooHKSymbol(symbol string) (string, error) {
 	code := strings.TrimSpace(symbol)
 	code = strings.TrimSuffix(code, ".HK")
 	code = strings.TrimSuffix(code, ".hk")
+	code = strings.TrimLeft(code, "0") // recover significant digits (guards empty/all-zeros below)
 	if code == "" {
 		return "", fmt.Errorf("empty HK code for %q", symbol)
 	}
-	for len(code) < 5 {
+	for len(code) < 4 {
 		code = "0" + code
 	}
-	return "116." + code, nil
+	return code + ".HK", nil
+}
+
+// yahooFxSymbol maps a quote currency to its Yahoo CNY-pair symbol (e.g. USD -> "USDCNY=X").
+// Returns ok=false for an empty currency or CNY itself (no conversion needed).
+func yahooFxSymbol(cur string) (string, bool) {
+	c := strings.ToUpper(strings.TrimSpace(cur))
+	if c == "" || c == "CNY" {
+		return "", false
+	}
+	return c + "CNY=X", true
 }
 
 func deref(p *string) string {
@@ -608,9 +624,9 @@ func deref(p *string) string {
 	return *p
 }
 
-// backfillBeg returns the Eastmoney `beg` date for history backfill: N years ago
-// (FINBRAIN_MARKETDATA_BACKFILL_YEARS, default 10) to keep responses small and reduce
-// throttle/timeout risk. A configured value <= 0 means full history ("0").
+// backfillBeg returns the `beg` date for history backfill: N years ago
+// (FINBRAIN_MARKETDATA_BACKFILL_YEARS, default 10) to keep responses small. A configured
+// value <= 0 means full history ("0").
 func (s *Service) backfillBeg() string {
 	years := 10
 	if s.cfg != nil {

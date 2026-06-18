@@ -24,11 +24,13 @@ type Config struct {
 	AnthropicAPIKey string // ANTHROPIC_API_KEY (fallback)
 	LLMModel        string // FINBRAIN_LLM_MODEL; optional override (default deepseek-v4-flash)
 
-	// Market data auto-fetch (Eastmoney, key-less). The scheduler polls the latest
-	// price for every instrument and backfills history for newly added ones.
+	// Market data auto-fetch (key-less). The scheduler polls the latest price for every
+	// instrument and backfills history for newly added ones. Stocks/indices/FX come from
+	// Yahoo (overseas, split-adjusted); open-end fund NAV comes from Eastmoney (domestic).
 	MarketDataEnabled       bool          // FINBRAIN_MARKETDATA_ENABLED (default true)
 	MarketDataInterval      time.Duration // FINBRAIN_MARKETDATA_INTERVAL (default 30m)
-	MarketDataProxy         string        // FINBRAIN_MARKETDATA_PROXY; optional, only if a non-China source is added
+	MarketDataProxy         string        // FINBRAIN_MARKETDATA_PROXY; Eastmoney/fund proxy. Empty = direct (domestic source must NOT use an overseas proxy)
+	MarketDataYahooProxy    string        // FINBRAIN_MARKETDATA_YAHOO_PROXY; Yahoo proxy override. Empty = honour HTTP(S)_PROXY env (local clash → overseas; VPS → direct)
 	MarketDataBackfillYears int           // FINBRAIN_MARKETDATA_BACKFILL_YEARS (default 10; <=0 = full history)
 
 	// Net-worth trend tuning. The common path (no transactions) loads the user's snapshots
@@ -57,6 +59,7 @@ func Load() (*Config, error) {
 		MarketDataEnabled:       getenvBool("FINBRAIN_MARKETDATA_ENABLED", true),
 		MarketDataInterval:      getenvDuration("FINBRAIN_MARKETDATA_INTERVAL", 30*time.Minute),
 		MarketDataProxy:         os.Getenv("FINBRAIN_MARKETDATA_PROXY"),
+		MarketDataYahooProxy:    os.Getenv("FINBRAIN_MARKETDATA_YAHOO_PROXY"),
 		MarketDataBackfillYears: getenvInt("FINBRAIN_MARKETDATA_BACKFILL_YEARS", 10),
 
 		TrendMaxPoints:   getenvInt("FINBRAIN_TREND_MAX_POINTS", 120),
