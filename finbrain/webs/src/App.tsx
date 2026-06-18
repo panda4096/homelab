@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Sidebar } from './shell/Sidebar'
@@ -45,25 +45,26 @@ export function App() {
   const hydrate = usePrefStore((s) => s.hydrate)
   const auth = useAuthStore()
 
-  // Resolve application session once on mount.
-  useEffect(() => {
-    let cancelled = false
+  // Resolve the application session. A 401 means genuinely unauthenticated → clear local state +
+  // bounce to login. A 5xx / network error means the backend is down (NOT a logout): keep the
+  // still-valid session cookie and show a retry screen, so an outage isn't mistaken for "logged
+  // out" (which would then just hit the same 500 on the login form).
+  const resolveSession = useCallback(() => {
+    useAuthStore.getState().setLoading()
     getMe()
-      .then((me) => {
-        if (!cancelled) auth.setAuthenticated(me.user)
-      })
+      .then((me) => useAuthStore.getState().setAuthenticated(me.user))
       .catch((err) => {
-        if (cancelled) return
         if (err instanceof ApiError && err.status === 401) {
           clearClientSession()
           return
         }
-        clearClientSession()
+        useAuthStore.getState().setUnavailable()
       })
-    return () => {
-      cancelled = true
-    }
   }, [])
+
+  useEffect(() => {
+    resolveSession()
+  }, [resolveSession])
 
   useEffect(() => {
     const h = () => {
@@ -140,6 +141,22 @@ export function App() {
 
   if (auth.status === 'loading') {
     return <div className="auth-page"><div className="auth-panel">正在载入...</div></div>
+  }
+  if (auth.status === 'unavailable') {
+    return (
+      <div className="auth-page">
+        <div className="auth-panel" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-strong)', marginBottom: 6 }}>服务暂时不可用</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>无法连接到服务器,你仍处于登录状态,请稍后重试。</div>
+          <button
+            onClick={resolveSession}
+            style={{ appearance: 'none', border: 'none', cursor: 'pointer', padding: '9px 20px', borderRadius: 'var(--radius-md)', background: 'var(--accent)', color: 'var(--accent-text, #1a1205)', fontSize: 13, fontWeight: 600 }}
+          >
+            重试
+          </button>
+        </div>
+      </div>
+    )
   }
   if (auth.status === 'anonymous') {
     if (location.pathname !== '/login') return <Navigate to="/login" replace />
