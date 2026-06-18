@@ -44,7 +44,10 @@ export function Modal({ title, icon, onClose, width = 560, footer, children }: M
       <div
         onClick={(e) => e.stopPropagation()}
         className="fb-card"
-        style={{ width, maxWidth: '92vw', boxShadow: 'var(--shadow-lg)' }}
+        // .fb-card sets `overflow: clip`, which would crop popovers that extend past
+        // the card edge (e.g. the DateField calendar near the bottom). Modals scroll via
+        // the backdrop, so let their content overflow visibly instead.
+        style={{ width, maxWidth: '92vw', boxShadow: 'var(--shadow-lg)', overflow: 'visible' }}
       >
         <div
           style={{

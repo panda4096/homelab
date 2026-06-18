@@ -718,6 +718,14 @@ function UnsupportedAccountKind({ account }: { account: Account }) {
 
 // ---------- placeholder sub-sections ----------
 
+// reconEventText localizes a cash-台账 event row. Transfers/income/bill rows already carry a
+// localized backend label; only buy/sell carry an English "buy/sell SYMBOL" that we translate.
+function reconEventText(e: { kind: string; label: string }): string {
+  if (e.kind === 'buy') return '买入 ' + e.label.replace(/^buy\s+/i, '')
+  if (e.kind === 'sell') return '卖出 ' + e.label.replace(/^sell\s+/i, '')
+  return e.label
+}
+
 // AccountActivity replaces the old static placeholders with live cash reconciliation
 // (§6.19), recent transactions, and quick-entry links (P4 features are now real).
 function AccountActivity({ account }: { account: Account }) {
@@ -737,14 +745,34 @@ function AccountActivity({ account }: { account: Account }) {
   return (
     <>
       {!isCard ? (
-        <Card eyebrow="现金对账 · §6.19" actions={<Button size="sm" variant="ghost" onClick={() => navigate('/recon')}>查看明细</Button>}>
+        <Card eyebrow="现金台账 · §6.19" actions={<Button size="sm" variant="ghost" onClick={() => navigate('/recon')}>查看明细</Button>}>
           {recon.data ? (
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-              <ActivityMetric label="预期余额" v={native(recon.data.expected_balance, account.currency)} />
-              <ActivityMetric label={recon.data.snapshot_date ? `最新快照 · ${recon.data.snapshot_date}` : '最新快照'} v={native(recon.data.snapshot_balance, account.currency)} />
-              <ActivityMetric label="对账差额" v={native(recon.data.reconciliation_delta, account.currency)} tone={recon.data.over_threshold ? 'var(--warning)' : 'var(--gain)'} />
-              {recon.data.over_threshold ? <Badge tone="warning" dot>超阈值</Badge> : <Badge tone="success">在阈值内</Badge>}
-            </div>
+            <>
+              <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'center' }}>
+                <ActivityMetric label="当前余额（实时）" v={native(recon.data.expected_balance, account.currency)} />
+                <ActivityMetric label={recon.data.snapshot_date ? `上次盘点 · ${recon.data.snapshot_date}` : '上次盘点'} v={native(recon.data.snapshot_balance, account.currency)} />
+              </div>
+              {recon.data.events.length ? (
+                <div style={{ marginTop: 14, borderTop: '1px solid var(--divider)', paddingTop: 6 }}>
+                  {recon.data.events.map((e, i) => {
+                    const isSnap = e.kind === 'snapshot'
+                    const n = Number(e.amount)
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 2px', borderBottom: i < recon.data!.events.length - 1 ? '1px solid var(--divider)' : 'none', background: isSnap ? 'var(--surface-raised)' : 'transparent', borderRadius: isSnap ? 'var(--radius-sm, 6px)' : 0 }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-tertiary)', width: 84, flexShrink: 0 }}>{e.date}</span>
+                        <span style={{ flex: 1, fontSize: 12.5, color: isSnap ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: isSnap ? 600 : 400 }}>
+                          {isSnap ? '● 手动盘点基准' : reconEventText(e)}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, minWidth: 104, textAlign: 'right', color: isSnap ? 'var(--text-tertiary)' : n < 0 ? 'var(--loss)' : 'var(--gain)' }}>
+                          {isSnap ? '基准' : (n > 0 ? '+' : '') + native(e.amount, account.currency)}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: isSnap ? 'var(--accent)' : 'var(--text-tertiary)', minWidth: 104, textAlign: 'right' }}>{native(e.running, account.currency)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </>
           ) : <span style={{ color: 'var(--text-tertiary)', fontSize: 12.5 }}>{recon.isLoading ? '加载中…' : '暂无对账数据'}</span>}
         </Card>
       ) : null}

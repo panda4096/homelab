@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, DateField, Field, Icon, IconButton, Input, Segmented, Select } from '../ds'
 import {
@@ -13,7 +13,17 @@ import {
   type Transaction,
   type TransactionAction,
 } from '../api'
-import { ACCOUNT_CURRENCIES, native, quantity, supportsPositionSnapshots, todayISO } from '../lib/format'
+import {
+  ACCOUNT_CURRENCIES,
+  MARKET_DEFAULT_CURRENCY,
+  marketLabel,
+  native,
+  quantity,
+  supportsBalanceSnapshots,
+  supportsPositionSnapshots,
+  todayISO,
+  TRADE_MARKETS,
+} from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
@@ -51,7 +61,8 @@ export function Transactions() {
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
   })
 
-  const positionAccounts = (accounts.data ?? []).filter((a) => supportsPositionSnapshots(a.kind) && !a.is_archived)
+  const liveAccounts = (accounts.data ?? []).filter((a) => !a.is_archived)
+  const positionAccounts = liveAccounts.filter((a) => supportsPositionSnapshots(a.kind))
 
   return (
     <Page>
@@ -100,7 +111,7 @@ export function Transactions() {
       <SectionHint>交易回放派生持仓数量、加权成本与已实现盈亏（§6.15）；卖出手续费扣减已实现盈亏。现金影响在账户「对账」中体现（§6.19）。</SectionHint>
 
       {editor ? (
-        <TxnModal item={editor.item} accounts={positionAccounts} onClose={() => setEditor(null)} />
+        <TxnModal item={editor.item} accounts={positionAccounts} cashAccounts={liveAccounts} onClose={() => setEditor(null)} />
       ) : null}
     </Page>
   )
@@ -109,10 +120,12 @@ export function Transactions() {
 function TxnModal({
   item,
   accounts,
+  cashAccounts,
   onClose,
 }: {
   item?: Transaction
   accounts: Account[]
+  cashAccounts: Account[]
   onClose: () => void
 }) {
   const qc = useQueryClient()
@@ -121,6 +134,7 @@ function TxnModal({
   const instruments = useQuery({ queryKey: ['instruments'], queryFn: listInstruments })
   const [accountId, setAccountId] = useState(item ? String(item.account_id) : accounts[0] ? String(accounts[0].id) : '')
   const [symbol, setSymbol] = useState(item?.symbol ?? '')
+  const [market, setMarket] = useState('')
   const [action, setAction] = useState<TransactionAction>(item?.action ?? 'buy')
   const [tradeDate, setTradeDate] = useState(item?.trade_date ?? todayISO(timezone))
   const [settleDate, setSettleDate] = useState(item?.settle_date ?? '')
@@ -128,9 +142,67 @@ function TxnModal({
   const [price, setPrice] = useState(item?.price ?? '')
   const [currency, setCurrency] = useState(item?.currency ?? 'USD')
   const [fee, setFee] = useState(item?.fee ?? '')
+  const [payAcct, setPayAcct] = useState(item?.payment_account_id ? String(item.payment_account_id) : '')
   const [settled, setSettled] = useState(item?.is_settled ?? true)
   const [notes, setNotes] = useState(item?.notes ?? '')
   const [touched, setTouched] = useState(false)
+
+  const allInstruments = instruments.data ?? []
+  // the known instrument matching the typed symbol (case-insensitive) — drives 市场/币种
+  const matchedInstrument = useMemo(() => {
+    const s = symbol.trim().toUpperCase()
+    return s ? allInstruments.find((i) => i.symbol.toUpperCase() === s) : undefined
+  }, [allInstruments, symbol])
+
+  // seed 市场 from the matched instrument once it loads (edit mode / known symbol),
+  // without clobbering an explicit user choice (only fills when still empty).
+  useEffect(() => {
+    if (matchedInstrument?.market) setMarket((m) => m || matchedInstrument.market!)
+  }, [matchedInstrument])
+
+  // 标的 suggestions filter to the chosen market (PRD: 按市场过滤标的)
+  const symbolOptions = market ? allInstruments.filter((i) => i.market === market) : allInstruments
+
+  function onSymbolChange(raw: string) {
+    const v = raw.toUpperCase()
+    setSymbol(v)
+    const inst = allInstruments.find((i) => i.symbol.toUpperCase() === v.trim())
+    if (inst?.market) setMarket(inst.market)
+    if (inst?.quote_currency) setCurrency(inst.quote_currency)
+  }
+
+  function onMarketChange(m: string) {
+    setMarket(m)
+    const ccy = MARKET_DEFAULT_CURRENCY[m]
+    if (ccy) setCurrency(ccy)
+  }
+
+  // 扣款/入账账户 candidates: cash-type accounts in the *same currency* as the trade
+  // (reconciliation does not FX-convert the cash effect — a mismatched currency would
+  // corrupt the cash对账), excluding the trade account itself (that's just the sweep
+  // default, already covered by 不指定). When editing, keep the saved value visible even
+  // if it no longer matches, flagged 「不符」, so a blank save can't silently drop it.
+  const payAcctOptions = useMemo(() => {
+    // cash-type, same trade currency, not the trade account, and with a snapshot baseline
+    // (current_balance != null) so the backend can anchor the cash replay.
+    const opts = cashAccounts
+      .filter((a) => supportsBalanceSnapshots(a.kind) && a.currency === currency && String(a.id) !== accountId && a.current_balance != null)
+      .map((a) => ({ value: String(a.id), label: `${a.institution}·${a.name} · ${a.currency}` }))
+    if (item?.payment_account_id && !opts.some((o) => o.value === String(item.payment_account_id))) {
+      const saved = cashAccounts.find((a) => a.id === item.payment_account_id)
+      opts.unshift({
+        value: String(item.payment_account_id),
+        label: saved ? `${saved.institution}·${saved.name} · ${saved.currency}（不符）` : `账户 #${item.payment_account_id}（不符）`,
+      })
+    }
+    return opts
+  }, [cashAccounts, currency, accountId, item])
+
+  // drop a now-invalid pick when the trade currency / account changes (the saved value in
+  // edit mode is always re-included above, so it survives until the user changes it).
+  useEffect(() => {
+    if (payAcct && !payAcctOptions.some((o) => o.value === payAcct)) setPayAcct('')
+  }, [payAcctOptions, payAcct])
 
   const save = useMutation({
     mutationFn: () => {
@@ -138,14 +210,14 @@ function TxnModal({
         account_id: Number(accountId), symbol: symbol.trim().toUpperCase(), action,
         trade_date: tradeDate, settle_date: settleDate || null, quantity: qty.trim(), price: price.trim(),
         currency, fee: fee.trim() || null, is_settled: settled, notes: notes.trim() || null,
+        payment_account_id: payAcct ? Number(payAcct) : null,
       }
-      return item
-        ? updateTransaction(item.id, { action, trade_date: tradeDate, settle_date: settleDate || null, quantity: qty.trim(), price: price.trim(), currency, fee: fee.trim() || null, is_settled: settled, notes: notes.trim() || null })
-        : createTransaction(body)
+      return item ? updateTransaction(item.id, body) : createTransaction(body)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['valuation'] })
+      void qc.invalidateQueries({ queryKey: ['reconciliation'] })
       void qc.invalidateQueries({ queryKey: ['instruments'] })
       toast.success(item ? '交易已更新' : '交易已记录')
       onClose()
@@ -153,18 +225,20 @@ function TxnModal({
     onError: (e) => toast.error(e instanceof Error ? e.message : '保存失败'),
   })
 
-  const invalid = touched && (!accountId || !symbol.trim() || !qty.trim() || !price.trim())
+  const invalid = touched && (!accountId || !symbol.trim() || !qty.trim() || !price.trim() || !payAcct)
+  const payLabel = action === 'buy' ? '扣款账户' : '入账账户'
+  const noPayAccounts = payAcctOptions.length === 0
 
   return (
     <Modal
       title={item ? '编辑交易' : '新增交易'}
       icon="arrow-left-right"
-      width={660}
+      width={680}
       onClose={onClose}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>取消</Button>
-          <Button variant="primary" disabled={save.isPending} onClick={() => { setTouched(true); if (accountId && symbol.trim() && qty.trim() && price.trim()) save.mutate() }}>保存</Button>
+          <Button variant="primary" disabled={save.isPending} onClick={() => { setTouched(true); if (accountId && symbol.trim() && qty.trim() && price.trim() && payAcct) save.mutate() }}>保存</Button>
         </>
       }
     >
@@ -174,23 +248,37 @@ function TxnModal({
       </div>
       <div className="fb-form form-4 form-lead">
         <Field label="账户" error={invalid && !accountId ? '必填' : undefined}>
-          <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} disabled={!!item}
+          <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}
             options={accounts.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name }))} />
         </Field>
+        <Field label="市场">
+          <Select value={market} onChange={(e) => onMarketChange(e.target.value)}
+            options={[{ value: '', label: '不限' }, ...TRADE_MARKETS.map((m) => ({ value: m, label: marketLabel(m) }))]} />
+        </Field>
         <Field label="标的" error={invalid && !symbol.trim() ? '必填' : undefined}>
-          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} disabled={!!item} list="fb-tx-instruments" placeholder="GOOG" />
+          <Input value={symbol} onChange={(e) => onSymbolChange(e.target.value)} list="fb-tx-instruments" placeholder="GOOG" />
           <datalist id="fb-tx-instruments">
-            {(instruments.data ?? []).map((i) => <option key={i.symbol} value={i.symbol} />)}
+            {symbolOptions.map((i) => <option key={i.symbol} value={i.symbol}>{i.display_name ?? i.symbol}</option>)}
           </datalist>
         </Field>
         <Field label="成交日"><DateField value={tradeDate} onChange={setTradeDate} /></Field>
-        <Field label="结算日（可选）"><DateField value={settleDate} onChange={setSettleDate} /></Field>
       </div>
       <div className="fb-form form-4 form-lead" style={{ marginTop: 12 }}>
+        <Field label="结算日（可选）"><DateField value={settleDate} onChange={setSettleDate} /></Field>
         <Field label="数量" error={invalid && !qty.trim() ? '必填' : undefined}><Input numeric value={qty} onChange={(e) => setQty(e.target.value)} placeholder="100" /></Field>
         <Field label="单价" error={invalid && !price.trim() ? '必填' : undefined}><Input numeric value={price} onChange={(e) => setPrice(e.target.value)} placeholder="184.25" /></Field>
         <Field label="币种"><Select value={currency} onChange={(e) => setCurrency(e.target.value)} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} /></Field>
+      </div>
+      <div className="fb-form" style={{ marginTop: 12, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.6fr)' }}>
         <Field label="手续费（可选）"><Input numeric value={fee} onChange={(e) => setFee(e.target.value)} placeholder="1.20" /></Field>
+        <Field
+          label={payLabel}
+          error={invalid && !payAcct ? (noPayAccounts ? `无${currency}现金账户` : '必填') : undefined}
+          hint={noPayAccounts ? `请先建一个${currency}现金账户` : `现金从此账户扣 / 入 · 限${currency}`}
+        >
+          <Select value={payAcct} onChange={(e) => setPayAcct(e.target.value)}
+            options={[{ value: '', label: noPayAccounts ? `无${currency}现金账户` : '选择账户' }, ...payAcctOptions]} />
+        </Field>
       </div>
       <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 16 }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>

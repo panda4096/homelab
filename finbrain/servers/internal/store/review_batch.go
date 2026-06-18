@@ -56,13 +56,13 @@ func (s *Store) ApplyReviewBatch(ctx context.Context, userID int64, batch Review
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO transactions ( /* OWNED transactions */
 				user_id, account_id, symbol, action, trade_date, settle_date, quantity, price,
-				currency, fee, is_settled, notes, source, updated_at
+				currency, fee, is_settled, notes, payment_account_id, source, updated_at
 			)
 			VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::numeric, $8::numeric, $9,
-			        $10::numeric, $11, $12, $13, now())`,
+			        $10::numeric, $11, $12, $13, $14, now())`,
 			userID, t.AccountID, t.Symbol, t.Action, firstNonEmpty(t.TradeDate, batch.ReviewDate),
 			t.SettleDate, t.Quantity, t.Price, t.Currency, t.Fee, t.IsSettled, t.Notes,
-			nonEmptySource(t.Source)); err != nil {
+			t.PaymentAccountID, nonEmptySource(t.Source)); err != nil {
 			return ReviewBatchResult{}, err
 		}
 	}
@@ -173,6 +173,9 @@ func ensureBatchAccountsOwned(ctx context.Context, q accountOwnerChecker, userID
 	}
 	for _, t := range batch.Transactions {
 		add(t.AccountID)
+		if t.PaymentAccountID != nil {
+			add(*t.PaymentAccountID)
+		}
 	}
 	for _, t := range batch.Transfers {
 		add(t.FromAccountID)

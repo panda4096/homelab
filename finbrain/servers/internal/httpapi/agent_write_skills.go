@@ -340,7 +340,7 @@ func writeSkills() []Skill {
 }
 
 var balanceSchema = sch(`{"type":"object","properties":{"account_id":{"type":"integer"},"snapshot_date":{"type":"string","description":"YYYY-MM-DD, default today"},"balance":{"type":"string","description":"decimal, up to 2dp"},"note":{"type":"string"}},"required":["account_id","balance"],"additionalProperties":false}`)
-var transactionSchema = sch(`{"type":"object","properties":{"account_id":{"type":"integer"},"symbol":{"type":"string"},"action":{"type":"string","enum":["buy","sell"]},"trade_date":{"type":"string"},"settle_date":{"type":"string"},"quantity":{"type":"string"},"price":{"type":"string"},"currency":{"type":"string"},"fee":{"type":"string"},"is_settled":{"type":"boolean"},"notes":{"type":"string"}},"required":["account_id","symbol","action","quantity","price","currency"],"additionalProperties":false}`)
+var transactionSchema = sch(`{"type":"object","properties":{"account_id":{"type":"integer"},"symbol":{"type":"string"},"action":{"type":"string","enum":["buy","sell"]},"trade_date":{"type":"string"},"settle_date":{"type":"string"},"quantity":{"type":"string"},"price":{"type":"string"},"currency":{"type":"string"},"fee":{"type":"string"},"is_settled":{"type":"boolean"},"notes":{"type":"string"},"payment_account_id":{"type":"integer"}},"required":["account_id","symbol","action","quantity","price","currency"],"additionalProperties":false}`)
 var creditCardSchema = sch(`{"type":"object","properties":{"account_id":{"type":"integer"},"statement_date":{"type":"string"},"amount_total":{"type":"string"},"currency":{"type":"string"},"paid_at":{"type":"string"},"payment_account_id":{"type":"integer"},"top_categories":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"amount":{"type":"string"}}}},"note":{"type":"string"}},"required":["account_id","amount_total"],"additionalProperties":false}`)
 var positionSnapshotSchema = sch(`{"type":"object","properties":{"account_id":{"type":"integer"},"symbol":{"type":"string"},"snapshot_date":{"type":"string"},"quantity":{"type":"string"},"avg_cost":{"type":"string"},"cost_currency":{"type":"string"},"note":{"type":"string"}},"required":["account_id","symbol","quantity"],"additionalProperties":false}`)
 var transferSchema = sch(`{"type":"object","properties":{"from_account_id":{"type":"integer"},"to_account_id":{"type":"integer"},"from_amount":{"type":"string"},"to_amount":{"type":"string"},"transfer_date":{"type":"string"},"notes":{"type":"string"}},"required":["from_account_id","to_account_id","from_amount","to_amount"],"additionalProperties":false}`)
@@ -406,6 +406,9 @@ func (s *Server) buildTransactionFromArgs(ctx context.Context, a skillArgs) (sto
 	if _, ok := a["is_settled"]; !ok {
 		t.IsSettled = true
 	}
+	if id := argInt(a, "payment_account_id"); id != 0 {
+		t.PaymentAccountID = &id
+	}
 	if t.AccountID == 0 || t.Symbol == "" {
 		return t, store.Account{}, "account_id 与 symbol 必填"
 	}
@@ -442,6 +445,11 @@ func (s *Server) buildTransactionFromArgs(ctx context.Context, a skillArgs) (sto
 	if !supportsPositionSnapshots(acct.Kind) {
 		return t, acct, "该账户类型不支持持仓交易"
 	}
+	pay, msg := s.validateTradePaymentAccount(ctx, userIDFromContext(ctx), s.today(ctx), t.PaymentAccountID, t.AccountID, t.Currency)
+	if msg != "" {
+		return t, acct, msg
+	}
+	t.PaymentAccountID = pay
 	return t, acct, ""
 }
 

@@ -122,6 +122,13 @@ func (s *Store) getValuation(ctx context.Context, userID int64, onDate, displayC
 	if err != nil {
 		return Valuation{}, err
 	}
+	// Effective cash = snapshot + replayed transactions/transfers/income/bill-payments since
+	// the snapshot (联动扣款). Same helper/rule as current_balance and the 现金对账 card. A buy
+	// debits its 扣款账户 here while raising the position below — the two legs net to ~the fee.
+	cashReplay, err := s.cashReplaySums(ctx, userID, 0, onDate, false)
+	if err != nil {
+		return Valuation{}, err
+	}
 
 	netWorth := decZero
 	totalAssets := decZero
@@ -132,6 +139,11 @@ func (s *Store) getValuation(ctx context.Context, userID int64, onDate, displayC
 		balance, err := decimalFromString(c.Balance)
 		if err != nil {
 			return Valuation{}, err
+		}
+		balanceStr := c.Balance
+		if delta, ok := cashReplay[c.AccountID]; ok && !delta.IsZero() {
+			balance = balance.Add(delta)
+			balanceStr = formatMoneyDecimal(balance)
 		}
 		res, err := fx.resolve(c.AccountCurrency, displayCurrency)
 		if err != nil {
@@ -152,7 +164,7 @@ func (s *Store) getValuation(ctx context.Context, userID int64, onDate, displayC
 			AccountKind:         c.AccountKind,
 			Institution:         c.Institution,
 			SnapshotDate:        c.SnapshotDate,
-			Balance:             c.Balance,
+			Balance:             balanceStr,
 			BalanceValueDisplay: formatMoneyDecimal(displayValue),
 		})
 

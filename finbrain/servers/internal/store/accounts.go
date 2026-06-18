@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 )
 
 // Account is a fund/holding container at an institution (PRD §5.2.1). Institution
@@ -67,6 +68,23 @@ func scanAccount(row rowScanner) (Account, error) {
 	return a, err
 }
 
+// applyEffectiveCash turns a cash account's snapshot-only CurrentBalance into the effective
+// balance (snapshot + cash replay since that snapshot) so recorded transactions move the
+// shown balance live (联动扣款). sums only contains cash-type accounts that have a snapshot
+// baseline; non-cash / snapshot-less accounts are left untouched.
+func applyEffectiveCash(a *Account, sums map[int64]decimal.Decimal) {
+	delta, ok := sums[a.ID]
+	if !ok || a.CurrentBalance == nil || delta.IsZero() {
+		return
+	}
+	base, err := decimal.NewFromString(*a.CurrentBalance)
+	if err != nil {
+		return
+	}
+	eff := formatMoneyDecimal(base.Add(delta))
+	a.CurrentBalance = &eff
+}
+
 // ListAccounts returns all accounts grouped-orderable by institution then account order.
 func (s *Store) ListAccounts(ctx context.Context, userID int64, today string) ([]Account, error) {
 	rows, err := s.pool.Query(ctx, accountFull+` WHERE a.user_id = $2 /* OWNED accounts */ ORDER BY a.is_archived, i.display_order, i.name, a.display_order, a.kind, a.name`, today, userID)
@@ -82,7 +100,17 @@ func (s *Store) ListAccounts(ctx context.Context, userID int64, today string) ([
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sums, err := s.cashReplaySums(ctx, userID, 0, today, false)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		applyEffectiveCash(&out[i], sums)
+	}
+	return out, nil
 }
 
 // GetAccount returns one account (with computed fields) or ErrNotFound.
@@ -91,7 +119,15 @@ func (s *Store) GetAccount(ctx context.Context, userID, id int64, today string) 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}
-	return a, err
+	if err != nil {
+		return Account{}, err
+	}
+	sums, err := s.cashReplaySums(ctx, userID, id, today, false)
+	if err != nil {
+		return Account{}, err
+	}
+	applyEffectiveCash(&a, sums)
+	return a, nil
 }
 
 func (s *Store) accountMetaByID(ctx context.Context, userID, id int64) (Account, error) {
@@ -133,6 +169,14 @@ func (s *Store) UpdateAccount(ctx context.Context, userID int64, a Account) (Acc
 	return s.accountMetaByID(ctx, userID, a.ID)
 }
 
+// AccountHasBalanceSnapshot reports whether the account has at least one balance snapshot —
+// the baseline an effective-cash trade payment account needs so its cash leg can anchor.
+func (s *Store) AccountHasBalanceSnapshot(ctx context.Context, userID, id int64) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED balance_snapshots */)`, userID, id).Scan(&ok)
+	return ok, err
+}
+
 // AccountHasData reports whether the account has any balance or position snapshot.
 func (s *Store) AccountHasData(ctx context.Context, userID, id int64) (bool, error) {
 	var exists bool
@@ -142,7 +186,7 @@ func (s *Store) AccountHasData(ctx context.Context, userID, id int64) (bool, err
 		       EXISTS(SELECT 1 FROM balance_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED balance_snapshots */)
 		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED position_snapshots */)
 		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED credit_card_bills */)
-		    OR EXISTS(SELECT 1 FROM transactions WHERE user_id=$1 AND account_id=$2 /* OWNED transactions */)
+		    OR EXISTS(SELECT 1 FROM transactions WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED transactions */)
 		    OR EXISTS(SELECT 1 FROM transfers WHERE user_id=$1 AND (from_account_id=$2 OR to_account_id=$2) /* OWNED transfers */)
 		    OR EXISTS(SELECT 1 FROM income_events WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED income_events */)
 		   )`, userID, id).Scan(&exists)
@@ -182,7 +226,7 @@ func (s *Store) DeleteAccountIfEmpty(ctx context.Context, userID, id int64) erro
 		SELECT EXISTS(SELECT 1 FROM balance_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED balance_snapshots */)
 		    OR EXISTS(SELECT 1 FROM position_snapshots WHERE user_id=$1 AND account_id=$2 /* OWNED position_snapshots */)
 		    OR EXISTS(SELECT 1 FROM credit_card_bills WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED credit_card_bills */)
-		    OR EXISTS(SELECT 1 FROM transactions WHERE user_id=$1 AND account_id=$2 /* OWNED transactions */)
+		    OR EXISTS(SELECT 1 FROM transactions WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED transactions */)
 		    OR EXISTS(SELECT 1 FROM transfers WHERE user_id=$1 AND (from_account_id=$2 OR to_account_id=$2) /* OWNED transfers */)
 		    OR EXISTS(SELECT 1 FROM income_events WHERE user_id=$1 AND (account_id=$2 OR payment_account_id=$2) /* OWNED income_events */)`, userID, id).Scan(&hasData); err != nil {
 		return err

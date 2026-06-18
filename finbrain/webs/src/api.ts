@@ -838,6 +838,9 @@ export interface Transaction {
   fee: string | null
   is_settled: boolean
   notes: string | null
+  // cash account debited (buy) / credited (sell); null → cash effect stays on account_id
+  payment_account_id: number | null
+  payment_account_name?: string | null
   source: string
   created_at: string
   updated_at: string
@@ -855,9 +858,11 @@ export interface CreateTransactionInput {
   fee?: string | null
   is_settled?: boolean
   notes?: string | null
+  payment_account_id?: number | null
 }
 
-export type UpdateTransactionInput = Omit<CreateTransactionInput, 'account_id' | 'symbol'>
+// Account & symbol are now editable on PATCH (历史数据补录/纠错), so the full input is sent.
+export type UpdateTransactionInput = CreateTransactionInput
 
 export interface Transfer {
   id: number

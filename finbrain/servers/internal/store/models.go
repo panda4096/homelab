@@ -255,9 +255,14 @@ type Transaction struct {
 	Fee         *string   `json:"fee"`
 	IsSettled   bool      `json:"is_settled"`
 	Notes       *string   `json:"notes"`
-	Source      string    `json:"source"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	// PaymentAccountID is the cash account debited (buy) / credited (sell). Nil → cash
+	// effect stays on AccountID (brokerage cash-sweep model). PaymentAccountName is a
+	// read-only joined convenience field.
+	PaymentAccountID   *int64    `json:"payment_account_id"`
+	PaymentAccountName *string   `json:"payment_account_name,omitempty"`
+	Source             string    `json:"source"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // Transfer moves cash between two accounts (PRD §5.2.17). Net worth is unchanged.

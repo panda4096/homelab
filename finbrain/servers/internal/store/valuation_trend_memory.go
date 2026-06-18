@@ -29,6 +29,14 @@ func (s *Store) netWorthTrendInMemory(ctx context.Context, userID int64, dates [
 	if err != nil {
 		return nil, err
 	}
+	// Post-snapshot cash events (transfers/income/paid bills) so cash moves between snapshots
+	// here just like getValuation's cashReplaySums (联动). Transactions are excluded: this path
+	// is gated on the user having none, and replaying a trade's cash without its position would
+	// mis-state net worth.
+	cashDeltas, err := s.loadCashDeltas(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 	instrumentCcy, err := s.loadInstrumentCurrencies(ctx)
 	if err != nil {
 		return nil, err
@@ -57,15 +65,25 @@ func (s *Store) netWorthTrendInMemory(ctx context.Context, userID int64, dates [
 		cashValue := decZero
 		positionValue := decZero
 
-		// Cash: latest balance on/before d (else earliest), for non-archived cash accounts.
+		// Cash: latest balance on/before d (else earliest), for non-archived cash accounts,
+		// plus replay of cash events strictly after that anchor snapshot (联动). When only
+		// future snapshots exist (anchored=false, projected backward) we add no replay —
+		// matching cashReplaySums, which omits accounts with no snapshot on/before the date.
 		for acctID, series := range balances {
 			a, ok := accounts[acctID]
 			if !ok || a.archived || !isCashKind(a.kind) {
 				continue
 			}
-			bal, ok := carryDecimal(series, d)
-			if !ok {
+			bal, anchor, anchored, exists := carryBalanceAnchor(series, d)
+			if !exists {
 				continue
+			}
+			if anchored {
+				for _, cd := range cashDeltas[acctID] {
+					if cd.date > anchor && cd.date <= d {
+						bal = bal.Add(cd.amount)
+					}
+				}
 			}
 			res, err := fx.resolve(a.currency, displayCurrency)
 			if err != nil {
@@ -268,6 +286,47 @@ func (s *Store) loadCreditCardBills(ctx context.Context, userID int64) ([]memBil
 	return out, rows.Err()
 }
 
+type memCashDelta struct {
+	date   string
+	amount decimal.Decimal
+}
+
+// loadCashDeltas returns post-snapshot cash events per account (transfers both legs, income
+// landing, paid credit-card bills), sorted by date asc. Mirrors cashReplaySums' non-transaction
+// sources; transactions are intentionally omitted (the in-memory path is gated on the user
+// having none, and a trade's cash can't move without its position also moving).
+func (s *Store) loadCashDeltas(ctx context.Context, userID int64) (map[int64][]memCashDelta, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT from_account_id, (-from_amount)::text, transfer_date::text FROM transfers WHERE user_id=$1 /* OWNED transfers */
+		UNION ALL
+		SELECT to_account_id, to_amount::text, transfer_date::text FROM transfers WHERE user_id=$1 /* OWNED transfers */
+		UNION ALL
+		SELECT payment_account_id, amount::text, event_date::text FROM income_events
+		  WHERE user_id=$1 AND payment_account_id IS NOT NULL /* OWNED income_events */
+		UNION ALL
+		SELECT payment_account_id, (-amount_total)::text, paid_at::text FROM credit_card_bills
+		  WHERE user_id=$1 AND payment_account_id IS NOT NULL AND paid_at IS NOT NULL /* OWNED credit_card_bills */
+		ORDER BY 1, 3`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64][]memCashDelta{}
+	for rows.Next() {
+		var acctID int64
+		var amtText string
+		var cd memCashDelta
+		if err := rows.Scan(&acctID, &amtText, &cd.date); err != nil {
+			return nil, err
+		}
+		if cd.amount, err = decimalFromString(amtText); err != nil {
+			return nil, err
+		}
+		out[acctID] = append(out[acctID], cd)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) loadInstrumentCurrencies(ctx context.Context) (map[string]string, error) {
 	rows, err := s.pool.Query(ctx, `SELECT symbol, COALESCE(quote_currency,'') FROM instruments`)
 	if err != nil {
@@ -309,9 +368,13 @@ func carrySnapshot(series []memSnap, d string) (memSnap, bool) {
 	return series[0], true
 }
 
-func carryDecimal(series []memBal, d string) (decimal.Decimal, bool) {
+// carryBalanceAnchor returns the balance effective on d, the anchor snapshot date (latest
+// snapshot on/before d) and whether such an anchor exists. When only future snapshots exist
+// it projects the earliest backward (anchored=false → callers add no cash replay), matching
+// currentCashRows' carry rule and cashReplaySums' anchoring. exists=false only when empty.
+func carryBalanceAnchor(series []memBal, d string) (bal decimal.Decimal, anchor string, anchored, exists bool) {
 	if len(series) == 0 {
-		return decZero, false
+		return decZero, "", false, false
 	}
 	idx := -1
 	for i := range series {
@@ -322,7 +385,7 @@ func carryDecimal(series []memBal, d string) (decimal.Decimal, bool) {
 		}
 	}
 	if idx >= 0 {
-		return series[idx].balance, true
+		return series[idx].balance, series[idx].date, true, true
 	}
-	return series[0].balance, true
+	return series[0].balance, "", false, true
 }

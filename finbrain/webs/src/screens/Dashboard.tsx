@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Badge, Button, Card, Icon } from '../ds'
 import {
-  getAccountReconciliation,
   getAllocationTargetDrift,
   getValuation,
   getTrend,
@@ -17,7 +16,7 @@ import {
   type CreditCardBill,
   type ValuationBucket,
 } from '../api'
-import { bucketName, KIND_LABEL, KIND_TONE, MARKET_TONE, native, supportsBalanceSnapshots, supportsPositionSnapshots } from '../lib/format'
+import { bucketName, KIND_LABEL, KIND_TONE, MARKET_TONE, native, supportsBalanceSnapshots } from '../lib/format'
 import {
   CurrencyValue,
   DeltaValue,
@@ -66,13 +65,7 @@ export function Dashboard() {
         queryFn: () => getAllocationTargetDrift(s.id, { display_currency: displayCurrency, fx_mode: fxMode }),
       })),
   })
-  const reconAccounts = accounts.filter((a) => !a.is_archived && (supportsBalanceSnapshots(a.kind) || supportsPositionSnapshots(a.kind)))
-  const reconQueries = useQueries({
-    queries: reconAccounts.slice(0, 12).map((a) => ({
-      queryKey: ['reconciliation', a.id, 'dashboard'],
-      queryFn: () => getAccountReconciliation(a.id, {}),
-    })),
-  })
+  const cashAccountCount = accounts.filter((a) => !a.is_archived && supportsBalanceSnapshots(a.kind)).length
   const bills = useQuery({
     queryKey: ['credit-card-bills', 'dashboard'],
     queryFn: listCreditCardBills,
@@ -128,10 +121,6 @@ export function Dashboard() {
   const fxFallbackCount = v.warnings.filter((w) => w.kind === 'fx_fallback').length
   const marketLatest = (market.data?.items ?? []).reduce((mx, it) => (it.latest_date > mx ? it.latest_date : mx), '')
   const driftAlerts = driftQueries.flatMap((q) => (q.data?.items ?? []).filter((i) => i.over_threshold).map((i) => `${q.data?.name ?? '目标'} · ${i.dimension_value} ${i.drift ?? '0.00'}%`))
-  const reconAlerts = reconQueries
-    .map((q) => q.data)
-    .filter((r): r is NonNullable<typeof r> => !!r && r.over_threshold)
-    .map((r) => `${r.account_name} · ${native(r.reconciliation_delta, r.currency)}`)
   const billSummary = summarizeBills(bills.data ?? [])
   const recentAnnotations = (annotations.data ?? []).slice(0, 4).map((a) => `${a.event_date} · ${a.label}`)
 
@@ -281,11 +270,11 @@ export function Dashboard() {
         />
         <SignalCard
           icon="scale"
-          title="现金对账"
-          value={reconAlerts.length ? `${reconAlerts.length} 个账户异常` : '差额正常'}
-          tone={reconAlerts.length ? 'warning' : 'success'}
-          lines={reconAlerts.slice(0, 3)}
-          action="去对账"
+          title="现金台账"
+          value={`${cashAccountCount} 个现金账户`}
+          tone="neutral"
+          lines={['余额随记账实时联动']}
+          action="看事件流"
           onAction={() => navigate('/recon')}
         />
         <SignalCard

@@ -95,7 +95,6 @@ func main() {
 		var mkt *market.Service
 		if cfg.MarketDataEnabled {
 			mkt = market.New(cfg, st)
-			go mkt.Start(ctx)
 		}
 
 		srv := &http.Server{
@@ -104,6 +103,11 @@ func main() {
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		log.Printf("finbrain serve on :%s (env=%s tz=%s)", cfg.Port, cfg.Env, cfg.Timezone)
+		// Market scheduler is a background side-car: launched after the server is wired so the
+		// startup log reads server-first, and it never blocks request serving (own goroutine).
+		if mkt != nil {
+			go mkt.Start(ctx)
+		}
 		if err := srv.ListenAndServe(); err != nil {
 			log.Fatal(err)
 		}

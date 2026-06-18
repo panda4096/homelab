@@ -49,6 +49,7 @@ interface BalanceDraft {
   skip: boolean
   note: string
   touched?: boolean // user typed a custom 当日余额 (vs. the last-value default)
+  confirmed?: boolean // user eyeballed this row 已核对 — a review-progress aid, no submit effect
 }
 
 interface PositionDraft {
@@ -276,6 +277,7 @@ export function ReviewWizard() {
           skip: draftRow?.skip ?? false,
           note: draftRow?.note ?? '',
           touched,
+          confirmed: draftRow?.confirmed ?? false,
         }
       })
     })
@@ -580,40 +582,76 @@ function DateStep({ reviewDate, onChange }: { reviewDate: string; onChange: (v: 
 }
 
 function BalanceStep({ rows, setRows }: { rows: BalanceDraft[]; setRows: (rows: BalanceDraft[] | ((rows: BalanceDraft[]) => BalanceDraft[])) => void }) {
+  // Focused-row review: only ONE row is accent-highlighted at a time (the one being worked on),
+  // not the whole list. Defaults to the first un-核对 row; follows clicks; auto-advances on confirm.
+  const [focused, setFocused] = useState(() => Math.max(0, rows.findIndex((r) => !r.confirmed)))
   if (!rows.length) return <EmptyLine text="暂无金额型账户。" />
-  const columns = 'minmax(150px, 1fr) minmax(104px, .64fr) minmax(188px, .92fr) 112px'
+  const columns = 'minmax(180px, 1fr) minmax(96px, .56fr) minmax(170px, .86fr) 88px'
+  const confirmedCount = rows.filter((r) => r.confirmed).length
+  const allConfirmed = confirmedCount === rows.length
+
+  // confirm a row (无变化 / 提交) then jump focus to the next still-un核对 row
+  const confirm = (index: number) => {
+    setRows((items) => items.map((it, i) => (i === index ? { ...it, confirmed: true, skip: false } : it)))
+    const after = rows.findIndex((r, i) => i > index && !r.confirmed)
+    setFocused(after >= 0 ? after : rows.findIndex((r, i) => i !== index && !r.confirmed))
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: columns, gap: 8, padding: '0 12px 6px', fontSize: 11, color: 'var(--text-tertiary)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px' }}>
+        <span style={{ fontSize: 11.5, color: confirmedCount ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+          已核对 <span className="fb-num" style={{ color: 'var(--accent-bright, var(--accent))' }}>{confirmedCount}</span> / {rows.length}
+        </span>
+        <Button variant="ghost" size="xs" onClick={() => setRows((items) => items.map((it) => ({ ...it, confirmed: !allConfirmed, skip: false })))}>
+          {allConfirmed ? '全部取消' : '全部核对'}
+        </Button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: columns, gap: 8, padding: '0 12px 2px', fontSize: 11, color: 'var(--text-tertiary)' }}>
         <span>账户</span><span style={{ textAlign: 'right' }}>上次值</span><span>当日余额</span><span />
       </div>
-      {rows.map((row, index) => (
-        <div key={row.account_id} style={{ display: 'grid', gridTemplateColumns: columns, gap: 8, alignItems: 'center', background: row.skip ? 'transparent' : 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <span title={row.account_label} style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{row.account_label}</span>
-            <Badge tone="neutral">{row.currency}</Badge>
-            {row.skip ? <Badge tone="neutral">无变化</Badge> : null}
+      {rows.map((row, index) => {
+        const isFocused = index === focused && !row.confirmed
+        return (
+          <div
+            key={row.account_id}
+            onClick={() => setFocused(index)}
+            style={{ display: 'grid', gridTemplateColumns: columns, gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: `1px solid ${isFocused ? 'var(--accent)' : 'var(--border-default)'}`, borderRadius: 'var(--radius-md)', padding: '10px 12px', opacity: row.confirmed ? 0.5 : 1, transition: 'opacity .15s, border-color .15s', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setRows((items) => items.map((it, i) => (i === index ? { ...it, confirmed: !it.confirmed } : it))) }}
+                title={row.confirmed ? '已核对 · 点击取消' : '标记已核对'}
+                style={{ width: 20, height: 20, flexShrink: 0, borderRadius: '50%', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, border: row.confirmed ? 'none' : `1.5px solid ${isFocused ? 'var(--accent)' : 'var(--text-tertiary)'}`, background: row.confirmed ? 'var(--accent)' : 'transparent', color: 'var(--accent-text)' }}
+              >
+                {row.confirmed ? <Icon name="check" size={12} /> : null}
+              </button>
+              <span title={row.account_label} style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{row.account_label}</span>
+              <Badge tone="neutral">{row.currency}</Badge>
+            </div>
+            <span className="fb-num" style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 12.5 }}>{native(row.last_balance, row.currency, 2)}</span>
+            <Input
+              numeric
+              prefix={row.currency}
+              value={row.balance}
+              onFocus={() => setFocused(index)}
+              onChange={(e) => setRows((items) => items.map((it, i) => (i === index ? { ...it, balance: e.target.value, touched: true, confirmed: false, skip: false } : it)))}
+              size="sm"
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              {row.confirmed ? (
+                <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>已核对</span>
+              ) : (
+                <Button variant={row.touched ? 'secondary' : 'ghost'} size="xs" onClick={(e) => { e.stopPropagation(); confirm(index) }}>
+                  {row.touched ? '提交' : '无变化'}
+                </Button>
+              )}
+            </div>
           </div>
-          <span className="fb-num" style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 12.5 }}>{native(row.last_balance, row.currency, 2)}</span>
-          <Input
-            numeric
-            prefix={row.currency}
-            value={row.balance}
-            disabled={row.skip}
-            onChange={(e) => setRows((items) => items.map((it, i) => (i === index ? { ...it, balance: e.target.value, skip: false, touched: true } : it)))}
-            size="sm"
-          />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-            <Button variant="ghost" size="xs" onClick={() => setRows((items) => items.map((it, i) => (i === index ? { ...it, balance: it.last_balance, skip: false, touched: false } : it)))}>
-              保留上次
-            </Button>
-            <Button variant="ghost" size="xs" onClick={() => setRows((items) => items.map((it, i) => (i === index ? { ...it, skip: true } : it)))}>
-              无变化
-            </Button>
-          </div>
-        </div>
-      ))}
-      <SectionHint>缺失值不会提交；负余额仍按资产带符号计入。</SectionHint>
+        )
+      })}
+      <SectionHint>逐个核对：没改动点「无变化」、改了金额点「提交」即标记已核对(✓ 变暗),焦点自动跳下一个。缺失值不会提交;负余额仍按资产带符号计入。</SectionHint>
     </div>
   )
 }

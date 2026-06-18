@@ -117,14 +117,76 @@ type reconCashEvent struct {
 	amount decimal.Decimal
 }
 
+// cashReplaySums returns, per cash-type account, the signed sum of cash events strictly
+// after that account's latest balance snapshot on/before onDate, up to onDate (native
+// currency). This is the "+ replay" term of the effective balance (snapshot + replay) and
+// the single source of truth shared by current_balance and valuation so they can never
+// drift from each other or from the 现金对账 card (same rules as reconCashEvents).
+//
+// Anchoring: an account with NO snapshot on/before onDate is OMITTED (sum treated as 0 by
+// callers) — without a snapshot baseline there's nothing to add a replay onto, and the
+// valuation trend projects the earliest snapshot backward for those dates, so replaying
+// pre-snapshot events there would double-count. accountID==0 covers all cash accounts;
+// a non-zero accountID restricts to one (cheap path for GetAccount).
+func (s *Store) cashReplaySums(ctx context.Context, userID, accountID int64, onDate string, settledOnly bool) (map[int64]decimal.Decimal, error) {
+	rows, err := s.pool.Query(ctx, `
+		WITH anchors AS (
+			SELECT a.id AS account_id,
+			  (SELECT max(bs.snapshot_date) FROM balance_snapshots bs
+			     WHERE bs.user_id=$1 AND bs.account_id=a.id AND bs.snapshot_date <= $2::date /* OWNED balance_snapshots via scoped accounts */) AS anchor
+			FROM accounts a /* OWNED accounts */
+			WHERE a.user_id=$1 AND NOT a.is_archived
+			  AND a.kind IN ('cash','time_deposit','wealth_product')
+			  AND ($3 = 0 OR a.id = $3)
+		),
+		deltas AS (
+			SELECT COALESCE(t.payment_account_id, t.account_id) AS account_id,
+			       CASE WHEN t.action='buy' THEN -(t.quantity*t.price + COALESCE(t.fee,0))
+			            ELSE (t.quantity*t.price - COALESCE(t.fee,0)) END AS amt,
+			       COALESCE(t.settle_date, t.trade_date) AS d
+			FROM transactions t WHERE t.user_id=$1 AND ($4 = false OR t.is_settled) /* OWNED transactions */
+			UNION ALL
+			SELECT tr.from_account_id, -tr.from_amount, tr.transfer_date FROM transfers tr WHERE tr.user_id=$1 /* OWNED transfers */
+			UNION ALL
+			SELECT tr.to_account_id, tr.to_amount, tr.transfer_date FROM transfers tr WHERE tr.user_id=$1 /* OWNED transfers */
+			UNION ALL
+			SELECT ie.payment_account_id, ie.amount, ie.event_date FROM income_events ie
+			  WHERE ie.user_id=$1 AND ie.payment_account_id IS NOT NULL /* OWNED income_events */
+			UNION ALL
+			SELECT cb.payment_account_id, -cb.amount_total, cb.paid_at FROM credit_card_bills cb
+			  WHERE cb.user_id=$1 AND cb.payment_account_id IS NOT NULL AND cb.paid_at IS NOT NULL /* OWNED credit_card_bills */
+		)
+		SELECT an.account_id, COALESCE(SUM(d.amt), 0)::text
+		FROM anchors an
+		LEFT JOIN deltas d ON d.account_id = an.account_id AND d.d > an.anchor AND d.d <= $2::date
+		WHERE an.anchor IS NOT NULL
+		GROUP BY an.account_id`, userID, onDate, accountID, settledOnly)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]decimal.Decimal{}
+	for rows.Next() {
+		var id int64
+		var sum string
+		if err := rows.Scan(&id, &sum); err != nil {
+			return nil, err
+		}
+		out[id] = mustDec(sum)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) reconCashEvents(ctx context.Context, userID, accountID int64, windowStart, onDate string, settledOnly bool) ([]reconCashEvent, error) {
 	var out []reconCashEvent
 
-	// Transactions: cash effect on settle (fallback trade) date (§6.19).
+	// Transactions: cash effect on settle (fallback trade) date (§6.19). The cash lands
+	// on the explicit payment account when set, else the position account itself
+	// (brokerage cash-sweep model).
 	txnRows, err := s.pool.Query(ctx, `
 		SELECT COALESCE(settle_date, trade_date)::text, symbol, action, quantity::text, price::text, COALESCE(fee,0)::text
 		FROM transactions
-		WHERE user_id=$1 AND account_id=$2 /* OWNED transactions */
+		WHERE user_id=$1 AND COALESCE(payment_account_id, account_id)=$2 /* OWNED transactions */
 		  AND COALESCE(settle_date, trade_date) > $3::date
 		  AND COALESCE(settle_date, trade_date) <= $4::date
 		  AND ($5 = false OR is_settled = true)`, userID, accountID, windowStart, onDate, settledOnly)

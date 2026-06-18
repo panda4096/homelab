@@ -54,6 +54,19 @@ export function marketLabel(market: string | null | undefined): string {
   return MARKET_LABEL[market] ?? market
 }
 
+// Tradable markets offered in the transaction form (drives the 市场 selector +
+// instrument filtering + default trade currency). INDEX/CASH aren't tradable here.
+export const TRADE_MARKETS = ['US', 'HK', 'CN', 'CRYPTO'] as const
+
+// Default trade currency per market. Selecting a market auto-switches 币种 to this
+// (the user can still override). Unknown markets leave the currency untouched.
+export const MARKET_DEFAULT_CURRENCY: Record<string, string> = {
+  US: 'USD',
+  HK: 'HKD',
+  CN: 'CNY',
+  CRYPTO: 'USD',
+}
+
 // Localized label for an allocation bucket across the standard valuation dimensions
 // (kind/currency/quote_currency/market/...). Falls back to the bucket's own name. Shared by
 // the dashboard donut and the compare table so raw codes (brokerage, cash, …) never leak.

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Badge, Icon, Select } from '../ds'
+import { Select } from '../ds'
 import { getAccountReconciliation, listAccounts } from '../api'
 import { native, quantity } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
@@ -36,7 +36,7 @@ export function Reconciliation() {
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
           <input type="checkbox" checked={settledOnly} onChange={(e) => setSettledOnly(e.target.checked)} /> 仅含已结算
         </label>
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-tertiary)' }}>阈值 0.5% · 超限高亮</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-tertiary)' }}>余额随记账实时联动</span>
       </div>
 
       {!id ? (
@@ -44,18 +44,14 @@ export function Reconciliation() {
       ) : r ? (
         <>
           <div className="fb-card" style={{ padding: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap' }}>
-              <Metric label="预期余额" value={native(r.expected_balance, r.currency)} />
-              <Icon name="minus" size={16} color="var(--text-tertiary)" />
-              <Metric label={r.snapshot_date ? `最新快照 · ${r.snapshot_date}` : '最新快照'} value={native(r.snapshot_balance, r.currency)} />
-              <Icon name="equal" size={16} color="var(--text-tertiary)" />
-              <Metric label="对账差额" value={native(r.reconciliation_delta, r.currency)} tone={r.over_threshold ? 'var(--warning)' : 'var(--gain)'} />
-              {r.over_threshold ? <Badge tone="warning" dot>超阈值</Badge> : <Badge tone="success">在阈值内</Badge>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
+              <Metric label="当前余额（实时）" value={native(r.expected_balance, r.currency)} />
+              <Metric label={r.snapshot_date ? `上次盘点 · ${r.snapshot_date}` : '上次盘点'} value={native(r.snapshot_balance, r.currency)} />
             </div>
           </div>
 
           <div className="fb-card" style={{ overflowX: 'auto' }}>
-            <div style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-tertiary)', borderBottom: '1px solid var(--divider)' }}>事件流 · 自最近现金快照起（§6.19）</div>
+            <div style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-tertiary)', borderBottom: '1px solid var(--divider)' }}>现金事件流 · 自上次盘点起（§6.19）</div>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
               <thead><tr><Th>日期</Th><Th>事件</Th><Th right>金额</Th><Th right>累计</Th></tr></thead>
               <tbody>
@@ -97,7 +93,7 @@ export function Reconciliation() {
       ) : (
         <div className="fb-card" style={{ padding: 24, color: 'var(--text-tertiary)' }}>加载中…</div>
       )}
-      <SectionHint>预期余额 = 最近现金快照 + 期间交易 / 转账 / 收益 / 信用卡还款推演（§6.19）；差额超阈值时建议补录交易或新建一条余额快照。</SectionHint>
+      <SectionHint>当前余额 = 上次盘点 + 期间交易 / 转账 / 收益 / 信用卡还款（§6.19），随记账实时联动；漏记了直接录一条新的余额快照即可重置基准。</SectionHint>
     </Page>
   )
 }
