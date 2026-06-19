@@ -62,7 +62,7 @@ export function Targets() {
               </button>
             )
           })}
-          <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={14} />} onClick={() => setSelId('new')}>新建目标配置</Button>
+          <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={14} />} onClick={() => setSelId('new')}>新建配置</Button>
         </div>
 
         {selId === 'new' ? (
@@ -73,7 +73,7 @@ export function Targets() {
             onSaved={() => qc.invalidateQueries({ queryKey: ['allocation-targets'] })}
             onDeleted={() => { void qc.invalidateQueries({ queryKey: ['allocation-targets'] }); setSelId(null) }} />
         ) : (
-          <div className="fb-card" style={{ padding: 24, color: 'var(--text-tertiary)' }}>选择或新建一套目标配置。</div>
+          <div className="fb-card" style={{ padding: 24, color: 'var(--text-tertiary)' }}>选择或新建一套配置。</div>
         )}
       </div>
       {!sets.isLoading && !(sets.data ?? []).length && selId !== 'new' ? null : null}
@@ -161,7 +161,7 @@ function TargetEditor({ set, displayCurrency, fxMode, onSaved, onDeleted }: {
           <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>目标总和</span>
           <span className="fb-num" style={{ fontSize: 15, fontWeight: 600, color: sumOk ? 'var(--gain)' : 'var(--warning)' }}>{sum.toFixed(1)}%</span>
           {sumOk ? <Icon name="check" size={15} color="var(--gain)" /> : <span style={{ fontSize: 11.5, color: 'var(--warning)' }}>需等于 100%</span>}
-          {set?.id && onDeleted ? <Button variant="ghost" size="sm" style={{ marginLeft: 'auto' }} onClick={() => { if (confirm('删除该目标配置？')) remove.mutate() }}>删除</Button> : <span style={{ marginLeft: 'auto' }} />}
+          {set?.id && onDeleted ? <Button variant="ghost" size="sm" style={{ marginLeft: 'auto' }} onClick={() => { if (confirm('删除该配置？')) remove.mutate() }}>删除</Button> : <span style={{ marginLeft: 'auto' }} />}
           <Button variant="primary" size="sm" disabled={!sumOk || !name.trim() || save.isPending} onClick={() => save.mutate()}>保存目标</Button>
         </div>
       </div>

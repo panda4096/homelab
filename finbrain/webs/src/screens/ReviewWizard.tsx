@@ -1202,17 +1202,17 @@ function DriftReview() {
   const lines = (q.data ?? []).filter((s) => !s.is_archived).map((s) => `${s.name} · ${s.dimension} · 阈值 ±${s.drift_threshold_pct}%`)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <SectionHint>检视各目标配置的当前漂移（提醒为主，不阻塞提交）。</SectionHint>
+      <SectionHint>检视各仓位配置的当前漂移（提醒为主，不阻塞提交）。</SectionHint>
       <div className="fb-card" style={{ padding: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-strong)' }}>目标配置</span>
-          <Button size="sm" variant="ghost" style={{ marginLeft: 'auto' }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate('/targets')}>去目标配置</Button>
+          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-strong)' }}>仓位管理</span>
+          <Button size="sm" variant="ghost" style={{ marginLeft: 'auto' }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate('/targets')}>去仓位管理</Button>
         </div>
         {lines.length ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {lines.map((line, index) => <div key={index} style={{ fontSize: 12.5, color: 'var(--text-secondary)', padding: '6px 0', borderBottom: '1px solid var(--divider)', fontFamily: 'var(--font-mono)' }}>{line}</div>)}
           </div>
-        ) : <span style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>{q.isLoading ? '加载中…' : '暂无目标配置'}</span>}
+        ) : <span style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>{q.isLoading ? '加载中…' : '暂无仓位配置'}</span>}
       </div>
     </div>
   )

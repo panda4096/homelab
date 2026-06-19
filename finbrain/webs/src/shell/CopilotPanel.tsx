@@ -664,7 +664,7 @@ const SKILL_LABELS: Record<string, string> = {
   'fx.getRateHistory': '历史汇率',
   'recon.getAccountDiff': '现金对账',
   'compare.getPeriodAttribution': '期间归因',
-  'targets.getDrift': '目标配置漂移',
+  'targets.getDrift': '仓位配置漂移',
   'entry.draftBalanceSnapshot': '余额快照草稿',
   'entry.draftTransaction': '持仓交易草稿',
   'entry.draftCreditCardBill': '信用卡账单草稿',
