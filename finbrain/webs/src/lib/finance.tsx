@@ -455,19 +455,27 @@ export function LineChart({
           })()}
         </g>
       ) : null}
-      {xTicks.map((i) => (
-        <text
-          key={i}
-          x={x(i)}
-          y={height - 9}
-          textAnchor="middle"
-          fontFamily="var(--font-mono)"
-          fontSize="9"
-          fill="var(--text-tertiary)"
-        >
-          {data[i].m.slice(5)}
-        </text>
-      ))}
+      {xTicks.map((i, idx) => {
+        const m = data[i].m
+        // Surface the year (2-digit prefix) on the first tick and whenever it changes, so a range
+        // that crosses a year boundary (e.g. 06-30 … 06-19) isn't ambiguous. Falls back to the raw
+        // label for non-date x values. Full date is always in the hover tooltip.
+        const isDate = m.length >= 10 && m[4] === '-'
+        const showYear = isDate && (idx === 0 || m.slice(0, 4) !== data[xTicks[idx - 1]].m.slice(0, 4))
+        return (
+          <text
+            key={i}
+            x={x(i)}
+            y={height - 9}
+            textAnchor="middle"
+            fontFamily="var(--font-mono)"
+            fontSize="9"
+            fill="var(--text-tertiary)"
+          >
+            {showYear ? `${m.slice(2, 4)}-${m.slice(5)}` : m.slice(5)}
+          </text>
+        )
+      })}
     </svg>
   )
 }
