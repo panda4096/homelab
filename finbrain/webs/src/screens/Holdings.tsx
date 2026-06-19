@@ -13,6 +13,7 @@ type SortKey =
   | 'price'
   | 'marketValue'
   | 'plPct'
+  | 'plValue'
   | 'weight'
   | 'assetWeight'
   | 'holdingDays'
@@ -52,7 +53,7 @@ export function Holdings() {
   const timezone = usePrefStore((s) => s.timezone)
   const [group, setGroup] = useState('symbol')
   const [filter, setFilter] = useState('all')
-  const [sort, setSort] = useState<{ key: SortKey | null; dir: number }>({ key: null, dir: 1 })
+  const [sort, setSort] = useState<{ key: SortKey | null; dir: number }>({ key: 'marketValue', dir: -1 })
   const [expandedAccounts, setExpandedAccounts] = useState<Record<number, boolean>>({})
   const today = todayISO(timezone)
   const [asOf, setAsOf] = useState(today)
@@ -210,7 +211,7 @@ export function Holdings() {
                 {!aggregated && <SortableTh right sortKey="price" sort={sort} onSort={onSort}>现价</SortableTh>}
                 <SortableTh right sortKey="marketValue" sort={sort} onSort={onSort}>持仓市值</SortableTh>
                 <SortableTh right sortKey="plPct" sort={sort} onSort={onSort}>浮动盈亏率</SortableTh>
-                <SortableTh right>浮动盈亏</SortableTh>
+                <SortableTh right sortKey="plValue" sort={sort} onSort={onSort}>浮动盈亏</SortableTh>
                 <SortableTh right sortKey="weight" sort={sort} onSort={onSort}>仓位权重</SortableTh>
                 {!aggregated && <SortableTh right sortKey="assetWeight" sort={sort} onSort={onSort}>资产权重</SortableTh>}
                 {!aggregated && <SortableTh right sortKey="holdingDays" sort={sort} onSort={onSort}>持仓时长</SortableTh>}
@@ -546,6 +547,8 @@ function holdingSortValue(r: HoldingRow, key: SortKey) {
       return r.marketValue
     case 'plPct':
       return r.plPct
+    case 'plValue':
+      return r.plValue
     case 'weight':
       return r.weight
     case 'assetWeight':
