@@ -4,17 +4,14 @@ import { Badge, Button, Card, DateField, Field, Icon, IconButton, Input, Segment
 import {
   deleteFxRate,
   deleteInstrument,
-  deletePrice,
   listFxRates,
   listInstruments,
   listPrices,
   resolveInstrument,
   updateFxRate,
   updateInstrument,
-  updatePrice,
   upsertFxRate,
   upsertInstrument,
-  upsertPrice,
   type FxRate,
   type Instrument,
   type Price,
@@ -29,7 +26,6 @@ import { usePrefStore } from '../store'
 
 type Tab = 'instruments' | 'fx' | 'benchmarks'
 type Editor =
-  | { kind: 'price'; item?: Price; defaultSymbol?: string; defaultCurrency?: string }
   | { kind: 'fx'; item?: FxRate }
   | { kind: 'instrument'; item?: Instrument; benchmark?: boolean }
   | null
@@ -142,15 +138,6 @@ export function MarketData() {
   const selectedPriceRows = exactPriceRows(priceHistory.data?.items ?? [], historySymbol)
   const selectedFxRows = selectedFx ? exactFxRows(fxHistory.data?.items ?? [], selectedFx.base, selectedFx.quote) : []
 
-  const removePrice = useMutation({
-    mutationFn: deletePrice,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['prices'] })
-      invalidatePortfolio(qc)
-      toast.success('价格已删除')
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
-  })
   const removeFx = useMutation({
     mutationFn: deleteFxRate,
     onSuccess: () => {
@@ -182,7 +169,7 @@ export function MarketData() {
   const actionText = { fx: '汇率', instruments: '标的', benchmarks: '基准' }[tab]
   const hint = {
     fx: '反向汇率自动互换；缺失时按 1:1 降级并在仪表盘提示。批量补历史走后端 API §4.10.1。',
-    instruments: '标的是价格历史的归属实体；价格点在标的详情里维护，切换展示币种不影响本页原币种展示。',
+    instruments: '价格由系统自动抓取（股/指/汇走 Yahoo、基金走东财），无需手动维护；详情展示最新价、走势与上次更新时间。新增标的后会立即取一次最新价。',
     benchmarks: '基准是标的的一种身份，历史价格仍来自同一张 prices 表；后续趋势图会使用这些曲线做基准对比。',
   }[tab]
 
@@ -236,11 +223,6 @@ export function MarketData() {
             loading={priceHistory.isLoading}
             onEditInstrument={(m) => setEditor({ kind: 'instrument', item: m })}
             onDeleteInstrument={(m) => removeInstrument.mutate(m.symbol)}
-            onAddPrice={(m) =>
-              setEditor({ kind: 'price', defaultSymbol: m.symbol, defaultCurrency: m.quote_currency ?? undefined })
-            }
-            onEditPrice={(p) => setEditor({ kind: 'price', item: p })}
-            onDeletePrice={(p) => removePrice.mutate(p.id)}
           />
         ) : (
           <BenchmarkManager
@@ -255,25 +237,12 @@ export function MarketData() {
             loading={priceHistory.isLoading}
             onEditInstrument={(m) => setEditor({ kind: 'instrument', item: m, benchmark: true })}
             onRemoveBenchmark={(m) => removeBenchmark.mutate(m.symbol)}
-            onAddPrice={(m) =>
-              setEditor({ kind: 'price', defaultSymbol: m.symbol, defaultCurrency: m.quote_currency ?? undefined })
-            }
-            onEditPrice={(p) => setEditor({ kind: 'price', item: p })}
-            onDeletePrice={(p) => removePrice.mutate(p.id)}
           />
         )}
       </Card>
 
       <SectionHint>{hint}</SectionHint>
 
-      {editor?.kind === 'price' ? (
-        <PriceModal
-          item={editor.item}
-          defaultSymbol={editor.defaultSymbol}
-          defaultCurrency={editor.defaultCurrency}
-          onClose={() => setEditor(null)}
-        />
-      ) : null}
       {editor?.kind === 'fx' ? <FxModal item={editor.item} onClose={() => setEditor(null)} /> : null}
       {editor?.kind === 'instrument' ? (
         <InstrumentModal item={editor.item} benchmark={editor.benchmark} onClose={() => setEditor(null)} />
@@ -383,9 +352,6 @@ function InstrumentManager({
   loading,
   onEditInstrument,
   onDeleteInstrument,
-  onAddPrice,
-  onEditPrice,
-  onDeletePrice,
 }: {
   items: Instrument[]
   selectedSymbol: string
@@ -398,14 +364,12 @@ function InstrumentManager({
   loading?: boolean
   onEditInstrument: (instrument: Instrument) => void
   onDeleteInstrument: (instrument: Instrument) => void
-  onAddPrice: (instrument: Instrument) => void
-  onEditPrice: (price: Price) => void
-  onDeletePrice: (price: Price) => void
 }) {
   const cur = items.find((i) => i.symbol === selectedSymbol)
   const historyRows = sortPrices(exactPriceRows(rows, selectedSymbol), 'date_asc')
   const series = priceSeries(historyRows)
-  const currency = latestPrice(historyRows)?.currency ?? cur?.quote_currency ?? 'USD'
+  const latest = latestPrice(historyRows)
+  const currency = latest?.currency ?? cur?.quote_currency ?? 'USD'
 
   return (
     <MasterDetail
@@ -429,14 +393,11 @@ function InstrumentManager({
             actions={
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {historyTruncated ? <Badge tone="warning">当前历史已截断 {limit ?? 5000} 点</Badge> : null}
-                <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={13} />} onClick={() => onAddPrice(cur)}>
-                  新增价格
-                </Button>
                 <RowActions onEdit={() => onEditInstrument(cur)} onDelete={() => onDeleteInstrument(cur)} />
               </div>
             }
           />
-          <InstrumentMeta instrument={cur} />
+          <InstrumentMeta instrument={cur} latest={latest} />
           <HistoryChart
             series={series}
             yFmt={(v) => native(v, currency, 4)}
@@ -444,7 +405,6 @@ function InstrumentManager({
             emptyText={series.length === 0 ? '暂无历史价格' : '历史价格不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'}
             pointLabel="价格点"
           />
-          <PricePointTable rows={sortPrices(historyRows, 'date_desc')} onEdit={onEditPrice} onDelete={onDeletePrice} />
         </>
       ) : (
         <EmptyPanel text="暂无标的" />
@@ -465,9 +425,6 @@ function BenchmarkManager({
   loading,
   onEditInstrument,
   onRemoveBenchmark,
-  onAddPrice,
-  onEditPrice,
-  onDeletePrice,
 }: {
   items: Instrument[]
   selectedSymbol: string
@@ -480,14 +437,12 @@ function BenchmarkManager({
   loading?: boolean
   onEditInstrument: (instrument: Instrument) => void
   onRemoveBenchmark: (instrument: Instrument) => void
-  onAddPrice: (instrument: Instrument) => void
-  onEditPrice: (price: Price) => void
-  onDeletePrice: (price: Price) => void
 }) {
   const cur = items.find((i) => i.symbol === selectedSymbol)
   const historyRows = sortPrices(exactPriceRows(rows, selectedSymbol), 'date_asc')
   const series = priceSeries(historyRows)
-  const currency = latestPrice(historyRows)?.currency ?? cur?.quote_currency ?? 'USD'
+  const latest = latestPrice(historyRows)
+  const currency = latest?.currency ?? cur?.quote_currency ?? 'USD'
   const order = cur ? items.findIndex((i) => i.symbol === cur.symbol) + 1 : 0
 
   return (
@@ -513,18 +468,16 @@ function BenchmarkManager({
             actions={
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {historyTruncated ? <Badge tone="warning">当前历史已截断 {limit ?? 5000} 点</Badge> : null}
-                <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={13} />} onClick={() => onAddPrice(cur)}>
-                  新增价格
-                </Button>
                 <RowActions onEdit={() => onEditInstrument(cur)} onDelete={() => onRemoveBenchmark(cur)} deleteLabel="移出基准" />
               </div>
             }
           />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            <Meta label="显示名" value={cur.display_name ?? '—'} />
+            <Meta label="最新价" value={latest ? native(latest.price, latest.currency, 4) : '—'} />
+            <Meta label="价格截至" value={latest?.price_date ?? '—'} />
+            <Meta label="上次更新" value={latest ? new Date(latest.updated_at).toLocaleString() : '—'} />
             <Meta label="计价币种" value={cur.quote_currency ?? '—'} />
             <Meta label="资产类型" value={assetKindLabel(cur.asset_kind)} />
-            <Meta label="默认叠加" value="是" />
             <Meta label="排序" value={order ? `#${order}` : '—'} />
           </div>
           <HistoryChart
@@ -534,7 +487,6 @@ function BenchmarkManager({
             emptyText={series.length === 0 ? '暂无历史价格' : '历史价格不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'}
             pointLabel="价格点"
           />
-          <PricePointTable rows={sortPrices(historyRows, 'date_desc')} onEdit={onEditPrice} onDelete={onDeletePrice} />
         </>
       ) : (
         <EmptyPanel text="暂无基准；可在新增/编辑标的时勾选“用作基准”" />
@@ -821,10 +773,12 @@ function HistoryChart({
   )
 }
 
-function InstrumentMeta({ instrument }: { instrument: Instrument }) {
+function InstrumentMeta({ instrument, latest }: { instrument: Instrument; latest?: Price }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-      <Meta label="显示名" value={instrument.display_name ?? '—'} />
+      <Meta label="最新价" value={latest ? native(latest.price, latest.currency, 4) : '—'} />
+      <Meta label="价格截至" value={latest?.price_date ?? '—'} />
+      <Meta label="上次更新" value={latest ? new Date(latest.updated_at).toLocaleString() : '—'} />
       <Meta label="市场" value={instrument.market ?? '—'} />
       <Meta label="计价币种" value={instrument.quote_currency ?? '—'} />
       <Meta label="资产类型" value={assetKindLabel(instrument.asset_kind)} />
@@ -844,42 +798,6 @@ function Meta({ label, value }: { label: string; value: ReactNode }) {
 
 function MarketTable({ children }: { children: ReactNode }) {
   return <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>{children}</table>
-}
-
-function PricePointTable({
-  rows,
-  onEdit,
-  onDelete,
-}: {
-  rows: Price[]
-  onEdit: (price: Price) => void
-  onDelete: (price: Price) => void
-}) {
-  return (
-    <MarketTable>
-      <thead>
-        <tr>
-          <Th w="23%">日期</Th>
-          <Th right w="25%">价格</Th>
-          <Th w="16%">币种</Th>
-          <Th>来源</Th>
-          <Th w={88}></Th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((p) => (
-          <Row key={p.id}>
-            <Td mono dim>{p.price_date}</Td>
-            <Td right mono color="var(--text-strong)">{native(p.price, p.currency, 4)}</Td>
-            <Td><Badge tone="neutral">{p.currency}</Badge></Td>
-            <Td dim>{p.source || 'manual'}</Td>
-            <Td right><RowActions onEdit={() => onEdit(p)} onDelete={() => onDelete(p)} /></Td>
-          </Row>
-        ))}
-        {!rows.length ? <EmptyTableRow text="暂无价格点" colSpan={5} /> : null}
-      </tbody>
-    </MarketTable>
-  )
 }
 
 function FxPointTable({
@@ -971,94 +889,6 @@ function EmptyPanel({ text, compact }: { text: string; compact?: boolean }) {
     >
       {text}
     </div>
-  )
-}
-
-function PriceModal({
-  item,
-  defaultSymbol,
-  defaultCurrency,
-  onClose,
-}: {
-  item?: Price
-  defaultSymbol?: string
-  defaultCurrency?: string
-  onClose: () => void
-}) {
-  const qc = useQueryClient()
-  const toast = useToast()
-  const timezone = usePrefStore((s) => s.timezone)
-  const [symbol, setSymbol] = useState(item?.symbol ?? defaultSymbol ?? '')
-  const [priceDate, setPriceDate] = useState(item?.price_date ?? todayISO(timezone))
-  const [price, setPrice] = useState(item?.price ?? '')
-  const [currency, setCurrency] = useState(item?.currency ?? defaultCurrency ?? 'HKD')
-  const [source, setSource] = useState(item?.source ?? 'manual')
-  const [note, setNote] = useState(item?.note ?? '')
-  const [touched, setTouched] = useState(false)
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      item
-        ? updatePrice(item.id, { price_date: priceDate, price, currency, source, note })
-        : upsertPrice({ symbol: symbol.trim().toUpperCase(), price_date: priceDate, price, currency, source, note }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['prices'] })
-      void qc.invalidateQueries({ queryKey: ['instruments'] })
-      invalidatePortfolio(qc)
-      toast.success(item ? '价格已更新' : '价格已新增')
-      onClose()
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : '保存失败'),
-  })
-  const invalid = touched && (!symbol.trim() || !price.trim())
-
-  return (
-    <Modal
-      title={item ? '编辑价格' : '新增价格'}
-      icon="candlestick-chart"
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>取消</Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setTouched(true)
-              if (!symbol.trim() || !price.trim()) return
-              mutation.mutate()
-            }}
-            disabled={mutation.isPending}
-          >
-            保存
-          </Button>
-        </>
-      }
-    >
-      <div className="fb-form form-4">
-        <Field label="标的" error={invalid && !symbol.trim() ? '必填' : undefined}>
-          <Input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} disabled={!!item} placeholder="0700.HK" />
-        </Field>
-        <Field label="日期">
-          <DateField value={priceDate} onChange={setPriceDate} />
-        </Field>
-        <Field label="价格" error={invalid && !price.trim() ? '必填' : undefined}>
-          <Input numeric value={price} onChange={(e) => setPrice(e.target.value)} placeholder="401.20" />
-        </Field>
-        <Field label="币种">
-          <Select value={currency} onChange={(e) => setCurrency(e.target.value)} options={currencyOptions()} />
-        </Field>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <Field label="来源">
-          <Input value={source} onChange={(e) => setSource(e.target.value)} placeholder="manual" />
-        </Field>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <Field label="备注">
-          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="可留空" />
-        </Field>
-      </div>
-    </Modal>
   )
 }
 
