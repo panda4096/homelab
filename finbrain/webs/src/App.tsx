@@ -18,7 +18,6 @@ import { Transactions } from './screens/Transactions'
 import { IncomeEvents } from './screens/IncomeEvents'
 import { Transfers } from './screens/Transfers'
 import { CorporateActions } from './screens/CorporateActions'
-import { Reconciliation } from './screens/Reconciliation'
 import { TrendAnalysis } from './screens/TrendAnalysis'
 import { Targets } from './screens/Targets'
 import { Pivot } from './screens/Pivot'
@@ -197,7 +196,7 @@ export function App() {
     <div style={{ display: 'flex', height: '100vh' }}>
       <Sidebar copilotOpen={copilot} onCopilotChange={setCopilot} user={auth.user} onLogout={handleLogout} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Topbar title={title} onNL={() => setCopilot(true)} />
+        <Topbar title={title} />
         <div className="fb-scroll" style={{ flex: 1 }}>
           <div key={route} className="fb-fade">
             <ErrorBoundary key={route}>
@@ -217,7 +216,6 @@ export function App() {
               <Route path="/income" element={<IncomeEvents />} />
               <Route path="/transfers" element={<Transfers />} />
               <Route path="/corporate-actions" element={<CorporateActions />} />
-              <Route path="/recon" element={<Reconciliation />} />
               <Route path="/targets" element={<Targets />} />
               <Route path="/pivot" element={<Pivot />} />
               <Route path="/compare" element={<Compare />} />

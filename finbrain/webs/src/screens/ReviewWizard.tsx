@@ -36,9 +36,8 @@ const STEPS = [
   { id: 5, label: '账户转账', icon: 'repeat' },
   { id: 6, label: '信用卡账单', icon: 'receipt' },
   { id: 7, label: '收益事件', icon: 'coins' },
-  { id: 8, label: '现金对账', icon: 'scale' },
-  { id: 9, label: '漂移检视', icon: 'target' },
-  { id: 10, label: '预览确认', icon: 'clipboard-check' },
+  { id: 8, label: '漂移检视', icon: 'target' },
+  { id: 9, label: '预览确认', icon: 'clipboard-check' },
 ]
 
 interface BalanceDraft {
@@ -421,12 +420,12 @@ export function ReviewWizard() {
         </h2>
         <Badge tone="gold">草稿已自动保存</Badge>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>步骤 {step} / 10</span>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>步骤 {step} / 9</span>
           <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}>退出</Button>
         </div>
       </div>
       <div style={{ height: 4, borderRadius: 2, background: 'var(--surface-inset)', margin: '12px 0 22px', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${(step / 10) * 100}%`, background: 'var(--gradient-gold)', transition: 'width .3s var(--ease-out)' }} />
+        <div style={{ height: '100%', width: `${(step / 9) * 100}%`, background: 'var(--gradient-gold)', transition: 'width .3s var(--ease-out)' }} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '156px minmax(0, 1fr)', gap: 14, alignItems: 'flex-start' }}>
@@ -459,7 +458,9 @@ export function ReviewWizard() {
               <BillStep rows={bills} setRows={setBills} creditAccounts={creditAccounts} reviewDate={reviewDate} />
             ) : step === 7 ? (
               <IncomeStep rows={incomeEvents} setRows={setIncomeEvents} accounts={activeAccounts} paymentAccounts={paymentAccounts} reviewDate={reviewDate} />
-            ) : step === 10 ? (
+            ) : step === 8 ? (
+              <DriftReview />
+            ) : step === 9 ? (
               <PreviewStep
                 balances={balances}
                 positions={positions}
@@ -472,10 +473,6 @@ export function ReviewWizard() {
                 counts={counts}
                 errors={batchErrors}
               />
-            ) : step === 8 ? (
-              <ReconReview />
-            ) : step === 9 ? (
-              <DriftReview />
             ) : (
               <PlaceholderStep step={current} />
             )}
@@ -499,7 +496,7 @@ export function ReviewWizard() {
                 disabled={submit.isPending}
                 onClick={() => {
                   setBatchErrors([])
-                  if (step === 10) {
+                  if (step === 9) {
                     const errors = validateReviewDraft(balances, positions, bills, transactions, corporateActions, transfers, incomeEvents, timezone)
                     if (errors.length) {
                       setBatchErrors(errors)
@@ -507,12 +504,12 @@ export function ReviewWizard() {
                     }
                     submit.mutate()
                   } else {
-                    setStep((s) => Math.min(10, s + 1))
+                    setStep((s) => Math.min(9, s + 1))
                   }
                 }}
-                iconRight={<Icon name={step === 10 ? 'check' : 'arrow-right'} size={15} />}
+                iconRight={<Icon name={step === 9 ? 'check' : 'arrow-right'} size={15} />}
               >
-                {step === 10 ? (submit.isPending ? '提交中…' : '确认提交') : '下一步'}
+                {step === 9 ? (submit.isPending ? '提交中…' : '确认提交') : '下一步'}
               </Button>
             </div>
           </div>
@@ -1199,24 +1196,6 @@ function PreviewList({ title, rows }: { title: string; rows: string[] }) {
 const CA_ACTION: Record<string, string> = { split: '拆股', merge: '合股', rights: '配股' }
 const INCOME_KIND: Record<string, string> = { dividend: '分红', interest: '利息', rebate: '返现', other: '其他' }
 
-function ReconReview() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <SectionHint>每个现金 / 持仓账户的预期余额与最新快照的差额；超阈值表示可能漏录交易或转账（§6.19）。</SectionHint>
-      <div className="fb-card" style={{ padding: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Icon name="scale" size={18} color="var(--accent)" />
-        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>逐账户对账请到「现金对账」页核对差额。</span>
-        <ReconLink />
-      </div>
-    </div>
-  )
-}
-
-function ReconLink() {
-  const navigate = useNavigate()
-  return <Button size="sm" variant="secondary" style={{ marginLeft: 'auto' }} iconRight={<Icon name="arrow-right" size={13} />} onClick={() => navigate('/recon')}>去现金对账</Button>
-}
-
 function DriftReview() {
   const navigate = useNavigate()
   const q = useQuery({ queryKey: ['allocation-targets'], queryFn: () => listAllocationTargets() })
@@ -1356,9 +1335,9 @@ function subtitleForStep(step: number) {
   if (step === 2) return '列出所有非信用卡的活跃金额型账户，逐个填入当日余额'
   if (step === 3) return '列出持仓型账户的当前持仓，确认数量、成本并可补录买卖流水'
   if (step === 4) return '补录会影响持仓回放的拆股、合股、配股'
-  if (step === 5) return '补录账户间资金移动，供现金对账和现金流回放使用'
+  if (step === 5) return '补录账户间资金移动（含转入信用卡还款），供现金流回放使用'
   if (step === 6) return '信用卡账户不使用余额快照，本期未还账单会计入总负债'
   if (step === 7) return '补录分红、利息、返现等收益事件'
-  if (step === 10) return '确认本批次将写入的记录'
+  if (step === 9) return '确认本批次将写入的记录'
   return null
 }

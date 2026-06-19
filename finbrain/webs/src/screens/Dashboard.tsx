@@ -274,8 +274,8 @@ export function Dashboard() {
           value={`${cashAccountCount} 个现金账户`}
           tone="neutral"
           lines={['余额随记账实时联动']}
-          action="看事件流"
-          onAction={() => navigate('/recon')}
+          action="看账户"
+          onAction={() => navigate('/accounts')}
         />
         <SignalCard
           icon="credit-card"

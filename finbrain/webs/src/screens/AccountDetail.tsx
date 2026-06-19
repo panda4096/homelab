@@ -746,7 +746,7 @@ function AccountActivity({ account }: { account: Account }) {
   return (
     <>
       {!isCard ? (
-        <Card eyebrow="现金台账 · §6.19" actions={<Button size="sm" variant="ghost" onClick={() => navigate('/recon')}>查看明细</Button>}>
+        <Card eyebrow="现金台账 · §6.19">
           {recon.data ? (
             <>
               <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'center' }}>
