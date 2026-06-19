@@ -390,6 +390,35 @@ func (c *Client) streamDeepSeekMessages(ctx context.Context, chatReq ChatRequest
 	}
 
 	var out strings.Builder
+	// Tool calls also stream — as fragments keyed by index (id/name once, arguments concatenated).
+	// Accumulate them so a streamed planning turn can still return tool calls (enables streaming the
+	// agent's direct answers without losing tool-calling). See parseDeepSeekStreamDelta.
+	type tcAcc struct {
+		id   string
+		name string
+		args strings.Builder
+	}
+	toolAcc := map[int]*tcAcc{}
+	var toolOrder []int
+	buildToolCalls := func() []ToolCall {
+		calls := make([]ToolCall, 0, len(toolOrder))
+		for i, idx := range toolOrder {
+			acc := toolAcc[idx]
+			if strings.TrimSpace(acc.name) == "" {
+				continue
+			}
+			id := acc.id
+			if id == "" {
+				id = fmt.Sprintf("call_%d", i+1)
+			}
+			args := strings.TrimSpace(acc.args.String())
+			if args == "" {
+				args = "{}"
+			}
+			calls = append(calls, ToolCall{ID: id, Name: acc.name, Arguments: json.RawMessage(args)})
+		}
+		return calls
+	}
 	scanner := bufio.NewScanner(res.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -405,11 +434,28 @@ func (c *Client) streamDeepSeekMessages(ctx context.Context, chatReq ChatRequest
 			continue
 		}
 		if data == "[DONE]" {
-			return ChatResponse{Content: out.String()}, nil
+			return ChatResponse{Content: out.String(), ToolCalls: buildToolCalls()}, nil
 		}
-		delta, err := parseDeepSeekStreamDelta([]byte(data))
+		delta, toolChunks, err := parseDeepSeekStreamDelta([]byte(data))
 		if err != nil {
 			return ChatResponse{}, err
+		}
+		for _, ch := range toolChunks {
+			acc, ok := toolAcc[ch.Index]
+			if !ok {
+				acc = &tcAcc{}
+				toolAcc[ch.Index] = acc
+				toolOrder = append(toolOrder, ch.Index)
+			}
+			if ch.ID != "" {
+				acc.id = ch.ID
+			}
+			if ch.Name != "" {
+				acc.name = ch.Name
+			}
+			if ch.Args != "" {
+				acc.args.WriteString(ch.Args)
+			}
 		}
 		if delta.Usage != nil && !delta.Usage.Empty() && opts.OnUsage != nil {
 			if delta.Usage.Model == "" {
@@ -432,7 +478,7 @@ func (c *Client) streamDeepSeekMessages(ctx context.Context, chatReq ChatRequest
 	if err := scanner.Err(); err != nil {
 		return ChatResponse{}, err
 	}
-	return ChatResponse{Content: out.String()}, nil
+	return ChatResponse{Content: out.String(), ToolCalls: buildToolCalls()}, nil
 }
 
 type deepSeekToolCall struct {
@@ -519,7 +565,16 @@ func toolCallsFromDeepSeek(calls []deepSeekToolCall) []ToolCall {
 	return out
 }
 
-func parseDeepSeekStreamDelta(raw []byte) (StreamDelta, error) {
+// toolCallChunk is one streamed fragment of a tool call (OpenAI/DeepSeek emit tool calls
+// incrementally; fragments share an index, with id/name set once and arguments concatenated).
+type toolCallChunk struct {
+	Index int
+	ID    string
+	Name  string
+	Args  string
+}
+
+func parseDeepSeekStreamDelta(raw []byte) (StreamDelta, []toolCallChunk, error) {
 	var resp struct {
 		Model   string `json:"model"`
 		Usage   *Usage `json:"usage"`
@@ -527,19 +582,32 @@ func parseDeepSeekStreamDelta(raw []byte) (StreamDelta, error) {
 			Delta struct {
 				Content          string `json:"content"`
 				ReasoningContent string `json:"reasoning_content"`
+				ToolCalls        []struct {
+					Index    int    `json:"index"`
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
 			} `json:"delta"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return StreamDelta{}, fmt.Errorf("llm stream decode: %w", err)
+		return StreamDelta{}, nil, fmt.Errorf("llm stream decode: %w", err)
 	}
 	if len(resp.Choices) == 0 {
 		if resp.Usage != nil && resp.Usage.Model == "" {
 			resp.Usage.Model = resp.Model
 		}
-		return StreamDelta{Usage: resp.Usage}, nil
+		return StreamDelta{Usage: resp.Usage}, nil, nil
 	}
-	return StreamDelta{Content: resp.Choices[0].Delta.Content, Reasoning: resp.Choices[0].Delta.ReasoningContent, Usage: resp.Usage}, nil
+	d := resp.Choices[0].Delta
+	var chunks []toolCallChunk
+	for _, tc := range d.ToolCalls {
+		chunks = append(chunks, toolCallChunk{Index: tc.Index, ID: tc.ID, Name: tc.Function.Name, Args: tc.Function.Arguments})
+	}
+	return StreamDelta{Content: d.Content, Reasoning: d.ReasoningContent, Usage: resp.Usage}, chunks, nil
 }
 
 func (c *Client) completeAnthropicMessages(ctx context.Context, req ChatRequest, opts Options) (ChatResponse, error) {

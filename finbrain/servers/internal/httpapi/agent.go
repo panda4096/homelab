@@ -545,12 +545,28 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 		steps = append(steps, step)
 		emitAgentStep(emit, step)
 
-		resp, err := client.CompleteMessagesWithOptions(r.Context(), llmpkg.ChatRequest{
+		planReq := llmpkg.ChatRequest{
 			System:     system,
 			Messages:   messages,
 			Tools:      tools,
 			ToolChoice: "auto",
-		}, llmOpts)
+		}
+		// Stream the planning turn when the request supports it (SSE): a direct answer streams
+		// token-by-token, while tool calls are still captured from the stream so the loop proceeds.
+		// (Rarely the model emits a little text before deciding to call a tool — it streams as a
+		// brief preamble.) The non-streaming /plan path keeps the single Complete call.
+		var resp llmpkg.ChatResponse
+		var err error
+		if emitAnswer != nil {
+			resp, err = client.StreamMessagesWithOptions(r.Context(), planReq, llmOpts, func(delta llmpkg.StreamDelta) error {
+				if delta.Content != "" {
+					emitAnswer(delta.Content)
+				}
+				return nil
+			})
+		} else {
+			resp, err = client.CompleteMessagesWithOptions(r.Context(), planReq, llmOpts)
+		}
 		if err != nil {
 			if isLLMServiceError(err) {
 				s.setLLMProbeCache(userID, false, llmUserMessage(err))
@@ -576,9 +592,8 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 			step := agentStep{Key: "answer", Label: "总结回答", Status: "done", Detail: "已生成回答"}
 			steps = append(steps, step)
 			emitAgentStep(emit, step)
-			if emitAnswer != nil && reply != "" {
-				emitAnswer(reply)
-			}
+			// content (if any) already streamed live during the planning turn above — the cleaned
+			// reply is delivered via the final SSE event, so don't re-emit it here.
 			if last == nil {
 				return finish(agentLoopResult{Reply: reply, Steps: steps}), nil
 			}

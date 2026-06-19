@@ -94,19 +94,19 @@ func estimateDeepSeekCostUSD(u llm.Usage) float64 {
 func normalizeAgentLLMOptions(model string, thinking bool) (llm.Options, error) {
 	model = strings.TrimSpace(model)
 	switch model {
-	case "":
-		return llm.Options{Thinking: thinking}, nil
 	case "flash":
 		model = "deepseek-v4-flash"
 	case "pro":
 		model = "deepseek-v4-pro"
 	}
-	switch model {
-	case "deepseek-v4-flash", "deepseek-v4-pro":
-		return llm.Options{Model: model, Thinking: thinking}, nil
-	default:
-		return llm.Options{}, errSkillInput{"model 只支持 deepseek-v4-flash 或 deepseek-v4-pro"}
+	if len([]rune(model)) > 100 {
+		return llm.Options{}, errSkillInput{"model 名称过长"}
 	}
+	// Empty model → the active provider's configured default (the llm client falls back to
+	// c.model). Any non-empty model is passed through unchecked: with per-user multi-provider
+	// configs the upstream provider — not this gate — decides which models it serves. (thinking is
+	// DeepSeek-only and ignored by the client for other models/providers.)
+	return llm.Options{Model: model, Thinking: thinking}, nil
 }
 
 type deepSeekPrice struct {

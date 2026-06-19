@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/config"
@@ -70,6 +71,53 @@ func TestCompleteDeepSeekMessagesSendsNativeToolsAndParsesToolCall(t *testing.T)
 	}
 }
 
+func TestStreamDeepSeekMessagesAssemblesToolCallFragments(t *testing.T) {
+	// Tool calls stream as fragments keyed by index: id/name on the first chunk, arguments split
+	// across chunks. The client must concatenate them back into a single tool call while still
+	// streaming any content deltas to onDelta.
+	frames := []string{
+		`{"choices":[{"delta":{"role":"assistant","content":"稍等"}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"holdings.listCurrent","arguments":"{\"display_"}}]}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"currency\":\"CNY\"}"}}]}}]}`,
+		`[DONE]`,
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fl, _ := w.(http.Flusher)
+		for _, f := range frames {
+			_, _ = w.Write([]byte("data: " + f + "\n\n"))
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+	}))
+	defer ts.Close()
+
+	c := &Client{provider: "deepseek", apiKey: "test-key", model: "deepseek-v4-flash", baseURL: ts.URL, http: ts.Client()}
+	var streamed strings.Builder
+	resp, err := c.StreamMessagesWithOptions(context.Background(), ChatRequest{
+		Messages: []Message{{Role: "user", Content: "持仓"}},
+		Tools:    []Tool{{Name: "holdings.listCurrent", Description: "当前持仓"}},
+	}, Options{}, func(d StreamDelta) error {
+		streamed.WriteString(d.Content)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamed.String() != "稍等" {
+		t.Fatalf("streamed content = %q, want 稍等", streamed.String())
+	}
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %+v", resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].Name != "holdings.listCurrent" || resp.ToolCalls[0].ID != "call_1" {
+		t.Fatalf("tool call = %+v", resp.ToolCalls[0])
+	}
+	if string(resp.ToolCalls[0].Arguments) != `{"display_currency":"CNY"}` {
+		t.Fatalf("arguments = %s", resp.ToolCalls[0].Arguments)
+	}
+}
+
 func TestCompleteAnthropicMessagesUsesCacheControlAndParsesToolUse(t *testing.T) {
 	var body map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +161,7 @@ func TestCompleteAnthropicMessagesUsesCacheControlAndParsesToolUse(t *testing.T)
 }
 
 func TestParseDeepSeekStreamDeltaSeparatesContentAndReasoning(t *testing.T) {
-	got, err := parseDeepSeekStreamDelta([]byte(`{"choices":[{"delta":{"reasoning_content":"先查数据","content":"净资产"}}]}`))
+	got, _, err := parseDeepSeekStreamDelta([]byte(`{"choices":[{"delta":{"reasoning_content":"先查数据","content":"净资产"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +174,7 @@ func TestParseDeepSeekStreamDeltaSeparatesContentAndReasoning(t *testing.T) {
 }
 
 func TestParseDeepSeekStreamDeltaAllowsEmptyChoices(t *testing.T) {
-	got, err := parseDeepSeekStreamDelta([]byte(`{"choices":[]}`))
+	got, _, err := parseDeepSeekStreamDelta([]byte(`{"choices":[]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +184,7 @@ func TestParseDeepSeekStreamDeltaAllowsEmptyChoices(t *testing.T) {
 }
 
 func TestParseDeepSeekStreamDeltaIncludesUsage(t *testing.T) {
-	got, err := parseDeepSeekStreamDelta([]byte(`{
+	got, _, err := parseDeepSeekStreamDelta([]byte(`{
 		"model":"deepseek-v4-flash",
 		"choices":[],
 		"usage":{
