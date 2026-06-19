@@ -1,7 +1,7 @@
 // Command finbrain is the single binary for the finbrain backend.
 //
-//	finbrain serve            # start the HTTP server (+ market-data scheduler)
-//	finbrain migrate [up|down|status]
+//	finbrain serve            # start the HTTP server (+ market-data scheduler); auto-applies pending up migrations
+//	finbrain migrate [up|down|status]  # manual control; down/rollback is never run automatically
 //	finbrain seed             # load dev seed data
 //	finbrain backfill [sym…]  # fetch full price history (all instruments when no args)
 package main
@@ -86,6 +86,13 @@ func main() {
 
 	case "serve":
 		ctx := context.Background()
+		// Auto-apply pending schema migrations (forward only) on startup, so a fresh or lagging DB
+		// is brought up to date without a manual step. This NEVER runs down/rollback — destructive
+		// migration commands stay manual-only (finbrain migrate down). goose.Up is idempotent: when
+		// nothing is pending it's a no-op.
+		if err := store.Migrate(cfg.DatabaseURL, "up"); err != nil {
+			log.Fatalf("auto-migrate: %v", err)
+		}
 		st, err := store.New(ctx, cfg.DatabaseURL)
 		if err != nil {
 			log.Fatalf("db: %v", err)
