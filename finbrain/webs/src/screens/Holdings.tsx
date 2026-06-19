@@ -60,9 +60,10 @@ export function Holdings() {
     if (!data) return []
     let next =
       group === 'symbol'
-        ? (data.position_groups?.length ? data.position_groups : data.positions).map((p) =>
-            positionToRow(p, num(data.position_value) ?? 0, costMode),
-          )
+        ? (data.position_groups?.length ? data.position_groups : data.positions).map((p) => ({
+            ...positionToRow(p, num(data.position_value) ?? 0, costMode),
+            subtitle: p.display_name ?? p.symbol, // merged across accounts → show just the instrument name (no "· 多账户 · 合并")
+          }))
         : buildRows(data.positions, group, num(data.position_value) ?? 0, costMode)
     next = next.filter((h) => {
       if (filter === 'all') return true
