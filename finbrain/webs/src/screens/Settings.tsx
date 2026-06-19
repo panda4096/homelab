@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Card, Icon, Input, Segmented } from '../ds'
+import { Badge, Button, Card, Icon, Input, Segmented, Select } from '../ds'
 import { usePrefStore } from '../store'
 import { useAuthStore } from '../authStore'
-import { ApiError, activateLLMProvider, avatarUrl, changePassword, createLLMProvider, deleteLLMProvider, getLLMStatus, listLLMProviders, updateLLMProvider, updateProfile, uploadAvatar } from '../api'
+import { ApiError, activateLLMProvider, avatarUrl, changePassword, createLLMProvider, deleteLLMProvider, getLLMStatus, listLLMModels, listLLMProviders, updateLLMProvider, updateProfile, uploadAvatar } from '../api'
 import { useToast } from '../shell/Toast'
 import type {
   DisplayCurrency,
@@ -196,9 +196,13 @@ function CopilotConfigCard() {
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState(false)
   const [probing, setProbing] = useState(false)
+  const [models, setModels] = useState<string[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
 
   const items = providers.data?.items ?? []
   const editingHasKey = typeof editing === 'number' && (items.find((p) => p.id === editing)?.has_key ?? false)
+  // keep the current model selectable even if it isn't in the freshly-fetched list
+  const modelOptions = model && !models.includes(model) ? [model, ...models] : models
 
   function refresh() {
     return Promise.all([
@@ -213,6 +217,7 @@ function CopilotConfigCard() {
     setBaseUrl(LLM_DEFAULT_URL.deepseek)
     setModel('')
     setApiKey('')
+    setModels([])
   }
   function openEdit(p: LLMProvider) {
     setEditing(p.id)
@@ -221,10 +226,33 @@ function CopilotConfigCard() {
     setBaseUrl(p.base_url || LLM_DEFAULT_URL[p.provider] || '')
     setModel(p.model)
     setApiKey('')
+    setModels([])
   }
   function changeProvider(v: string) {
     setProvider(v)
     setBaseUrl(LLM_DEFAULT_URL[v] ?? '') // show the provider's default url, still editable
+    setModels([])
+  }
+  async function fetchModels() {
+    setLoadingModels(true)
+    try {
+      const res = await listLLMModels({
+        provider,
+        base_url: baseUrl.trim(),
+        api_key: apiKey.trim() || undefined,
+        id: typeof editing === 'number' ? editing : undefined,
+      })
+      setModels(res.models)
+      if (res.models.length === 0) toast.error('未返回模型列表')
+      else {
+        if (!model || !res.models.includes(model)) setModel(res.models[0])
+        toast.success(`获取到 ${res.models.length} 个模型`)
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '获取模型失败')
+    } finally {
+      setLoadingModels(false)
+    }
   }
   async function save() {
     setBusy(true)
@@ -332,8 +360,15 @@ function CopilotConfigCard() {
           <Row label="接口地址" hint="默认填好官方地址，可改成你的中转站地址">
             <Input value={baseUrl} placeholder={LLM_DEFAULT_URL[provider]} onChange={(e) => setBaseUrl(e.target.value)} style={{ maxWidth: 360 }} />
           </Row>
-          <Row label="模型" hint={provider === 'openai' ? '如 gpt-4o-mini' : '如 deepseek-chat / deepseek-reasoner'}>
-            <Input value={model} placeholder={provider === 'openai' ? 'gpt-4o-mini' : 'deepseek-chat'} onChange={(e) => setModel(e.target.value)} style={{ maxWidth: 240 }} />
+          <Row label="模型" hint="填好接口地址与 Key 后点「获取模型」从服务商拉取并选择；也可手填">
+            <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {modelOptions.length > 0 ? (
+                <Select value={model} onChange={(e) => setModel(e.target.value)} options={modelOptions.map((m) => ({ value: m, label: m }))} />
+              ) : (
+                <Input value={model} placeholder={provider === 'openai' ? 'gpt-4o-mini' : 'deepseek-chat'} onChange={(e) => setModel(e.target.value)} style={{ maxWidth: 220 }} />
+              )}
+              <Button size="sm" variant="ghost" disabled={loadingModels} onClick={fetchModels}>{loadingModels ? '获取中…' : '获取模型'}</Button>
+            </div>
           </Row>
           <Row label="API Key" hint={editingHasKey ? '留空则保留原 Key' : '该服务商的密钥'}>
             <Input type="password" value={apiKey} placeholder={editingHasKey ? '••••••••（已保存）' : 'sk-...'} onChange={(e) => setApiKey(e.target.value)} style={{ maxWidth: 280 }} />

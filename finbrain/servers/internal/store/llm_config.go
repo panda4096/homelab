@@ -72,6 +72,32 @@ func (s *Store) GetActiveLLMConfig(ctx context.Context, userID int64) (LLMProvid
 	return p, nil
 }
 
+// GetLLMProvider returns one provider (owned by userID) with its API key decrypted. Used to fetch
+// the upstream model list for an existing provider without re-entering the key.
+func (s *Store) GetLLMProvider(ctx context.Context, userID, id int64) (LLMProvider, error) {
+	var p LLMProvider
+	var enc string
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, label, provider, base_url, model, api_key_enc, is_active, updated_at
+		FROM user_llm_provider WHERE user_id = $1 AND id = $2 /* OWNED user_llm_provider */`, userID, id).
+		Scan(&p.ID, &p.Label, &p.Provider, &p.BaseURL, &p.Model, &enc, &p.IsActive, &p.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return LLMProvider{}, ErrNotFound
+	}
+	if err != nil {
+		return LLMProvider{}, err
+	}
+	if enc != "" {
+		plain, derr := crypto.Decrypt(enc)
+		if derr != nil {
+			return LLMProvider{}, derr
+		}
+		p.APIKey = string(plain)
+		p.HasKey = true
+	}
+	return p, nil
+}
+
 // CreateLLMProvider inserts a provider and returns its id. The first provider a user adds becomes
 // active automatically. apiKey is encrypted before storage.
 func (s *Store) CreateLLMProvider(ctx context.Context, userID int64, label, provider, baseURL, model, apiKey string) (int64, error) {

@@ -154,6 +154,7 @@ func NewRouter(cfg *config.Config, st *store.Store, mkt *market.Service) http.Ha
 			// through the P8 skill layer (/agent/plan → registered skills, no SQL).
 			r.Get("/llm/status", s.getLLMStatus)
 			r.Get("/llm/providers", s.getLLMProviders)
+			r.Post("/llm/models", s.listLLMModels)
 			r.Post("/llm/providers", s.createLLMProvider)
 			r.Put("/llm/providers/{id}", s.updateLLMProvider)
 			r.Delete("/llm/providers/{id}", s.deleteLLMProvider)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/config"
@@ -236,6 +237,51 @@ func (c *Client) StreamMessagesWithOptions(ctx context.Context, req ChatRequest,
 func (c *Client) Probe(ctx context.Context) error {
 	_, err := c.Complete(ctx, "你是健康检查端点。只返回 JSON。", `返回 {"ok":true}`, true)
 	return err
+}
+
+// ListModels fetches the available model ids from the provider's OpenAI-compatible /models
+// endpoint (derived from the chat-completions baseURL). Anthropic is not supported here.
+func (c *Client) ListModels(ctx context.Context) ([]string, error) {
+	if !c.Configured() {
+		return nil, ErrNotConfigured
+	}
+	if c.provider == "anthropic" {
+		return nil, errors.New("该服务商不支持动态获取模型列表")
+	}
+	base := strings.TrimSuffix(strings.TrimSuffix(c.baseURL, "/"), "/chat/completions")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		return nil, UpstreamError{StatusCode: res.StatusCode, Message: upstreamMessage(raw), Body: string(raw)}
+	}
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, fmt.Errorf("llm models decode: %w", err)
+	}
+	out := make([]string, 0, len(body.Data))
+	for _, m := range body.Data {
+		if id := strings.TrimSpace(m.ID); id != "" {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func (c *Client) completeDeepSeekMessages(ctx context.Context, req ChatRequest, opts Options) (ChatResponse, error) {

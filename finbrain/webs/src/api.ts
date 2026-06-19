@@ -1239,6 +1239,12 @@ export function activateLLMProvider(id: number): Promise<LLMProviderList> {
   return request<LLMProviderList>(`/api/llm/providers/${id}/activate`, { method: 'POST' })
 }
 
+// Fetch the upstream model list (OpenAI-compatible /models) for a draft (api_key) or existing (id)
+// provider, so the model can be picked from a dropdown rather than typed.
+export function listLLMModels(input: { provider?: string; base_url?: string; api_key?: string; id?: number }): Promise<{ models: string[] }> {
+  return request<{ models: string[] }>('/api/llm/models', { method: 'POST', body: JSON.stringify(input) })
+}
+
 export function listSummaries(): Promise<Summary[]> {
   return request<Summary[]>('/api/summaries')
 }

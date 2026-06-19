@@ -36,6 +36,47 @@ func (s *Server) llmFor(ctx context.Context, userID int64) *llm.Client {
 	return s.llm
 }
 
+// listLLMModels fetches the upstream model list for a draft or existing provider so the user can
+// pick from a dropdown instead of typing a model id. Accepts a transient plaintext api_key (for a
+// not-yet-saved config) or an existing provider id (uses its stored key).
+func (s *Server) listLLMModels(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID       *int64 `json:"id"`
+		Provider string `json:"provider"`
+		BaseURL  string `json:"base_url"`
+		APIKey   string `json:"api_key"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	provider, baseURL, _, _, msg := validateProviderInput("", body.Provider, body.BaseURL, "")
+	if msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
+		return
+	}
+	key := strings.TrimSpace(body.APIKey)
+	if key == "" && body.ID != nil {
+		if p, err := s.store.GetLLMProvider(r.Context(), userOf(r), *body.ID); err == nil && p.HasKey {
+			key = p.APIKey
+			if baseURL == "" {
+				baseURL = p.BaseURL
+			}
+		}
+	}
+	if key == "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "请先填写 API Key 再获取模型")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	models, err := llm.NewExplicit(provider, key, baseURL, "").ListModels(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "llm_unavailable", llmUserMessage(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
 func (s *Server) getLLMStatus(w http.ResponseWriter, r *http.Request) {
 	client := s.llmFor(r.Context(), userOf(r))
 	available, reason := client.Configured(), ""
