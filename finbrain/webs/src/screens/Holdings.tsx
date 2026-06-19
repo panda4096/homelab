@@ -113,6 +113,10 @@ export function Holdings() {
     )
   }
 
+  // Market / quote-currency views aggregate across instruments, so the per-instrument columns
+  // (quantity, cost, price, holding period, asset weight) are meaningless — hide them.
+  const aggregated = group === 'market' || group === 'quote'
+
   return (
     <Page>
       <div className="fb-grid fb-grid--g14 kpi-5">
@@ -187,16 +191,16 @@ export function Holdings() {
             <thead>
               <tr>
                 <SortableTh w="172px" sortKey="symbol" sort={sort} onSort={onSort}>标的 / 账户</SortableTh>
-                <SortableTh right sortKey="quantity" sort={sort} onSort={onSort}>数量</SortableTh>
-                <SortableTh right sortKey="avgCost" sort={sort} onSort={onSort}>加权买入</SortableTh>
-                <SortableTh right>净持有成本</SortableTh>
-                <SortableTh right sortKey="price" sort={sort} onSort={onSort}>现价</SortableTh>
+                {!aggregated && <SortableTh right sortKey="quantity" sort={sort} onSort={onSort}>数量</SortableTh>}
+                {!aggregated && <SortableTh right sortKey="avgCost" sort={sort} onSort={onSort}>加权买入</SortableTh>}
+                {!aggregated && <SortableTh right>净持有成本</SortableTh>}
+                {!aggregated && <SortableTh right sortKey="price" sort={sort} onSort={onSort}>现价</SortableTh>}
                 <SortableTh right sortKey="marketValue" sort={sort} onSort={onSort}>持仓市值</SortableTh>
                 <SortableTh right sortKey="plPct" sort={sort} onSort={onSort}>浮动盈亏率</SortableTh>
                 <SortableTh right>浮动盈亏</SortableTh>
                 <SortableTh right sortKey="weight" sort={sort} onSort={onSort}>仓位权重</SortableTh>
-                <SortableTh right sortKey="assetWeight" sort={sort} onSort={onSort}>资产权重</SortableTh>
-                <SortableTh right sortKey="holdingDays" sort={sort} onSort={onSort}>持仓时长</SortableTh>
+                {!aggregated && <SortableTh right sortKey="assetWeight" sort={sort} onSort={onSort}>资产权重</SortableTh>}
+                {!aggregated && <SortableTh right sortKey="holdingDays" sort={sort} onSort={onSort}>持仓时长</SortableTh>}
               </tr>
             </thead>
             <tbody>
@@ -234,20 +238,22 @@ export function Holdings() {
                         </div>
                       </div>
                     </Td>
-                    <Td right mono>{h.quantity == null ? '—' : quantity(h.quantity)}</Td>
-                    <Td right mono dim>{h.avgCost == null ? '—' : native(h.avgCost, h.costCurrency, 4)}</Td>
-                    <Td right mono dim>{h.netCost == null ? '—' : native(h.netCost, h.costCurrency, 4)}</Td>
-                    <Td right mono color={h.price ? 'var(--text-strong)' : 'var(--text-tertiary)'}>
-                      {h.price && h.priceCurrency ? native(h.price, h.priceCurrency, 4) : '—'}
-                    </Td>
+                    {!aggregated && <Td right mono>{h.quantity == null ? '—' : quantity(h.quantity)}</Td>}
+                    {!aggregated && <Td right mono dim>{h.avgCost == null ? '—' : native(h.avgCost, h.costCurrency, 4)}</Td>}
+                    {!aggregated && <Td right mono dim>{h.netCost == null ? '—' : native(h.netCost, h.costCurrency, 4)}</Td>}
+                    {!aggregated && (
+                      <Td right mono color={h.price ? 'var(--text-strong)' : 'var(--text-tertiary)'}>
+                        {h.price && h.priceCurrency ? native(h.price, h.priceCurrency, 4) : '—'}
+                      </Td>
+                    )}
                     <Td right mono color="var(--text-strong)">{native(h.marketValue, data.display_currency, 2)}</Td>
                     <Td right>{h.plPct == null ? <span style={{ color: 'var(--text-tertiary)' }}>—</span> : <DeltaValue percent={h.plPct} />}</Td>
                     <Td right mono color={(h.plValue ?? 0) > 0 ? 'var(--gain)' : (h.plValue ?? 0) < 0 ? 'var(--loss)' : 'var(--text-tertiary)'}>
                       {h.plValue == null ? '—' : native(h.plValue, data.display_currency, 2)}
                     </Td>
                     <Td right mono>{h.weight == null ? '—' : `${h.weight.toFixed(2)}%`}</Td>
-                    <Td right mono>{h.assetWeight == null ? '—' : `${h.assetWeight.toFixed(2)}%`}</Td>
-                    <Td right mono>{durationLabel(h.holdingDays)}</Td>
+                    {!aggregated && <Td right mono>{h.assetWeight == null ? '—' : `${h.assetWeight.toFixed(2)}%`}</Td>}
+                    {!aggregated && <Td right mono>{durationLabel(h.holdingDays)}</Td>}
                   </tr>
                 ))
               ) : (
@@ -260,7 +266,7 @@ export function Holdings() {
         </div>
       </Card>
       <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Icon name="info" size={13} /> 成本和浮动盈亏随成本口径切换；无价格持仓置底展示且不计入汇总。
+        <Icon name="info" size={13} /> 无价格持仓置底展示且不计入汇总；按市场 / 计价币种聚合时仅显示市值与盈亏类指标。
       </div>
     </Page>
   )
