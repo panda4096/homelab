@@ -1,10 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/panda4096/homelab/finbrain/servers/internal/llm"
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
@@ -157,6 +160,46 @@ func (s *Server) activateLLMProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	s.invalidateLLMProbe(userOf(r))
 	s.getLLMProviders(w, r)
+}
+
+// testLLMProvider probes a specific saved provider (by id) using its own decrypted key / endpoint /
+// model, so the user can verify ANY configured provider — not only the active one. When the tested
+// provider is the active one, the result also refreshes the active-status probe cache so the
+// "当前启用" badge stays in sync.
+func (s *Server) testLLMProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
+		return
+	}
+	p, err := s.store.GetLLMProvider(r.Context(), userOf(r), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "配置不存在")
+		return
+	} else if err != nil {
+		writeStorageError(w, r, err)
+		return
+	}
+	if !p.HasKey {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "该配置未设置密钥")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	client := llm.NewExplicit(p.Provider, p.APIKey, p.BaseURL, p.Model)
+	available, reason := true, ""
+	if perr := client.Probe(ctx); perr != nil {
+		available, reason = false, llmUserMessage(perr)
+	}
+	if p.IsActive {
+		s.setLLMProbeCache(userOf(r), available, reason)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"available": available,
+		"error":     reason,
+		"provider":  client.Provider(),
+		"model":     client.Model(),
+	})
 }
 
 func (s *Server) invalidateLLMProbe(userID int64) {

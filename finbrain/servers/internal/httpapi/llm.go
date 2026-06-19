@@ -54,10 +54,21 @@ func (s *Server) listLLMModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
+	// Resolve the key: a transient draft key (body.api_key) takes precedence; otherwise fall back to
+	// a stored provider's decrypted key — the given id, or the active provider when none is given
+	// (lets the Copilot panel fetch "models of whatever's active" with an empty body). When falling
+	// back, adopt that provider's own provider/base_url too.
 	key := strings.TrimSpace(body.APIKey)
-	if key == "" && body.ID != nil {
-		if p, err := s.store.GetLLMProvider(r.Context(), userOf(r), *body.ID); err == nil && p.HasKey {
-			key = p.APIKey
+	if key == "" {
+		if body.ID != nil {
+			if p, err := s.store.GetLLMProvider(r.Context(), userOf(r), *body.ID); err == nil && p.HasKey {
+				key, provider = p.APIKey, p.Provider
+				if baseURL == "" {
+					baseURL = p.BaseURL
+				}
+			}
+		} else if p, err := s.store.GetActiveLLMConfig(r.Context(), userOf(r)); err == nil && p.HasKey {
+			key, provider = p.APIKey, p.Provider
 			if baseURL == "" {
 				baseURL = p.BaseURL
 			}

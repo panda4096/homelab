@@ -159,6 +159,7 @@ func NewRouter(cfg *config.Config, st *store.Store, mkt *market.Service) http.Ha
 			r.Put("/llm/providers/{id}", s.updateLLMProvider)
 			r.Delete("/llm/providers/{id}", s.deleteLLMProvider)
 			r.Post("/llm/providers/{id}/activate", s.activateLLMProvider)
+			r.Post("/llm/providers/{id}/test", s.testLLMProvider)
 			r.Get("/summaries", s.listSummaries)
 			r.Post("/summaries/generate", s.generateSummary)
 			r.Get("/summaries/{id}", s.getSummary)
