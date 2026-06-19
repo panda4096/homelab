@@ -45,6 +45,10 @@ type Config struct {
 	// chart's point count (a chart can't resolve more than ~150 anyway).
 	TrendMaxPoints   int // FINBRAIN_TREND_MAX_POINTS (default 120)
 	TrendConcurrency int // FINBRAIN_TREND_CONCURRENCY (fallback path only; default 4; 1 = serial)
+
+	// AuditRetentionDays bounds how long audit (agent_audit) rows are kept: a daily janitor purges
+	// anything older. Default 15 days; 0 disables the purge (keep forever).
+	AuditRetentionDays int // FINBRAIN_AUDIT_RETENTION_DAYS (default 15; 0 = keep forever)
 }
 
 // Load reads configuration from the environment and validates it.
@@ -71,6 +75,8 @@ func Load() (*Config, error) {
 
 		TrendMaxPoints:   getenvInt("FINBRAIN_TREND_MAX_POINTS", 120),
 		TrendConcurrency: getenvInt("FINBRAIN_TREND_CONCURRENCY", 4),
+
+		AuditRetentionDays: getenvInt("FINBRAIN_AUDIT_RETENTION_DAYS", 15),
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")

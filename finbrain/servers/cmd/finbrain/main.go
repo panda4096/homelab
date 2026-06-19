@@ -115,11 +115,42 @@ func main() {
 		if mkt != nil {
 			go mkt.Start(ctx)
 		}
+		if cfg.AuditRetentionDays > 0 {
+			go runAuditRetention(ctx, st, cfg.AuditRetentionDays)
+		}
 		if err := srv.ListenAndServe(); err != nil {
 			log.Fatal(err)
 		}
 
 	default:
 		log.Fatalf("unknown command %q (want serve|migrate|seed|backfill)", cmd)
+	}
+}
+
+// runAuditRetention purges audit rows older than `days` once at startup and then daily, keeping the
+// agent_audit table bounded. Best-effort: a failed sweep is logged and retried on the next tick.
+func runAuditRetention(ctx context.Context, st *store.Store, days int) {
+	purge := func() {
+		c, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		n, err := st.PurgeAuditEventsOlderThan(c, time.Now().AddDate(0, 0, -days))
+		if err != nil {
+			log.Printf("audit retention: %v", err)
+			return
+		}
+		if n > 0 {
+			log.Printf("audit retention: purged %d events older than %dd", n, days)
+		}
+	}
+	purge()
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			purge()
+		}
 	}
 }
