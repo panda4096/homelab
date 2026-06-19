@@ -140,6 +140,34 @@ func New(cfg *config.Config) *Client {
 	return c
 }
 
+// NewExplicit builds a client from explicit per-user credentials (decrypted at the call site).
+// Any provider other than "anthropic" uses the OpenAI-compatible chat-completions path, so a
+// custom baseURL points Copilot at any OpenAI-compatible endpoint (DeepSeek is the default).
+func NewExplicit(provider, apiKey, baseURL, model string) *Client {
+	c := &Client{
+		http:     &http.Client{},
+		provider: orDefault(strings.ToLower(strings.TrimSpace(provider)), "deepseek"),
+		apiKey:   strings.TrimSpace(apiKey),
+		baseURL:  strings.TrimSpace(baseURL),
+		model:    strings.TrimSpace(model),
+	}
+	if c.baseURL == "" {
+		if c.provider == "anthropic" {
+			c.baseURL = "https://api.anthropic.com/v1/messages"
+		} else {
+			c.baseURL = "https://api.deepseek.com/chat/completions"
+		}
+	}
+	if c.model == "" {
+		if c.provider == "anthropic" {
+			c.model = "claude-sonnet-4-6"
+		} else {
+			c.model = "deepseek-v4-flash"
+		}
+	}
+	return c
+}
+
 func (c *Client) Configured() bool { return c.apiKey != "" }
 func (c *Client) Provider() string { return c.provider }
 func (c *Client) Model() string    { return c.model }

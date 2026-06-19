@@ -398,7 +398,7 @@ func (s *Server) planAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "text is required")
 		return
 	}
-	if !s.llm.Configured() {
+	if !s.llmFor(r.Context(), userOf(r)).Configured() {
 		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "未配置 LLM，Copilot 不可用")
 		return
 	}
@@ -430,7 +430,7 @@ func (s *Server) streamAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_failed", "text is required")
 		return
 	}
-	if !s.llm.Configured() {
+	if !s.llmFor(r.Context(), userOf(r)).Configured() {
 		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "未配置 LLM，Copilot 不可用")
 		return
 	}
@@ -472,6 +472,8 @@ func (s *Server) streamAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runAgentLoop(r *http.Request, question string, history []agentChatMessage, llmOpts llmpkg.Options, emit func(agentStep), emitAnswer func(string)) (agentLoopResult, error) {
+	userID := userOf(r)
+	client := s.llmFor(r.Context(), userID)
 	system := s.agentSystemPrompt(r.Context())
 	tools, toolNameMap := s.agentNativeToolContext()
 	messages := s.agentInitialMessages(r.Context(), question, history)
@@ -501,22 +503,22 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 		var resp llmpkg.ChatResponse
 		var err error
 		if emitAnswer != nil {
-			resp, err = s.llm.StreamMessagesWithOptions(r.Context(), req, llmOpts, func(delta llmpkg.StreamDelta) error {
+			resp, err = client.StreamMessagesWithOptions(r.Context(), req, llmOpts, func(delta llmpkg.StreamDelta) error {
 				if delta.Content != "" {
 					emitAnswer(delta.Content)
 				}
 				return nil
 			})
 		} else {
-			resp, err = s.llm.CompleteMessagesWithOptions(r.Context(), req, llmOpts)
+			resp, err = client.CompleteMessagesWithOptions(r.Context(), req, llmOpts)
 		}
 		if err != nil {
 			if isLLMServiceError(err) {
-				s.setLLMProbeCache(false, llmUserMessage(err))
+				s.setLLMProbeCache(userID, false, llmUserMessage(err))
 			}
 			return agentLoopResult{}, err
 		}
-		s.setLLMProbeCache(true, "")
+		s.setLLMProbeCache(userID, true, "")
 		reply := strings.TrimSpace(stripCodeFence(resp.Content))
 		if reply == "" && last != nil {
 			reply = narrateSkillResult(last.Skill, skillArgs(last.Params), last.Result, last.RowCount)
@@ -543,7 +545,7 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 		steps = append(steps, step)
 		emitAgentStep(emit, step)
 
-		resp, err := s.llm.CompleteMessagesWithOptions(r.Context(), llmpkg.ChatRequest{
+		resp, err := client.CompleteMessagesWithOptions(r.Context(), llmpkg.ChatRequest{
 			System:     system,
 			Messages:   messages,
 			Tools:      tools,
@@ -551,11 +553,11 @@ func (s *Server) runAgentLoop(r *http.Request, question string, history []agentC
 		}, llmOpts)
 		if err != nil {
 			if isLLMServiceError(err) {
-				s.setLLMProbeCache(false, llmUserMessage(err))
+				s.setLLMProbeCache(userID, false, llmUserMessage(err))
 			}
 			return agentLoopResult{}, err
 		}
-		s.setLLMProbeCache(true, "")
+		s.setLLMProbeCache(userID, true, "")
 
 		if len(resp.ToolCalls) == 0 {
 			steps[planIdx] = agentStep{Key: planKey, Label: "规划下一步", Status: "done", Detail: "已判断当前信息足够回答"}

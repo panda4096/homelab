@@ -27,69 +27,57 @@ type llmProbeCache struct {
 // the backend executes it (see agent.go). stripCodeFence is shared with the
 // planner's JSON extraction.
 
+// llmFor returns the LLM client for a user: their saved (decrypted) config when present, otherwise
+// the env-configured default client. The result may be unconfigured (Configured()==false).
+func (s *Server) llmFor(ctx context.Context, userID int64) *llm.Client {
+	if cfg, err := s.store.GetLLMConfig(ctx, userID); err == nil && cfg.HasKey {
+		return llm.NewExplicit(cfg.Provider, cfg.APIKey, cfg.BaseURL, cfg.Model)
+	}
+	return s.llm
+}
+
 func (s *Server) getLLMStatus(w http.ResponseWriter, r *http.Request) {
-	available, reason := s.llm.Configured(), ""
-	if !s.llm.Configured() {
+	client := s.llmFor(r.Context(), userOf(r))
+	available, reason := client.Configured(), ""
+	if !client.Configured() {
 		available = false
 		reason = "未配置 LLM API Key"
 	} else if r.URL.Query().Get("probe") == "1" {
 		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 		defer cancel()
-		available, reason = s.cachedLLMProbe(ctx)
+		available, reason = s.cachedLLMProbe(ctx, userOf(r), client)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured": s.llm.Configured(),
-		"provider":   s.llm.Provider(),
-		"model":      s.llm.Model(),
+		"configured": client.Configured(),
+		"provider":   client.Provider(),
+		"model":      client.Model(),
 		"available":  available,
 		"error":      reason,
 	})
 }
 
-func (s *Server) cachedLLMProbe(ctx context.Context) (bool, string) {
-	for {
-		s.llmProbeMu.Lock()
-		if !s.llmProbe.checkedAt.IsZero() && time.Since(s.llmProbe.checkedAt) < s.llmProbe.ttl() {
-			available, reason := s.llmProbe.available, s.llmProbe.reason
-			s.llmProbeMu.Unlock()
-			return available, reason
-		}
-		if wait := s.llmProbeInFlight; wait != nil {
-			s.llmProbeMu.Unlock()
-			select {
-			case <-wait:
-				continue
-			case <-ctx.Done():
-				return false, llmUserMessage(ctx.Err())
-			}
-		}
-		wait := make(chan struct{})
-		s.llmProbeInFlight = wait
-		s.llmProbeMu.Unlock()
-
-		available, reason := s.probeLLM(ctx)
-		s.llmProbeMu.Lock()
-		s.llmProbe = llmProbeCache{checkedAt: time.Now(), available: available, reason: reason}
-		s.llmProbeInFlight = nil
-		close(wait)
-		s.llmProbeMu.Unlock()
-		return available, reason
-	}
-}
-
-func (s *Server) probeLLM(ctx context.Context) (bool, string) {
-	if err := s.llm.Probe(ctx); err != nil {
-		return false, llmUserMessage(err)
-	}
-	return true, ""
-}
-
-func (s *Server) setLLMProbeCache(available bool, reason string) {
-	if !s.llm.Configured() {
-		return
-	}
+func (s *Server) cachedLLMProbe(ctx context.Context, userID int64, client *llm.Client) (bool, string) {
 	s.llmProbeMu.Lock()
-	s.llmProbe = llmProbeCache{checkedAt: time.Now(), available: available, reason: reason}
+	if c, ok := s.llmProbe[userID]; ok && time.Since(c.checkedAt) < c.ttl() {
+		s.llmProbeMu.Unlock()
+		return c.available, c.reason
+	}
+	s.llmProbeMu.Unlock()
+
+	available, reason := true, ""
+	if err := client.Probe(ctx); err != nil {
+		available, reason = false, llmUserMessage(err)
+	}
+	s.setLLMProbeCache(userID, available, reason)
+	return available, reason
+}
+
+func (s *Server) setLLMProbeCache(userID int64, available bool, reason string) {
+	s.llmProbeMu.Lock()
+	if s.llmProbe == nil {
+		s.llmProbe = map[int64]llmProbeCache{}
+	}
+	s.llmProbe[userID] = llmProbeCache{checkedAt: time.Now(), available: available, reason: reason}
 	s.llmProbeMu.Unlock()
 }
 

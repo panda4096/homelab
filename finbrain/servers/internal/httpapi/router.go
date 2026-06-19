@@ -15,14 +15,13 @@ import (
 
 // Server holds handler dependencies.
 type Server struct {
-	cfg              *config.Config
-	store            *store.Store
-	llm              *llm.Client
-	market           *market.Service
-	llmProbeMu       sync.Mutex
-	llmProbe         llmProbeCache
-	llmProbeInFlight chan struct{}
-	authLimiter      *authRateLimiter
+	cfg         *config.Config
+	store       *store.Store
+	llm         *llm.Client
+	market      *market.Service
+	llmProbeMu  sync.Mutex
+	llmProbe    map[int64]llmProbeCache // per-user probe result cache
+	authLimiter *authRateLimiter
 }
 
 // NewRouter builds the HTTP handler: /healthz, /api/*, and optional static frontend.
@@ -154,6 +153,9 @@ func NewRouter(cfg *config.Config, st *store.Store, mkt *market.Service) http.Ha
 			// P6: LLM status + stage summaries. NL→SQL/draft removed — all NL now goes
 			// through the P8 skill layer (/agent/plan → registered skills, no SQL).
 			r.Get("/llm/status", s.getLLMStatus)
+			r.Get("/llm/config", s.getLLMConfig)
+			r.Put("/llm/config", s.putLLMConfig)
+			r.Delete("/llm/config", s.deleteLLMConfig)
 			r.Get("/summaries", s.listSummaries)
 			r.Post("/summaries/generate", s.generateSummary)
 			r.Get("/summaries/{id}", s.getSummary)

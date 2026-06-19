@@ -1196,6 +1196,33 @@ export function getLLMStatus(probe = false): Promise<LLMStatus> {
   return request<LLMStatus>(`/api/llm/status${probe ? '?probe=1' : ''}`)
 }
 
+export interface LLMConfig {
+  provider: string
+  base_url: string
+  model: string
+  has_key: boolean
+}
+
+// api_key omitted = keep existing; '' = clear; value = set. The key is never returned by the API.
+export interface LLMConfigInput {
+  provider?: string
+  base_url?: string
+  model?: string
+  api_key?: string
+}
+
+export function getLLMConfig(): Promise<LLMConfig> {
+  return request<LLMConfig>('/api/llm/config')
+}
+
+export function putLLMConfig(input: LLMConfigInput): Promise<LLMConfig> {
+  return request<LLMConfig>('/api/llm/config', { method: 'PUT', body: JSON.stringify(input) })
+}
+
+export function deleteLLMConfig(): Promise<void> {
+  return request<void>('/api/llm/config', { method: 'DELETE' })
+}
+
 export function listSummaries(): Promise<Summary[]> {
   return request<Summary[]>('/api/summaries')
 }

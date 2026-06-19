@@ -1,13 +1,14 @@
-import { useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, Icon, Input, Segmented } from '../ds'
 import { usePrefStore } from '../store'
 import { useAuthStore } from '../authStore'
-import { ApiError, avatarUrl, changePassword, getLLMStatus, updateProfile, uploadAvatar } from '../api'
+import { ApiError, avatarUrl, changePassword, deleteLLMConfig, getLLMConfig, getLLMStatus, putLLMConfig, updateProfile, uploadAvatar } from '../api'
 import { useToast } from '../shell/Toast'
 import type {
   DisplayCurrency,
   FxMode,
+  LLMConfigInput,
   MarketConvention,
   TimeAggregation,
 } from '../api'
@@ -164,10 +165,113 @@ export function Settings() {
         </Row>
       </Card>
 
+      <CopilotConfigCard />
+
       <ProfileCard />
 
       <ChangePasswordCard />
     </div>
+  )
+}
+
+// Per-user Copilot/LLM config: the API key is encrypted at rest server-side and never returned —
+// the form only knows whether one is set (has_key). Leaving the key blank on save keeps the
+// existing one. "测试连接" probes the saved credentials.
+function CopilotConfigCard() {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const cfg = useQuery({ queryKey: ['llm-config'], queryFn: getLLMConfig })
+  const status = useQuery({ queryKey: ['llm-status'], queryFn: () => getLLMStatus() })
+  const [model, setModel] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [busy, setBusy] = useState<'' | 'save' | 'test' | 'clear'>('')
+  useEffect(() => {
+    if (cfg.data) {
+      setModel(cfg.data.model)
+      setBaseUrl(cfg.data.base_url)
+    }
+  }, [cfg.data])
+  const hasKey = cfg.data?.has_key ?? false
+
+  async function save() {
+    setBusy('save')
+    try {
+      const input: LLMConfigInput = { provider: 'deepseek', model: model.trim(), base_url: baseUrl.trim() }
+      if (apiKey.trim()) input.api_key = apiKey.trim()
+      await putLLMConfig(input)
+      setApiKey('')
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['llm-config'] }),
+        qc.invalidateQueries({ queryKey: ['llm-status'] }),
+      ])
+      toast.success('已保存')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '保存失败')
+    } finally {
+      setBusy('')
+    }
+  }
+  async function test() {
+    setBusy('test')
+    try {
+      const st = await getLLMStatus(true)
+      qc.setQueryData(['llm-status'], st)
+      if (st.available) toast.success(`连接正常 · ${st.provider} · ${st.model}`)
+      else toast.error(st.error || '连接不可用')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '测试失败')
+    } finally {
+      setBusy('')
+    }
+  }
+  async function clear() {
+    setBusy('clear')
+    try {
+      await deleteLLMConfig()
+      setApiKey('')
+      setModel('')
+      setBaseUrl('')
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['llm-config'] }),
+        qc.invalidateQueries({ queryKey: ['llm-status'] }),
+      ])
+      toast.success('已清除，恢复默认')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '清除失败')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <Card eyebrow="COPILOT" title="大模型 · API Key" subtitle="自配 DeepSeek（OpenAI 兼容）密钥与模型 · 加密存库 · 仅本人可用">
+      <Row label="状态" hint="保存后点「测试连接」校验密钥是否可用">
+        {status.data?.available ? (
+          <Badge tone="success" dot>{status.data.provider} · {status.data.model}</Badge>
+        ) : status.data?.configured ? (
+          <Badge tone="warning" dot>{status.data.error || '已配置 · 未测试'}</Badge>
+        ) : (
+          <Badge tone="neutral">未配置</Badge>
+        )}
+      </Row>
+      <Row label="模型" hint="如 deepseek-chat / deepseek-reasoner">
+        <Input value={model} placeholder="deepseek-chat" onChange={(e) => setModel(e.target.value)} style={{ maxWidth: 240 }} />
+      </Row>
+      <Row label="API Key" hint={hasKey ? '已配置 · 留空则保留原 Key' : '从 DeepSeek 开放平台获取'}>
+        <Input type="password" value={apiKey} placeholder={hasKey ? '••••••••（已保存）' : 'sk-...'} onChange={(e) => setApiKey(e.target.value)} style={{ maxWidth: 280 }} />
+      </Row>
+      <Row label="接口地址" hint="可选 · 默认 DeepSeek 官方；可填任意 OpenAI 兼容端点">
+        <Input value={baseUrl} placeholder="https://api.deepseek.com/chat/completions" onChange={(e) => setBaseUrl(e.target.value)} style={{ maxWidth: 360 }} />
+      </Row>
+      <Row label="操作" hint="密钥加密保存到数据库，使用时解密">
+        <div style={{ display: 'inline-flex', gap: 8 }}>
+          <Button size="sm" variant="primary" disabled={busy !== ''} onClick={save}>{busy === 'save' ? '保存中…' : '保存'}</Button>
+          <Button size="sm" variant="secondary" disabled={busy !== '' || !status.data?.configured} onClick={test}>{busy === 'test' ? '测试中…' : '测试连接'}</Button>
+          {hasKey ? <Button size="sm" variant="ghost" disabled={busy !== ''} onClick={clear}>清除</Button> : null}
+        </div>
+      </Row>
+    </Card>
   )
 }
 

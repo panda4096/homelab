@@ -79,7 +79,8 @@ func (s *Server) generateSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "period_end must be YYYY-MM-DD")
 		return
 	}
-	if !s.llm.Configured() {
+	client := s.llmFor(r.Context(), userOf(r))
+	if !client.Configured() {
 		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "未配置 LLM API Key，无法生成总结")
 		return
 	}
@@ -114,7 +115,7 @@ func (s *Server) generateSummary(w http.ResponseWriter, r *http.Request) {
 
 	system := "你是 finbrain 的私人财富分析师。根据给定的期初/期末净资产截面与配置数据,写一段简洁、客观、可读的中文阶段总结(Markdown,150-300 字)。\n" +
 		"涵盖:净资产变化(金额+比例)、资产结构变化要点、已实现盈亏与收益事件、需关注的风险或建议。不要编造数据,只用给定数字;金额带币种 " + ccy + "。"
-	content, err := s.llm.Complete(r.Context(), system, "期间 "+body.PeriodStart+" 至 "+body.PeriodEnd+"("+body.PeriodKind+")。数据(JSON):"+string(dataJSON), false)
+	content, err := client.Complete(r.Context(), system, "期间 "+body.PeriodStart+" 至 "+body.PeriodEnd+"("+body.PeriodKind+")。数据(JSON):"+string(dataJSON), false)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "llm_unavailable", "LLM 调用失败")
 		return
