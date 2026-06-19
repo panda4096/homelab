@@ -345,8 +345,14 @@ function SortableTh({
         userSelect: 'none',
       }}
     >
-      {children}
-      {active ? <span style={{ marginLeft: 3, color: 'var(--accent)' }}>{sort.dir > 0 ? '▲' : '▼'}</span> : sortKey ? <span style={{ marginLeft: 3, opacity: 0.3 }}>⇅</span> : null}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, verticalAlign: 'middle' }}>
+        {children}
+        {active ? (
+          <Icon name={sort!.dir > 0 ? 'chevron-up' : 'chevron-down'} size={13} color="var(--accent)" />
+        ) : sortKey ? (
+          <Icon name="chevrons-up-down" size={13} color="var(--text-tertiary)" style={{ opacity: 0.5 }} />
+        ) : null}
+      </span>
     </th>
   )
 }
