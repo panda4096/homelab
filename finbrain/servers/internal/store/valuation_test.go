@@ -15,6 +15,43 @@ func TestDecimalMoneyRounding(t *testing.T) {
 	}
 }
 
+func TestFutureSplitFactor(t *testing.T) {
+	// 4:1 split on 2024-03-01, then 1:2 reverse split (merge) on 2024-09-01.
+	events := []splitAdjEvent{
+		{date: "2024-03-01", factor: decimal.RequireFromString("4")},
+		{date: "2024-09-01", factor: decimal.RequireFromString("0.5")},
+	}
+	cases := []struct {
+		onDate string
+		want   string // cumulative factor for splits strictly after onDate
+	}{
+		{"2024-01-01", "2"},   // both later: 4 × 0.5 = 2
+		{"2024-03-01", "0.5"}, // only the merge is strictly after
+		{"2024-06-01", "0.5"}, // only the merge is after
+		{"2024-09-01", "1"},   // nothing after
+		{"2025-01-01", "1"},   // nothing after
+	}
+	for _, c := range cases {
+		got := futureSplitFactor(events, c.onDate)
+		if !got.Equal(decimal.RequireFromString(c.want)) {
+			t.Errorf("futureSplitFactor(onDate=%s) = %s, want %s", c.onDate, got.String(), c.want)
+		}
+	}
+	// No recorded splits → factor 1 (manually-priced instruments untouched).
+	if got := futureSplitFactor(nil, "2024-06-01"); !got.Equal(decOne) {
+		t.Errorf("futureSplitFactor(nil) = %s, want 1", got.String())
+	}
+
+	// End-to-end intent: a 前复权 price un-adjusts to the real price on a pre-split date.
+	// Pre-split real price 400; after a 4:1 split the adjusted series shows 400/4 = 100 for that
+	// date. Un-adjusting with the 4× future factor recovers 400.
+	adjusted := decimal.RequireFromString("100")
+	real := adjusted.Mul(futureSplitFactor([]splitAdjEvent{{date: "2024-03-01", factor: decimal.RequireFromString("4")}}, "2024-02-01"))
+	if !real.Equal(decimal.RequireFromString("400")) {
+		t.Fatalf("un-adjust mismatch: got %s, want 400", real.String())
+	}
+}
+
 func TestFxResolverDirectReverseBridgeAndFallback(t *testing.T) {
 	rates := map[string]string{
 		"USD|CNY": "7.20000000",

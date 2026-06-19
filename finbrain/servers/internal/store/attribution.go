@@ -25,6 +25,7 @@ type posUnit struct {
 	price         decimal.Decimal // per-unit native price
 	priceCurrency string
 	hasPrice      bool
+	symbol        string
 }
 
 type cashUnit struct {
@@ -49,7 +50,7 @@ func (s *Store) positionUnits(ctx context.Context, userID int64, onDate string) 
 		if !qty.GreaterThan(decZero) {
 			continue
 		}
-		pu := posUnit{qty: qty}
+		pu := posUnit{qty: qty, symbol: p.Symbol}
 		if p.Price != nil && p.PriceCurrency != nil {
 			pu.price = mustDec(*p.Price)
 			pu.priceCurrency = *p.PriceCurrency
@@ -138,6 +139,25 @@ func (s *Store) PeriodAttribution(ctx context.Context, userID int64, from, to, d
 		return AttributionResult{}, err
 	}
 
+	// Split history for the held symbols, to neutralize splits in the period (F14/§6.12): a pure
+	// split changes the share count but is "no operation", so it must not land in the quantity (or
+	// price) bucket. We restate the beginning holding in the period-end split basis below.
+	posSymbols := map[string]struct{}{}
+	for _, p := range fromPos {
+		posSymbols[p.symbol] = struct{}{}
+	}
+	for _, p := range toPos {
+		posSymbols[p.symbol] = struct{}{}
+	}
+	symList := make([]string, 0, len(posSymbols))
+	for sym := range posSymbols {
+		symList = append(symList, sym)
+	}
+	splits, err := s.loadSplitAdjEvents(ctx, symList)
+	if err != nil {
+		return AttributionResult{}, err
+	}
+
 	price := decZero
 	qtyEff := decZero
 	explicitFx := decZero
@@ -151,6 +171,23 @@ func (s *Store) PeriodAttribution(ctx context.Context, userID int64, from, to, d
 	for k := range keys {
 		f := fromPos[k]
 		t := toPos[k]
+		// Restate the beginning holding in the period-end split basis: scale beginning quantity UP
+		// and beginning unit price DOWN by Π(split factors in (from, to]). This leaves the beginning
+		// market value unchanged but makes a pure split cancel out of both the price and quantity
+		// buckets (it's not a buy/sell). Π(from,to] = futureFactor(from) / futureFactor(to).
+		sym := t.symbol
+		if sym == "" {
+			sym = f.symbol
+		}
+		if ev := splits[sym]; len(ev) > 0 {
+			pf := futureSplitFactor(ev, from).Div(futureSplitFactor(ev, to))
+			if !pf.Equal(decOne) && pf.GreaterThan(decZero) {
+				f.qty = f.qty.Mul(pf)
+				if f.hasPrice {
+					f.price = f.price.Div(pf)
+				}
+			}
+		}
 		if !t.hasPrice {
 			t.price = f.price // no end price → treat price as flat
 			t.priceCurrency = f.priceCurrency

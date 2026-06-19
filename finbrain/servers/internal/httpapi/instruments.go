@@ -82,6 +82,9 @@ func (s *Server) patchInstrument(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	// Snapshot the fetch-relevant fields before merging, so we can re-backfill history if the edit
+	// makes a previously un-fetchable instrument fetchable (e.g. market filled in after creation).
+	beforeMarket, beforeKind, beforeCcy := ptrString(cur.Market), ptrString(cur.AssetKind), ptrString(cur.QuoteCurrency)
 	if body.DisplayName != nil {
 		cur.DisplayName = body.DisplayName
 	}
@@ -109,6 +112,16 @@ func (s *Server) patchInstrument(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStorageError(w, r, err)
 		return
+	}
+	// If market/asset_kind/quote_currency changed, the prior backfill marker (possibly set while the
+	// instrument was un-fetchable) is stale: clear it and re-trigger so history is fetched anew.
+	if s.market != nil &&
+		(ptrString(out.Market) != beforeMarket || ptrString(out.AssetKind) != beforeKind || ptrString(out.QuoteCurrency) != beforeCcy) {
+		if err := s.store.ResetMarketBackfill(r.Context(), out.Symbol); err != nil {
+			writeInternal(w, r, err)
+			return
+		}
+		s.market.TriggerEnsureBackfilled(out.Symbol)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -193,18 +193,6 @@ func (s *Store) AccountHasData(ctx context.Context, userID, id int64) (bool, err
 	return exists, err
 }
 
-// DeleteAccount removes an account; caller must ensure AccountHasData is false.
-func (s *Store) DeleteAccount(ctx context.Context, userID, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */`, userID, id)
-	if err != nil {
-		return err
-	}
-	if ct.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
 // DeleteAccountIfEmpty removes an account only if it has no balance/position data.
 // The existence check and delete run in one transaction to avoid check-then-delete races.
 func (s *Store) DeleteAccountIfEmpty(ctx context.Context, userID, id int64) error {

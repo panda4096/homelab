@@ -14,11 +14,11 @@ func (s *Server) getAttribution(w http.ResponseWriter, r *http.Request) {
 		to = s.today(r.Context())
 	}
 	if _, err := domain.ParseDate(from, s.location(r.Context())); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "from must be YYYY-MM-DD")
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "from must be YYYY-MM-DD")
 		return
 	}
 	if _, err := domain.ParseDate(to, s.location(r.Context())); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "to must be YYYY-MM-DD")
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "to must be YYYY-MM-DD")
 		return
 	}
 	prefs, err := s.store.GetPreferences(r.Context(), userOf(r))
@@ -31,7 +31,7 @@ func (s *Server) getAttribution(w http.ResponseWriter, r *http.Request) {
 		displayCurrency = prefs.DisplayCurrency
 	}
 	if !currencyRe.MatchString(displayCurrency) {
-		writeError(w, http.StatusBadRequest, "validation_failed", "display_currency must be a 3-letter ISO code")
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "display_currency must be a 3-letter ISO code")
 		return
 	}
 	fxMode := strings.TrimSpace(r.URL.Query().Get("fx_mode"))

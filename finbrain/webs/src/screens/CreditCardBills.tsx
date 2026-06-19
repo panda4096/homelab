@@ -5,6 +5,7 @@ import { ConfirmDialog } from '../shell/ConfirmDialog'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 import { Row, Td, Th } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import {
   ACCOUNT_CURRENCIES,
   isNumericString,
@@ -16,6 +17,7 @@ import {
   deleteCreditCardBill,
   listAccountCreditCardBills,
   listAccounts,
+  listTransfers,
   updateCreditCardBill,
   upsertCreditCardBill,
   type Account,
@@ -33,6 +35,17 @@ export function CreditCardBillsSection({ account }: { account: Account }) {
     queryKey: ['credit-card-bills', account.id],
     queryFn: () => listAccountCreditCardBills(account.id),
   })
+  // Repayment is recorded as transfers INTO this card; the card's outstanding is Σ(unpaid bills) −
+  // Σ(repayment transfers), matching the valuation netting. Negative = 溢出 (prepaid credit).
+  const { data: transfers } = useQuery({
+    queryKey: ['transfers', account.id],
+    queryFn: () => listTransfers(account.id),
+  })
+  const repaidTotal = (transfers?.items ?? [])
+    .filter((t) => t.to_account_id === account.id)
+    .reduce((sum, t) => sum + Number(t.to_amount), 0)
+  const unpaidBillsTotal = bills.filter((b) => !b.paid_at).reduce((sum, b) => sum + Number(b.amount_total), 0)
+  const netOutstanding = unpaidBillsTotal - repaidTotal
 
   const remove = useMutation({
     mutationFn: (id: number) => deleteCreditCardBill(id),
@@ -40,7 +53,7 @@ export function CreditCardBillsSection({ account }: { account: Account }) {
       void qc.invalidateQueries({ queryKey: ['credit-card-bills'] })
       void qc.invalidateQueries({ queryKey: ['account', account.id] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('账单已删除')
       setDeleting(null)
     },
@@ -62,11 +75,22 @@ export function CreditCardBillsSection({ account }: { account: Account }) {
         </Button>
       }
     >
+      {bills.length || repaidTotal > 0 ? (
+        <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', padding: '12px 16px', borderBottom: '1px solid var(--divider)' }}>
+          <SummaryStat label="未还账单" value={native(unpaidBillsTotal, account.currency, 2)} />
+          <SummaryStat label="还款（转账）" value={native(repaidTotal, account.currency, 2)} />
+          <SummaryStat
+            label={netOutstanding < 0 ? '本卡溢出（预付）' : '本卡未还'}
+            value={native(Math.abs(netOutstanding), account.currency, 2)}
+            tone={netOutstanding < 0 ? 'var(--gain)' : netOutstanding > 0 ? 'var(--loss)' : undefined}
+          />
+        </div>
+      ) : null}
       {isLoading ? (
         <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: 16 }}>加载中…</div>
       ) : !bills.length ? (
         <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: 16 }}>
-          暂无信用卡账单。未还账单会计入总负债。
+          暂无信用卡账单。未还账单会计入总负债；在「转账」里转入本卡即为还款。
         </div>
       ) : (
         <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
@@ -76,7 +100,6 @@ export function CreditCardBillsSection({ account }: { account: Account }) {
               <Th right>总额</Th>
               <Th>顶类目</Th>
               <Th>状态</Th>
-              <Th>还款账户</Th>
               <Th w={88} />
             </tr>
           </thead>
@@ -86,8 +109,7 @@ export function CreditCardBillsSection({ account }: { account: Account }) {
                 <Td mono dim>{b.statement_date}</Td>
                 <Td right mono color="var(--loss)">{native(b.amount_total, b.currency, 2)}</Td>
                 <Td dim>{categoryText(b.top_categories)}</Td>
-                <Td>{b.paid_at ? <Badge tone="success">已还</Badge> : <Badge tone="warning" dot>未还</Badge>}</Td>
-                <Td dim>{b.payment_account_name || '—'}</Td>
+                <Td>{b.paid_at ? <Badge tone="success">已还(旧)</Badge> : <Badge tone="warning" dot>计入未还</Badge>}</Td>
                 <Td right>
                   <div style={{ display: 'inline-flex', gap: 6 }}>
                     <IconButton aria-label="编辑账单" size="sm" onClick={() => setEditing(b)}>
@@ -141,10 +163,6 @@ export function CreditCardBillModal({
     () => accounts.filter((a) => !a.is_archived && a.kind === 'credit_card'),
     [accounts],
   )
-  const paymentAccounts = useMemo(
-    () => accounts.filter((a) => !a.is_archived && a.kind !== 'credit_card'),
-    [accounts],
-  )
   const initialAccountId = account?.id ?? bill?.account_id ?? creditAccounts[0]?.id ?? 0
   const [accountId, setAccountId] = useState(String(initialAccountId || ''))
   const selectedAccount =
@@ -152,11 +170,6 @@ export function CreditCardBillModal({
   const [statementDate, setStatementDate] = useState(bill?.statement_date ?? todayISO(timezone))
   const [amountTotal, setAmountTotal] = useState(bill?.amount_total ?? '')
   const [currency, setCurrency] = useState(bill?.currency ?? selectedAccount?.currency ?? 'CNY')
-  const [paid, setPaid] = useState(Boolean(bill?.paid_at))
-  const [paidAt, setPaidAt] = useState(bill?.paid_at ?? todayISO(timezone))
-  const [paymentAccountId, setPaymentAccountId] = useState(
-    bill?.payment_account_id ? String(bill.payment_account_id) : '',
-  )
   const [note, setNote] = useState(bill?.note ?? '')
   const [categories, setCategories] = useState<CreditCardCategory[]>(
     bill?.top_categories?.length ? bill.top_categories : [{ name: '', amount: '' }],
@@ -173,8 +186,10 @@ export function CreditCardBillModal({
         top_categories: categories
           .map((c) => ({ name: c.name.trim(), amount: c.amount.trim() }))
           .filter((c) => c.name || c.amount),
-        paid_at: paid ? paidAt : null,
-        payment_account_id: paid && paymentAccountId ? Number(paymentAccountId) : null,
+        // Repayment is recorded as a transfer INTO this card (nets the liability), not per-bill.
+        // Preserve any legacy paid_at/payment_account on existing bills; new bills carry neither.
+        paid_at: bill?.paid_at ?? null,
+        payment_account_id: bill?.payment_account_id ?? null,
         note: note.trim() || null,
       }
       return bill ? updateCreditCardBill(bill.id, payload) : upsertCreditCardBill(payload)
@@ -183,7 +198,7 @@ export function CreditCardBillModal({
       void qc.invalidateQueries({ queryKey: ['credit-card-bills'] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
       void qc.invalidateQueries({ queryKey: ['account', saved.account_id] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('账单已保存')
       onClose()
     },
@@ -196,7 +211,6 @@ export function CreditCardBillModal({
     Boolean(statementDate) &&
     isNumericString(amountTotal) &&
     Number(amountTotal) > 0 &&
-    (!paid || Boolean(paidAt)) &&
     !categoryError
 
   function updateCategory(index: number, patch: Partial<CreditCardCategory>) {
@@ -282,28 +296,9 @@ export function CreditCardBillModal({
             添加类目
           </Button>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-secondary)' }}>
-          <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} />
-          已还款
-        </label>
-        {paid ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="还款日期">
-              <DateField value={paidAt} max={maxSnapshotDateISO(timezone)} onChange={setPaidAt} />
-            </Field>
-            <Field label="还款账户">
-              <Select
-                value={paymentAccountId}
-                placeholder="未指定"
-                onChange={(e) => setPaymentAccountId(e.target.value)}
-                options={paymentAccounts.map((a) => ({
-                  value: String(a.id),
-                  label: `${a.institution} · ${a.name} (${a.currency})`,
-                }))}
-              />
-            </Field>
-          </div>
-        ) : null}
+        <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+          还款请在「转账」里转入本信用卡账户即可,系统按「Σ账单 − Σ还款转账」实时计算本卡未还/溢出。
+        </div>
         <Field label="备注">
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="可选" />
         </Field>
@@ -315,4 +310,13 @@ export function CreditCardBillModal({
 function categoryText(categories: CreditCardCategory[]) {
   if (!categories.length) return '—'
   return categories.map((c) => c.name).filter(Boolean).join(' · ') || '—'
+}
+
+function SummaryStat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{label}</div>
+      <span className="fb-num" style={{ fontSize: 16, fontWeight: 600, color: tone ?? 'var(--text-strong)' }}>{value}</span>
+    </div>
+  )
 }

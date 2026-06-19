@@ -106,12 +106,29 @@ func (s *Server) normalizeAndValidateTransfer(r *http.Request, t *store.Transfer
 	if msg := validateOptionalTextLen("notes", t.Notes, maxNoteLen); msg != "" {
 		return msg
 	}
-	for _, id := range []int64{t.FromAccountID, t.ToAccountID} {
-		if _, err := s.store.GetAccount(r.Context(), userOf(r), id, s.today(r.Context())); errors.Is(err, store.ErrNotFound) {
-			return "account not found"
-		} else if err != nil {
-			return "account lookup failed"
-		}
+	fromAcct, err := s.store.GetAccount(r.Context(), userOf(r), t.FromAccountID, s.today(r.Context()))
+	if errors.Is(err, store.ErrNotFound) {
+		return "转出账户不存在"
+	} else if err != nil {
+		return "account lookup failed"
+	}
+	toAcct, err := s.store.GetAccount(r.Context(), userOf(r), t.ToAccountID, s.today(r.Context()))
+	if errors.Is(err, store.ErrNotFound) {
+		return "转入账户不存在"
+	} else if err != nil {
+		return "account lookup failed"
+	}
+	// A transfer's two legs both feed the effective-balance / liability model, so the endpoints must
+	// be accounts that can actually hold a balance. The transfer-OUT side must be a cash-type account
+	// (现金/定期/理财). The transfer-IN side may be cash-type (a normal move) OR a credit_card account,
+	// in which case the transfer is a repayment that reduces the card's outstanding (PRD §6.18/§6.19).
+	// Anything else (e.g. a brokerage/持仓 account, which holds no cash balance) would silently drop
+	// that leg from the cash replay and shift net worth, so it's rejected.
+	if !supportsBalanceSnapshots(fromAcct.Kind) {
+		return "转出账户须为现金类账户（现金 / 定期 / 理财）"
+	}
+	if !supportsBalanceSnapshots(toAcct.Kind) && toAcct.Kind != "credit_card" {
+		return "转入账户须为现金类账户，或信用卡账户（视为还款）"
 	}
 	return ""
 }

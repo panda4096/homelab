@@ -100,6 +100,7 @@ func (s *Store) CreateTransaction(ctx context.Context, userID int64, t Transacti
 		SELECT $1, $2, $3, $4, $5::date, $6::date, $7::numeric, $8::numeric, $9,
 		       $10::numeric, $11, $12, $13, $14, now()
 		WHERE EXISTS (SELECT 1 FROM accounts WHERE user_id=$1 AND id=$2 /* OWNED accounts */)
+		  AND ($13::bigint IS NULL OR EXISTS (SELECT 1 FROM accounts WHERE user_id=$1 AND id=$13 /* OWNED accounts */))
 		RETURNING id`,
 		userID, t.AccountID, t.Symbol, t.Action, t.TradeDate, t.SettleDate, t.Quantity, t.Price,
 		t.Currency, t.Fee, t.IsSettled, t.Notes, t.PaymentAccountID, nonEmptySource(t.Source),
@@ -134,7 +135,8 @@ func (s *Store) UpdateTransaction(ctx context.Context, userID, id int64, t Trans
 		    quantity=$7::numeric, price=$8::numeric, currency=$9, fee=$10::numeric,
 		    is_settled=$11, notes=$12, payment_account_id=$13, updated_at=now()
 		WHERE id=$1 AND user_id=$14 /* OWNED transactions */
-		  AND EXISTS (SELECT 1 FROM accounts WHERE user_id=$14 AND id=$2 /* OWNED accounts */)`,
+		  AND EXISTS (SELECT 1 FROM accounts WHERE user_id=$14 AND id=$2 /* OWNED accounts */)
+		  AND ($13::bigint IS NULL OR EXISTS (SELECT 1 FROM accounts WHERE user_id=$14 AND id=$13 /* OWNED accounts */))`,
 		id, t.AccountID, t.Symbol, t.Action, t.TradeDate, t.SettleDate, t.Quantity, t.Price,
 		t.Currency, t.Fee, t.IsSettled, t.Notes, t.PaymentAccountID, userID,
 	)

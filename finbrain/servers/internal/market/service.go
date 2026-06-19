@@ -480,6 +480,13 @@ func (s *Service) EnsureBackfilled(ctx context.Context, symbol string) error {
 	if err != nil {
 		return err
 	}
+	if s.kindOf(inst) == kindSkip {
+		// Not fetchable yet (e.g. market/asset_kind not filled in, or an unmapped index). Do NOT
+		// mark it backfilled — otherwise a later edit that makes it fetchable (US/HK/INDEX/fund)
+		// would find the marker already set and never backfill its history. Leaving it unmarked lets
+		// a future patch reset+retry it (see patchInstrument).
+		return nil
+	}
 	if err := s.backfillInstrument(ctx, inst); err != nil {
 		return err // leave unmarked so the next sweep retries
 	}

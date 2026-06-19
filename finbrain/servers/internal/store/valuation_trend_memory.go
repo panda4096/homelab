@@ -37,6 +37,12 @@ func (s *Store) netWorthTrendInMemory(ctx context.Context, userID int64, dates [
 	if err != nil {
 		return nil, err
 	}
+	// Repayment transfers into credit cards net against the card liability (F5/§6.18), mirroring
+	// getValuation.loadCardRepayments.
+	cardRepays, err := s.loadCardRepaymentEvents(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 	instrumentCcy, err := s.loadInstrumentCurrencies(ctx)
 	if err != nil {
 		return nil, err
@@ -52,6 +58,12 @@ func (s *Store) netWorthTrendInMemory(ctx context.Context, userID int64, dates [
 		held = append(held, sym)
 	}
 	if err := s.market.EnsurePrices(ctx, held); err != nil {
+		return nil, err
+	}
+	// Split history to un-adjust 前复权 prices back to each date's real price (F6/§6.14), matching
+	// currentPositionRows so the in-memory trend and the per-date engine agree across splits.
+	splits, err := s.loadSplitAdjEvents(ctx, held)
+	if err != nil {
 		return nil, err
 	}
 
@@ -113,6 +125,9 @@ func (s *Store) netWorthTrendInMemory(ctx context.Context, userID int64, dates [
 			if !ok {
 				continue // missing price → not counted (matches GetValuation)
 			}
+			if adj := futureSplitFactor(splits[snap.symbol], d); !adj.Equal(decOne) {
+				price = price.Mul(adj) // un-adjust 前复权 price to d's real price
+			}
 			priceToCost, err := fx.resolve(priceCurrency, costCurrency)
 			if err != nil {
 				return nil, err
@@ -144,6 +159,18 @@ func (s *Store) netWorthTrendInMemory(ctx context.Context, userID int64, dates [
 				return nil, err
 			}
 			totalLiabilities = totalLiabilities.Add(b.amount.Mul(res.Rate))
+		}
+
+		// Repayment transfers into credit cards reduce the liability on/before d (F5/§6.18).
+		for _, rp := range cardRepays {
+			if rp.date > d {
+				continue
+			}
+			res, err := fx.resolve(rp.currency, displayCurrency)
+			if err != nil {
+				return nil, err
+			}
+			totalLiabilities = totalLiabilities.Sub(rp.amount.Mul(res.Rate))
 		}
 
 		netWorth = totalAssets.Sub(totalLiabilities)
@@ -190,6 +217,40 @@ type memBill struct {
 	amount        decimal.Decimal
 	currency      string
 	paidAt        *string
+}
+
+type memCardRepay struct {
+	date     string
+	currency string
+	amount   decimal.Decimal
+}
+
+// loadCardRepaymentEvents loads repayment transfers into credit-card accounts (to_amount in the
+// card's currency), used to net against the card liability per date in the in-memory trend.
+func (s *Store) loadCardRepaymentEvents(ctx context.Context, userID int64) ([]memCardRepay, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT tr.transfer_date::text, a.currency, tr.to_amount::text
+		FROM transfers tr /* OWNED transfers */
+		JOIN accounts a ON a.id = tr.to_account_id AND a.user_id = tr.user_id /* OWNED accounts via scoped transfers */
+		WHERE tr.user_id = $1 AND a.kind = 'credit_card'
+		ORDER BY tr.transfer_date`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []memCardRepay{}
+	for rows.Next() {
+		var date, ccy, amt string
+		if err := rows.Scan(&date, &ccy, &amt); err != nil {
+			return nil, err
+		}
+		v, err := decimalFromString(amt)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, memCardRepay{date: date, currency: ccy, amount: v})
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) loadAccounts(ctx context.Context, userID int64) (map[int64]memAccount, error) {

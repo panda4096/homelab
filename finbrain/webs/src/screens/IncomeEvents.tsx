@@ -15,6 +15,7 @@ import {
 } from '../api'
 import { ACCOUNT_CURRENCIES, native, todayISO } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 import { usePrefStore } from '../store'
@@ -37,7 +38,7 @@ export function IncomeEvents() {
     mutationFn: deleteIncomeEvent,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['income-events'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('收益事件已删除')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
@@ -109,7 +110,7 @@ function IncomeModal({ item, accounts, onClose }: { item?: IncomeEvent; accounts
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['income-events'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success(item ? '已更新' : '已记录')
       onClose()
     },
@@ -142,8 +143,15 @@ function IncomeModal({ item, accounts, onClose }: { item?: IncomeEvent; accounts
         <Field label="金额" error={invalid && !amount.trim() ? '必填' : undefined}><Input numeric value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="312.00" /></Field>
       </div>
       <div className="fb-form form-4" style={{ marginTop: 12 }}>
-        <Field label="币种"><Select value={currency} onChange={(e) => setCurrency(e.target.value)} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} /></Field>
-        <Field label="现金落地账户（可选）"><Select value={payAcct} onChange={(e) => setPayAcct(e.target.value)} options={[{ value: '', label: '不指定' }, ...accounts.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name }))]} /></Field>
+        <Field label="币种"><Select value={currency} onChange={(e) => {
+          const c = e.target.value
+          setCurrency(c)
+          // The cash landing account must match the event currency (reconciliation posts without FX),
+          // so drop a now-mismatched selection.
+          const pa = accounts.find((a) => String(a.id) === payAcct)
+          if (pa && pa.currency !== c) setPayAcct('')
+        }} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} /></Field>
+        <Field label="现金落地账户（可选）"><Select value={payAcct} onChange={(e) => setPayAcct(e.target.value)} options={[{ value: '', label: '不指定' }, ...accounts.filter((a) => a.currency === currency).map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name }))]} /></Field>
         <Field label="已扣税额（可选）"><Input numeric value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0.00" /></Field>
         <Field label="备注"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="可留空" /></Field>
       </div>

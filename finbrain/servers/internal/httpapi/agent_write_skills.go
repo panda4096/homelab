@@ -403,9 +403,9 @@ func (s *Server) buildTransactionFromArgs(ctx context.Context, a skillArgs) (sto
 		Currency: strings.ToUpper(argStr(a, "currency")), Fee: optStr(a, "fee"),
 		IsSettled: argBool(a, "is_settled"), Notes: optStr(a, "notes"),
 	}
-	if _, ok := a["is_settled"]; !ok {
-		t.IsSettled = true
-	}
+	// Default to NOT settled when the caller omits the flag, matching the UI/JSON path and PRD §4.6
+	// (a freshly recorded trade is unsettled until the owner confirms). argBool already returns
+	// false for the missing key, so no special-casing is needed.
 	if id := argInt(a, "payment_account_id"); id != 0 {
 		t.PaymentAccountID = &id
 	}

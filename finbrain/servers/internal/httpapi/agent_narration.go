@@ -357,7 +357,7 @@ func draftFieldsText(entity string, fields map[string]any) string {
 	}
 	keys := map[string][]string{
 		"balance_snapshot":      {"snapshot_date", "balance"},
-		"transaction":           {"trade_date", "action", "symbol", "quantity", "price", "currency"},
+		"transaction":           {"trade_date", "action", "symbol", "quantity", "price", "currency", "is_settled"},
 		"credit_card_bill":      {"statement_date", "amount_total", "currency", "paid_at"},
 		"position_snapshot":     {"snapshot_date", "symbol", "quantity", "avg_cost", "cost_currency"},
 		"transfer":              {"transfer_date", "from_amount", "to_amount"},

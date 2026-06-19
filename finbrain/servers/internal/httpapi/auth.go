@@ -36,6 +36,19 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		writeAuthRateLimited(w, wait)
 		return
 	}
+	// Single-owner system: public self-service registration is off by default. Still allow it while
+	// no user exists yet, so the first owner can bootstrap their account.
+	if !s.cfg.AllowRegistration {
+		exists, err := s.store.AnyUserExists(r.Context())
+		if err != nil {
+			writeInternal(w, r, err)
+			return
+		}
+		if exists {
+			writeError(w, http.StatusForbidden, "registration_disabled", "注册已关闭")
+			return
+		}
+	}
 	username, ok := normalizeUsername(body.Username)
 	if !ok {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "用户名需为 3-64 个非空白字符")
@@ -190,13 +203,23 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeInternal(w, r, err)
 		return
 	}
+	// Rate-limit the current-password re-auth so an attacker holding a stolen session can't brute
+	// force the existing password (login/register are already limited; this closes the same hole).
+	chpwKeys := []string{"chpw:user:" + strconv.FormatInt(u.ID, 10)}
+	now := time.Now()
+	if wait, locked := s.authLimiter.locked(chpwKeys, now); locked {
+		writeAuthRateLimited(w, wait)
+		return
+	}
 	// A forced first-login change (must_change_password) is already authenticated via the temp
 	// password the user just logged in with, so we don't re-require it. A normal change (from
 	// Settings) still re-verifies the current password as a re-auth safeguard.
 	if !u.MustChangePassword && !authpkg.VerifyPassword(body.CurrentPassword, identity.Secret) {
+		s.authLimiter.recordFailure(chpwKeys, now)
 		writeError(w, http.StatusUnauthorized, "unauthorized", "当前密码错误")
 		return
 	}
+	s.authLimiter.recordSuccess(chpwKeys)
 	hash, err := authpkg.HashPassword(body.NewPassword)
 	if err != nil {
 		writeInternal(w, r, err)

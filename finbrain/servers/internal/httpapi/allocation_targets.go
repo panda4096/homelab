@@ -2,10 +2,10 @@ package httpapi
 
 import (
 	"errors"
-	"math"
 	"net/http"
-	"strconv"
 	"strings"
+
+	"github.com/shopspring/decimal"
 
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
@@ -104,7 +104,7 @@ func (s *Server) getAllocationTargetDrift(w http.ResponseWriter, r *http.Request
 		displayCurrency = prefs.DisplayCurrency
 	}
 	if !currencyRe.MatchString(displayCurrency) {
-		writeError(w, http.StatusBadRequest, "validation_failed", "display_currency must be a 3-letter ISO code")
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "display_currency must be a 3-letter ISO code")
 		return
 	}
 	fxMode := strings.TrimSpace(r.URL.Query().Get("fx_mode"))
@@ -154,7 +154,9 @@ func normalizeAndValidateTargetSet(set *store.AllocationTargetSet) string {
 	if len(set.Items) == 0 {
 		return "至少需要一个目标项"
 	}
-	sum := 0.0
+	// Sum target percentages in decimal (not float64) to stay consistent with the rest of the
+	// money/percentage pipeline and avoid binary-float accumulation drift.
+	sum := decimal.Zero
 	seen := map[string]bool{}
 	for i := range set.Items {
 		it := &set.Items[i]
@@ -173,11 +175,15 @@ func normalizeAndValidateTargetSet(set *store.AllocationTargetSet) string {
 		if !validDecimal(it.TargetPct) || !positiveDecimal(it.TargetPct) {
 			return "target_pct must be > 0"
 		}
-		f, _ := strconv.ParseFloat(it.TargetPct, 64)
-		sum += f
+		d, err := decimal.NewFromString(it.TargetPct)
+		if err != nil {
+			return "target_pct must be > 0"
+		}
+		sum = sum.Add(d)
 	}
-	if math.Abs(sum-100) > 0.01 {
-		return "目标项百分比之和必须等于 100（当前 " + strconv.FormatFloat(sum, 'f', 2, 64) + "）"
+	// Keep a small tolerance (0.01) so e.g. 33.33+33.33+33.34 and minor rounding still validate.
+	if sum.Sub(decimal.NewFromInt(100)).Abs().GreaterThan(decimal.NewFromFloat(0.01)) {
+		return "目标项百分比之和必须等于 100（当前 " + sum.StringFixed(2) + "）"
 	}
 	return ""
 }

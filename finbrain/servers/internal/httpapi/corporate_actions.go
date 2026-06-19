@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -63,6 +64,9 @@ func (s *Server) patchCorporateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.Symbol = current.Symbol // symbol immutable on edit
+	if len(c.Extra) == 0 {
+		c.Extra = current.Extra // preserve rights extra when the edit omits it
+	}
 	if msg := s.normalizeAndValidateCorporateAction(r.Context(), &c); msg != "" {
 		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
@@ -119,6 +123,27 @@ func (s *Server) normalizeAndValidateCorporateAction(ctx context.Context, c *sto
 	}
 	if !validDecimal(c.RatioDenominator) || !positiveDecimal(c.RatioDenominator) {
 		return "ratio_denominator must be > 0"
+	}
+	// rights subscription is driven entirely by extra.{rights_price, base_share_ratio} at replay
+	// time (the DB ratio is ignored for rights). Without valid extra the event would silently
+	// resolve to base_share_ratio=0 → quantity 0 → the rights are dropped with no warning, so
+	// require them here rather than letting a malformed rights action no-op.
+	if c.Action == "rights" {
+		var rx struct {
+			RightsPrice    string `json:"rights_price"`
+			BaseShareRatio string `json:"base_share_ratio"`
+		}
+		if len(c.Extra) == 0 || json.Unmarshal(c.Extra, &rx) != nil {
+			return "rights 必须提供 extra.rights_price 与 extra.base_share_ratio"
+		}
+		price := strings.TrimSpace(rx.RightsPrice)
+		ratio := strings.TrimSpace(rx.BaseShareRatio)
+		if !validDecimal(price) || isNegativeDecimal(price) {
+			return "extra.rights_price 必须 >= 0"
+		}
+		if !validDecimal(ratio) || !positiveDecimal(ratio) {
+			return "extra.base_share_ratio 必须 > 0"
+		}
 	}
 	if _, err := domain.ParseDate(c.EventDate, s.location(ctx)); err != nil {
 		return "event_date must be YYYY-MM-DD"

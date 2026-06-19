@@ -27,6 +27,7 @@ import {
   todayISO,
 } from '../lib/format'
 import { usePrefStore } from '../store'
+import { invalidatePortfolio } from '../lib/invalidate'
 
 const TYPE_OPTIONS = [
   { value: 'balance', label: '更新余额' },
@@ -70,10 +71,21 @@ function QuickEntryInner({
   // Account pool: non-archived, filtered by the record type each account kind supports.
   const pool = useMemo(() => {
     const live = accounts.filter((a) => !a.is_archived)
-    return type === 'balance'
-      ? live.filter((a) => supportsBalanceSnapshots(a.kind))
-      : live.filter((a) => supportsPositionSnapshots(a.kind))
-  }, [accounts, type])
+    const base =
+      type === 'balance'
+        ? live.filter((a) => supportsBalanceSnapshots(a.kind))
+        : live.filter((a) => supportsPositionSnapshots(a.kind))
+    // Include the explicitly targeted account even if it's archived, so recording/editing against
+    // an archived account doesn't silently fall back to a *different* active account (effectiveAccountId
+    // would otherwise jump to pool[0] and write the snapshot to the wrong account).
+    if (initial.accountId != null && !base.some((a) => a.id === initial.accountId)) {
+      const target = accounts.find((a) => a.id === initial.accountId)
+      const supports =
+        target && (type === 'balance' ? supportsBalanceSnapshots(target.kind) : supportsPositionSnapshots(target.kind))
+      if (target && supports) return [target, ...base]
+    }
+    return base
+  }, [accounts, type, initial.accountId])
 
   const [accountId, setAccountId] = useState<string>(() =>
     initial.accountId != null ? String(initial.accountId) : '',
@@ -201,7 +213,7 @@ function QuickEntryInner({
       void qc.invalidateQueries({ queryKey: ['balance-snapshots', accId] })
       void qc.invalidateQueries({ queryKey: ['position-snapshots', accId] })
       void qc.invalidateQueries({ queryKey: ['positions', accId] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success(type === 'balance' ? '余额已保存' : '持仓已保存')
       onClose()
     },

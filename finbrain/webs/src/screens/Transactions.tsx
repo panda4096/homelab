@@ -25,6 +25,7 @@ import {
   TRADE_MARKETS,
 } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 import { usePrefStore } from '../store'
@@ -55,7 +56,7 @@ export function Transactions() {
     mutationFn: deleteTransaction,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('交易已删除')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
@@ -216,7 +217,7 @@ function TxnModal({
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       void qc.invalidateQueries({ queryKey: ['reconciliation'] })
       void qc.invalidateQueries({ queryKey: ['instruments'] })
       toast.success(item ? '交易已更新' : '交易已记录')

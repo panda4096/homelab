@@ -11,13 +11,18 @@ import (
 
 // Config holds all runtime configuration. See .env.example for the env vars.
 type Config struct {
-	Env         string         // FINBRAIN_ENV; "production" enables auth enforcement
+	Env         string         // FINBRAIN_ENV; one of development|test|production. Only "production" enforces auth.
 	Port        string         // PORT (default 8000)
 	DatabaseURL string         // DATABASE_URL (required)
 	Timezone    string         // FINBRAIN_TIMEZONE (default Asia/Shanghai)
 	Location    *time.Location // resolved from Timezone
 	AuthHeader  string         // FINBRAIN_AUTH_HEADER; trusted identity header when behind a proxy
 	StaticDir   string         // FINBRAIN_STATIC_DIR; optional built-frontend dir to serve
+
+	// AllowRegistration gates the public /api/auth/register endpoint. Default false: this is a
+	// single-owner system, so self-service signup is off unless explicitly enabled. Registration is
+	// always allowed while the users table is empty (first-owner bootstrap), regardless of this flag.
+	AllowRegistration bool // FINBRAIN_ALLOW_REGISTRATION (default false)
 
 	// LLM (P6). DeepSeek is the default provider (PLAN §2.4); Anthropic is a fallback.
 	DeepSeekAPIKey  string // DEEPSEEK_API_KEY
@@ -52,6 +57,8 @@ func Load() (*Config, error) {
 		AuthHeader:  os.Getenv("FINBRAIN_AUTH_HEADER"),
 		StaticDir:   os.Getenv("FINBRAIN_STATIC_DIR"),
 
+		AllowRegistration: getenvBool("FINBRAIN_ALLOW_REGISTRATION", false),
+
 		DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
 		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
 		LLMModel:        os.Getenv("FINBRAIN_LLM_MODEL"),
@@ -68,6 +75,14 @@ func Load() (*Config, error) {
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
+	// Fail closed on an ambiguous env: a typo like "prod"/"Production" must NOT silently disable
+	// auth (it previously did via `Env != "production"`). Only the exact known values are accepted.
+	c.Env = strings.ToLower(strings.TrimSpace(c.Env))
+	switch c.Env {
+	case "development", "test", "production":
+	default:
+		return nil, fmt.Errorf("invalid FINBRAIN_ENV %q: must be one of development, test, production", c.Env)
+	}
 	loc, err := time.LoadLocation(c.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("invalid FINBRAIN_TIMEZONE %q: %w", c.Timezone, err)
@@ -79,8 +94,10 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-// IsDev reports whether auth enforcement is off (anything but production).
-func (c *Config) IsDev() bool { return c.Env != "production" }
+// IsDev reports whether auth enforcement is off. Fail-closed: only the explicitly non-production
+// envs disable auth, so any unexpected value enforces auth rather than opening the system up.
+// (Load already rejects unknown env values, so this is defence in depth.)
+func (c *Config) IsDev() bool { return c.Env == "development" || c.Env == "test" }
 
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {

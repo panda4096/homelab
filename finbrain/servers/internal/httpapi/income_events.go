@@ -147,10 +147,17 @@ func (s *Server) normalizeAndValidateIncomeEvent(r *http.Request, e *store.Incom
 		return "account lookup failed"
 	}
 	if e.PaymentAccountID != nil {
-		if _, err := s.store.GetAccount(r.Context(), userOf(r), *e.PaymentAccountID, s.today(r.Context())); errors.Is(err, store.ErrNotFound) {
+		pa, err := s.store.GetAccount(r.Context(), userOf(r), *e.PaymentAccountID, s.today(r.Context()))
+		if errors.Is(err, store.ErrNotFound) {
 			return "payment_account_id 不存在"
 		} else if err != nil {
 			return "payment account lookup failed"
+		}
+		// Reconciliation posts the cash landing without FX (it sums amount by payment account), so
+		// the landing account must share the event's currency — otherwise a USD dividend landing on
+		// a CNY account would be counted as raw CNY and pollute that account's effective balance.
+		if pa.Currency != e.Currency {
+			return "现金落地账户币种需与收益币种一致"
 		}
 	}
 	return ""

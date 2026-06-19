@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, DateField, Icon, IconButton, Input, Select } from '../ds'
 import { SectionHint } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import {
   ACCOUNT_CURRENCIES,
   isNumericString,
@@ -323,8 +324,9 @@ export function ReviewWizard() {
             amount_total: b.amount_total.trim(),
             currency: b.currency,
             top_categories: [],
-            paid_at: b.paid ? b.paid_at : null,
-            payment_account_id: b.paid && b.payment_account_id ? Number(b.payment_account_id) : null,
+            // Repayment is recorded as a transfer into the card, not per-bill.
+            paid_at: null,
+            payment_account_id: null,
             note: b.note.trim() || null,
           })),
         transactions: transactions
@@ -379,7 +381,7 @@ export function ReviewWizard() {
       localStorage.removeItem(DRAFT_KEY)
       void qc.invalidateQueries({ queryKey: ['accounts'] })
       void qc.invalidateQueries({ queryKey: ['account'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       void qc.invalidateQueries({ queryKey: ['balance-snapshots'] })
       void qc.invalidateQueries({ queryKey: ['positions'] })
       void qc.invalidateQueries({ queryKey: ['credit-card-bills'] })
@@ -454,7 +456,7 @@ export function ReviewWizard() {
             ) : step === 5 ? (
               <TransferStep rows={transfers} setRows={setTransfers} accounts={paymentAccounts} reviewDate={reviewDate} />
             ) : step === 6 ? (
-              <BillStep rows={bills} setRows={setBills} creditAccounts={creditAccounts} paymentAccounts={paymentAccounts} reviewDate={reviewDate} />
+              <BillStep rows={bills} setRows={setBills} creditAccounts={creditAccounts} reviewDate={reviewDate} />
             ) : step === 7 ? (
               <IncomeStep rows={incomeEvents} setRows={setIncomeEvents} accounts={activeAccounts} paymentAccounts={paymentAccounts} reviewDate={reviewDate} />
             ) : step === 10 ? (
@@ -498,7 +500,7 @@ export function ReviewWizard() {
                 onClick={() => {
                   setBatchErrors([])
                   if (step === 10) {
-                    const errors = validateReviewDraft(bills, transactions, corporateActions, transfers, incomeEvents, timezone)
+                    const errors = validateReviewDraft(balances, positions, bills, transactions, corporateActions, transfers, incomeEvents, timezone)
                     if (errors.length) {
                       setBatchErrors(errors)
                       return
@@ -874,7 +876,9 @@ function CorporateActionDraftRow({
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(130px, 1fr) 94px 126px 112px 112px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
       <Input placeholder="标的" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
-      <Select size="sm" value={row.action} onChange={(e) => patch({ action: e.target.value as 'split' | 'merge' | 'rights' })} options={[{ value: 'split', label: '拆股' }, { value: 'merge', label: '合股' }, { value: 'rights', label: '配股' }]} />
+      {/* 配股(rights) needs extra.{rights_price, base_share_ratio}, which this compact row can't capture —
+          it goes through the dedicated 公司动作 screen. Offering it here only produced silently-dropped rows. */}
+      <Select size="sm" value={row.action} onChange={(e) => patch({ action: e.target.value as 'split' | 'merge' | 'rights' })} options={[{ value: 'split', label: '拆股' }, { value: 'merge', label: '合股' }]} />
       <DateField value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ event_date: v })} size="sm" />
       <Input numeric placeholder="比例分子" value={row.ratio_numerator} onChange={(e) => patch({ ratio_numerator: e.target.value })} size="sm" />
       <Input numeric placeholder="比例分母" value={row.ratio_denominator} onChange={(e) => patch({ ratio_denominator: e.target.value })} size="sm" />
@@ -997,13 +1001,17 @@ function IncomeDraftRow({
       />
       <Input placeholder="标的可空" value={row.symbol} onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} size="sm" />
       <Input numeric placeholder="金额" value={row.amount} onChange={(e) => patch({ amount: e.target.value })} size="sm" />
-      <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
+      <Select size="sm" value={row.currency} onChange={(e) => {
+        const c = e.target.value
+        const pa = paymentAccounts.find((a) => String(a.id) === row.payment_account_id)
+        patch(pa && pa.currency !== c ? { currency: c, payment_account_id: '' } : { currency: c })
+      }} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
       <DateField value={row.event_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ event_date: v })} size="sm" />
       <Input numeric placeholder="税费" value={row.tax_withheld} onChange={(e) => patch({ tax_withheld: e.target.value })} size="sm" />
       <IconButton aria-label="移除收益" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
         <Icon name="x" size={13} />
       </IconButton>
-      <Select size="sm" value={row.payment_account_id} onChange={(e) => patch({ payment_account_id: e.target.value })} placeholder="收款账户可空" options={paymentAccounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))} wrapStyle={{ gridColumn: '1 / 4' }} />
+      <Select size="sm" value={row.payment_account_id} onChange={(e) => patch({ payment_account_id: e.target.value })} placeholder="收款账户可空" options={paymentAccounts.filter((a) => a.currency === row.currency).map((a) => ({ value: String(a.id), label: accountLabel(a) }))} wrapStyle={{ gridColumn: '1 / 4' }} />
       <div style={{ gridColumn: '4 / -1' }}>
         <Input placeholder="备注" value={row.note} onChange={(e) => patch({ note: e.target.value })} size="sm" />
       </div>
@@ -1036,13 +1044,11 @@ function BillStep({
   rows,
   setRows,
   creditAccounts,
-  paymentAccounts,
   reviewDate,
 }: {
   rows: BillDraft[]
   setRows: (rows: BillDraft[] | ((rows: BillDraft[]) => BillDraft[])) => void
   creditAccounts: Account[]
-  paymentAccounts: Account[]
   reviewDate: string
 }) {
   function addBill() {
@@ -1070,11 +1076,11 @@ function BillStep({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <SectionHint>向导中录入本期总额与还款状态；顶类目明细可在信用卡账户详情页补充。</SectionHint>
+        <SectionHint>向导中录入本期账单总额；还款请在「转账」里转入信用卡账户。顶类目明细可在账户详情页补充。</SectionHint>
         <Button variant="secondary" size="sm" iconLeft={<Icon name="plus" size={13} />} onClick={addBill}>新增账单</Button>
       </div>
       {rows.length ? rows.map((row) => (
-        <BillDraftRow key={row.key} row={row} setRows={setRows} creditAccounts={creditAccounts} paymentAccounts={paymentAccounts} />
+        <BillDraftRow key={row.key} row={row} setRows={setRows} creditAccounts={creditAccounts} />
       )) : <EmptyLine text="本次盘点暂无待提交信用卡账单。" />}
     </div>
   )
@@ -1084,19 +1090,17 @@ function BillDraftRow({
   row,
   setRows,
   creditAccounts,
-  paymentAccounts,
 }: {
   row: BillDraft
   setRows: (rows: BillDraft[] | ((rows: BillDraft[]) => BillDraft[])) => void
   creditAccounts: Account[]
-  paymentAccounts: Account[]
 }) {
   const timezone = usePrefStore((s) => s.timezone)
   function patch(next: Partial<BillDraft>) {
     setRows((items) => items.map((it) => (it.key === row.key ? { ...it, ...next } : it)))
   }
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1fr) 118px minmax(140px, .9fr) 76px 72px 118px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1fr) 118px minmax(140px, .9fr) 76px 32px', gap: 8, alignItems: 'center', background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 10 }}>
       <Select
         size="sm"
         value={String(row.account_id)}
@@ -1109,19 +1113,6 @@ function BillDraftRow({
       <DateField value={row.statement_date} max={maxSnapshotDateISO(timezone)} onChange={(v) => patch({ statement_date: v })} size="sm" />
       <Input numeric prefix={row.currency} placeholder="账单总额" value={row.amount_total} min="0.01" onChange={(e) => patch({ amount_total: e.target.value })} size="sm" />
       <Select size="sm" value={row.currency} onChange={(e) => patch({ currency: e.target.value })} options={ACCOUNT_CURRENCIES.map((c) => ({ value: c, label: c }))} />
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-        <input type="checkbox" checked={row.paid} onChange={(e) => patch({ paid: e.target.checked })} /> 已还
-      </label>
-      <DateField value={row.paid_at} max={maxSnapshotDateISO(timezone)} disabled={!row.paid} onChange={(v) => patch({ paid_at: v })} size="sm" />
-      <Select
-        size="sm"
-        value={row.payment_account_id}
-        disabled={!row.paid}
-        placeholder="还款账户"
-        wrapStyle={{ gridColumn: '1 / -1' }}
-        onChange={(e) => patch({ payment_account_id: e.target.value })}
-        options={paymentAccounts.map((a) => ({ value: String(a.id), label: accountLabel(a) }))}
-      />
       <IconButton aria-label="移除账单" size="sm" onClick={() => setRows((items) => items.filter((it) => it.key !== row.key))}>
         <Icon name="x" size={13} />
       </IconButton>
@@ -1290,6 +1281,8 @@ function formatBatchErrorDetail(detail: any) {
 }
 
 function validateReviewDraft(
+  balances: BalanceDraft[],
+  positions: PositionDraft[],
   bills: BillDraft[],
   transactions: TransactionDraft[],
   corporateActions: CorporateActionDraft[],
@@ -1299,6 +1292,18 @@ function validateReviewDraft(
 ) {
   const errors: string[] = []
   const maxDate = maxSnapshotDateISO(timezone)
+  balances.forEach((bal, index) => {
+    if (bal.skip || !bal.balance.trim()) return
+    const row = `balance_snapshots #${index + 1}`
+    if (!isNumericString(bal.balance)) errors.push(`${row}: 余额必须为数字`)
+  })
+  positions.forEach((pos, index) => {
+    if (pos.skip || (!pos.symbol.trim() && !pos.quantity.trim())) return
+    const row = `position_snapshots #${index + 1}`
+    if (!pos.symbol.trim()) errors.push(`${row}: 标的必填`)
+    if (!isNumericString(pos.quantity) || Number(pos.quantity) < 0) errors.push(`${row}: 数量必须大于等于 0（0 = 清仓）`)
+    if (pos.avg_cost.trim() && !isNumericString(pos.avg_cost)) errors.push(`${row}: 成本必须为数字`)
+  })
   bills.forEach((bill, index) => {
     if (!bill.amount_total.trim()) return
     const row = `credit_card_bills #${index + 1}`
@@ -1307,9 +1312,6 @@ function validateReviewDraft(
     }
     if ((bill.statement_date || '') > maxDate) {
       errors.push(`${row}: 出账日不能晚于 ${maxDate}`)
-    }
-    if (bill.paid && bill.paid_at && bill.paid_at > maxDate) {
-      errors.push(`${row}: 还款日不能晚于 ${maxDate}`)
     }
   })
   transactions.forEach((txn, index) => {

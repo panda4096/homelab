@@ -13,6 +13,7 @@ import {
 } from '../api'
 import { ACCOUNT_CURRENCIES, todayISO } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 import { usePrefStore } from '../store'
@@ -34,7 +35,7 @@ export function CorporateActions() {
     mutationFn: deleteCorporateAction,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['corporate-actions'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('公司动作已删除')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
@@ -103,7 +104,7 @@ function CaModal({ item, onClose }: { item?: CorporateAction; onClose: () => voi
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['corporate-actions'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success(item ? '已更新' : '已记录')
       onClose()
     },

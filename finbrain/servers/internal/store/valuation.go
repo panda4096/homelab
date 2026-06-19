@@ -361,6 +361,20 @@ func (s *Store) getValuation(ctx context.Context, userID int64, onDate, displayC
 		totalLiabilities = totalLiabilities.Add(displayLiability)
 		alloc.add("quote_currency", l.Currency, l.Currency, displayLiability.Neg())
 	}
+	// Net repayment transfers into credit cards against the bill-based liability (F5/§6.18).
+	repayments, err := s.loadCardRepayments(ctx, userID, onDate)
+	if err != nil {
+		return Valuation{}, err
+	}
+	for ccy, amt := range repayments {
+		res, err := fx.resolve(ccy, displayCurrency)
+		if err != nil {
+			return Valuation{}, err
+		}
+		repayDisplay := amt.Mul(res.Rate)
+		totalLiabilities = totalLiabilities.Sub(repayDisplay)
+		alloc.add("quote_currency", ccy, ccy, repayDisplay) // offset the bill-liability bucket
+	}
 	netWorth = totalAssets.Sub(totalLiabilities)
 
 	for i := range val.Positions {
@@ -550,6 +564,98 @@ func holdingDaysBetween(start, end string) *int {
 	return &days
 }
 
+// splitAdjEvent is a recorded split/merge used to un-adjust a 前复权 (split-adjusted) price back
+// to a historical date's real price. factor = ratio_numerator / ratio_denominator (a 4:1 split →
+// factor 4; a 1:4 merge → factor 0.25).
+type splitAdjEvent struct {
+	date   string
+	factor decimal.Decimal
+}
+
+// futureSplitFactor returns the cumulative split factor for events strictly AFTER onDate. Yahoo's
+// 前复权 close on onDate equals realPrice / Π(later split factors), so multiplying the adjusted
+// price by this factor recovers the price actually in effect on onDate — which matches the
+// as-traded share count the snapshot/replay records (PRD §6.13/§6.17). Returns 1 when there are no
+// later splits, i.e. for the latest bar and for symbols with no recorded split.
+//
+// NOTE: this assumes the price series is split-adjusted (Yahoo auto-feed, the case for any symbol
+// that has a recorded split). Manually-priced feed-less instruments don't have splits recorded, so
+// their factor is 1 and their (already-real) prices are left untouched.
+func futureSplitFactor(events []splitAdjEvent, onDate string) decimal.Decimal {
+	f := decOne
+	for _, e := range events {
+		if e.date > onDate {
+			f = f.Mul(e.factor)
+		}
+	}
+	return f
+}
+
+// loadSplitAdjEvents loads split/merge corporate actions (the global corporate_actions table) for
+// the given symbols, keyed by symbol. Used to un-adjust 前复权 prices for historical valuation.
+func (s *Store) loadSplitAdjEvents(ctx context.Context, symbols []string) (map[string][]splitAdjEvent, error) {
+	out := map[string][]splitAdjEvent{}
+	if len(symbols) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT symbol, event_date::text, ratio_numerator::text, ratio_denominator::text
+		FROM corporate_actions
+		WHERE action IN ('split','merge') AND symbol = ANY($1)
+		ORDER BY symbol, event_date, id`, symbols)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sym, date, num, den string
+		if err := rows.Scan(&sym, &date, &num, &den); err != nil {
+			return nil, err
+		}
+		d, derr := decimalFromString(den)
+		if derr != nil || d.IsZero() {
+			continue
+		}
+		n, nerr := decimalFromString(num)
+		if nerr != nil || n.IsZero() {
+			continue
+		}
+		out[sym] = append(out[sym], splitAdjEvent{date: date, factor: n.Div(d)})
+	}
+	return out, rows.Err()
+}
+
+// loadCardRepayments returns repayment transfers INTO credit-card accounts on/before onDate, summed
+// by the card's currency. A transfer to a credit card is a repayment (PRD §6.18): the cash side
+// already drops via the cash replay (the from-leg), so to keep net worth unchanged the card's
+// outstanding liability is reduced by the credited to_amount (in the card's currency). Over-payment
+// makes the net liability negative (a prepaid credit = a small asset), which is the correct result.
+func (s *Store) loadCardRepayments(ctx context.Context, userID int64, onDate string) (map[string]decimal.Decimal, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.currency, COALESCE(SUM(tr.to_amount), 0)::text
+		FROM transfers tr /* OWNED transfers */
+		JOIN accounts a ON a.id = tr.to_account_id AND a.user_id = tr.user_id /* OWNED accounts via scoped transfers */
+		WHERE tr.user_id = $1 AND a.kind = 'credit_card' AND tr.transfer_date <= $2::date
+		GROUP BY a.currency`, userID, onDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]decimal.Decimal{}
+	for rows.Next() {
+		var ccy, amt string
+		if err := rows.Scan(&ccy, &amt); err != nil {
+			return nil, err
+		}
+		v, err := decimalFromString(amt)
+		if err != nil {
+			return nil, err
+		}
+		out[ccy] = v
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) currentCashRows(ctx context.Context, userID int64, onDate string) ([]valuationCashRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH latest_balance AS (
@@ -683,12 +789,20 @@ func (s *Store) currentPositionRows(ctx context.Context, userID int64, onDate st
 		if err := s.market.EnsurePrices(ctx, syms); err != nil {
 			return nil, err
 		}
+		// Split history (global) to un-adjust 前复权 prices back to onDate's real price (F6/§6.14).
+		splits, err := s.loadSplitAdjEvents(ctx, syms)
+		if err != nil {
+			return nil, err
+		}
 		for i := range out {
 			px, ccy, pdate, ok, err := s.market.PriceAsOf(ctx, out[i].Symbol, onDate, ptrValue(out[i].QuoteCurrency))
 			if err != nil {
 				return nil, err
 			}
 			if ok {
+				if adj := futureSplitFactor(splits[out[i].Symbol], onDate); !adj.Equal(decOne) {
+					px = px.Mul(adj) // un-adjust: adjusted price × later-split factor = real price on onDate
+				}
 				pxs, c, d := px.String(), ccy, pdate
 				out[i].Price, out[i].PriceCurrency, out[i].PriceDate = &pxs, &c, &d
 			}
@@ -757,6 +871,25 @@ func (r *fxResolver) resolve(from, to string) (fxResult, error) {
 		if aOK && bOK {
 			used := latestDatePtr(aDate, bDate)
 			res := fxResult{Rate: a.Mul(b), Source: "usd_bridge", UsedDate: used}
+			r.cache[key] = res
+			return res, nil
+		}
+	}
+	// CNY bridge: the automated feed stores every non-CNY rate as <CUR>CNY, so CNY — not USD — is the
+	// de-facto pivot in production. Try it after the USD bridge so e.g. HKD->USD or HKD->EUR (where
+	// only HKDCNY / USDCNY / EURCNY exist) resolve via CNY instead of silently falling back to 1:1.
+	if from != "CNY" && to != "CNY" {
+		a, aDate, aOK, err := r.directOrReverse(from, "CNY")
+		if err != nil {
+			return fxResult{}, err
+		}
+		b, bDate, bOK, err := r.directOrReverse("CNY", to)
+		if err != nil {
+			return fxResult{}, err
+		}
+		if aOK && bOK {
+			used := latestDatePtr(aDate, bDate)
+			res := fxResult{Rate: a.Mul(b), Source: "cny_bridge", UsedDate: used}
 			r.cache[key] = res
 			return res, nil
 		}

@@ -994,6 +994,9 @@ export interface TransactionFilter {
 function listQuery(params: Record<string, string | number | undefined>) {
   const q = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => {
+    // 0 is intentionally treated as "unset": the only numeric params here are account_id (no account
+    // has id 0; 0 means "all") and limit (0 means "server default"). Do NOT pass a meaningful 0-valued
+    // param through this helper — it would be dropped.
     if (v !== undefined && v !== '' && v !== 0) q.set(k, String(v))
   })
   const s = q.toString()

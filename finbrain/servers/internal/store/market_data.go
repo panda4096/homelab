@@ -85,6 +85,7 @@ func (s *Store) UpsertPrice(ctx context.Context, p Price) (Price, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return Price{}, err
 	}
+	s.market.invalidatePrice(out.Symbol)
 	return out, nil
 }
 
@@ -106,11 +107,15 @@ func (s *Store) BatchUpsertPrices(ctx context.Context, prices []Price) ([]Price,
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
+	for _, p := range out {
+		s.market.invalidatePrice(p.Symbol)
+	}
 	return out, nil
 }
 
 func upsertPriceTx(ctx context.Context, tx pgx.Tx, p Price) (Price, error) {
-	if _, err := tx.Exec(ctx, `INSERT INTO instruments (symbol, quote_currency) VALUES ($1, $2) ON CONFLICT (symbol) DO NOTHING`, p.Symbol, p.Currency); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO instruments (symbol, quote_currency) VALUES ($1, $2)
+		 ON CONFLICT (symbol) DO UPDATE SET quote_currency = COALESCE(instruments.quote_currency, NULLIF(EXCLUDED.quote_currency, ''))`, p.Symbol, p.Currency); err != nil {
 		return Price{}, err
 	}
 	if p.Source == "" {
@@ -146,7 +151,8 @@ func (s *Store) BatchUpsertAutoPrices(ctx context.Context, prices []Price) (int,
 		if p.Source == "" || p.Source == "manual" {
 			p.Source = "auto"
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO instruments (symbol, quote_currency) VALUES ($1, $2) ON CONFLICT (symbol) DO NOTHING`, p.Symbol, p.Currency); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO instruments (symbol, quote_currency) VALUES ($1, $2)
+		 ON CONFLICT (symbol) DO UPDATE SET quote_currency = COALESCE(instruments.quote_currency, NULLIF(EXCLUDED.quote_currency, ''))`, p.Symbol, p.Currency); err != nil {
 			return written, err
 		}
 		ct, err := tx.Exec(ctx, `
@@ -164,6 +170,14 @@ func (s *Store) BatchUpsertAutoPrices(ctx context.Context, prices []Price) (int,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return written, err
+	}
+	seen := map[string]struct{}{}
+	for _, p := range prices {
+		if _, ok := seen[p.Symbol]; ok {
+			continue
+		}
+		seen[p.Symbol] = struct{}{}
+		s.market.invalidatePrice(p.Symbol)
 	}
 	return written, nil
 }
@@ -249,17 +263,22 @@ func (s *Store) UpdatePrice(ctx context.Context, id int64, p Price) (Price, erro
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Price{}, ErrNotFound
 	}
+	if err == nil {
+		s.market.invalidatePrice(out.Symbol)
+	}
 	return out, err
 }
 
 func (s *Store) DeletePrice(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM prices WHERE id=$1`, id)
+	var symbol string
+	err := s.pool.QueryRow(ctx, `DELETE FROM prices WHERE id=$1 RETURNING symbol`, id).Scan(&symbol)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
-		return ErrNotFound
-	}
+	s.market.invalidatePrice(symbol)
 	return nil
 }
 
@@ -312,13 +331,17 @@ func (s *Store) UpsertFxRate(ctx context.Context, f FxRate) (FxRate, error) {
 	if f.Source == "" {
 		f.Source = "manual"
 	}
-	return scanFxRate(s.pool.QueryRow(ctx, `
+	out, err := scanFxRate(s.pool.QueryRow(ctx, `
 		INSERT INTO fx_rates (base_currency, quote_currency, rate_date, rate, source, note, updated_at)
 		VALUES ($1, $2, $3::date, $4::numeric, $5, $6, now())
 		ON CONFLICT (base_currency, quote_currency, rate_date) DO UPDATE SET
 			rate = EXCLUDED.rate, source = EXCLUDED.source, note = EXCLUDED.note, updated_at = now()
 		RETURNING `+fxRateCols,
 		f.BaseCurrency, f.QuoteCurrency, f.RateDate, f.Rate, f.Source, f.Note))
+	if err == nil {
+		s.market.invalidateFx(out.BaseCurrency, out.QuoteCurrency)
+	}
+	return out, err
 }
 
 func (s *Store) BatchUpsertFxRates(ctx context.Context, rates []FxRate) ([]FxRate, error) {
@@ -347,6 +370,9 @@ func (s *Store) BatchUpsertFxRates(ctx context.Context, rates []FxRate) ([]FxRat
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
+	}
+	for _, f := range out {
+		s.market.invalidateFx(f.BaseCurrency, f.QuoteCurrency)
 	}
 	return out, nil
 }
@@ -380,6 +406,15 @@ func (s *Store) BatchUpsertAutoFxRates(ctx context.Context, rates []FxRate) (int
 	if err := tx.Commit(ctx); err != nil {
 		return written, err
 	}
+	seen := map[string]struct{}{}
+	for _, f := range rates {
+		key := f.BaseCurrency + "|" + f.QuoteCurrency
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		s.market.invalidateFx(f.BaseCurrency, f.QuoteCurrency)
+	}
 	return written, nil
 }
 
@@ -393,16 +428,21 @@ func (s *Store) UpdateFxRate(ctx context.Context, id int64, f FxRate) (FxRate, e
 	if errors.Is(err, pgx.ErrNoRows) {
 		return FxRate{}, ErrNotFound
 	}
+	if err == nil {
+		s.market.invalidateFx(out.BaseCurrency, out.QuoteCurrency)
+	}
 	return out, err
 }
 
 func (s *Store) DeleteFxRate(ctx context.Context, id int64) error {
-	ct, err := s.pool.Exec(ctx, `DELETE FROM fx_rates WHERE id=$1`, id)
+	var base, quote string
+	err := s.pool.QueryRow(ctx, `DELETE FROM fx_rates WHERE id=$1 RETURNING base_currency, quote_currency`, id).Scan(&base, &quote)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
-		return ErrNotFound
-	}
+	s.market.invalidateFx(base, quote)
 	return nil
 }

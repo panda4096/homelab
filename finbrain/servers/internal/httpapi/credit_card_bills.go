@@ -322,6 +322,12 @@ func (s *Server) normalizeAndValidateCreditCardBill(r *http.Request, b *store.Cr
 		if payAcct.Kind == "credit_card" {
 			return "还款账户不能是信用卡账户"
 		}
+		// Reconciliation deducts the repayment without FX (sums amount_total by payment account),
+		// so the repayment account must share the bill's currency — otherwise paying a CNY bill from
+		// a USD account would deduct raw USD and pollute that account's effective balance.
+		if payAcct.Currency != b.Currency {
+			return "还款账户币种需与账单币种一致"
+		}
 	}
 	return ""
 }

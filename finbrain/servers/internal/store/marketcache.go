@@ -79,6 +79,31 @@ func (c *marketCache) fresh(loadedAt time.Time) bool {
 	return !loadedAt.IsZero() && time.Since(loadedAt) < c.ttl
 }
 
+// invalidatePrice drops a symbol's cached bars so the next access reloads from the DB. Called
+// after any price write (manual or feed) so corrections/edits take effect immediately rather than
+// after a TTL window.
+func (c *marketCache) invalidatePrice(symbol string) {
+	if c == nil || symbol == "" {
+		return
+	}
+	c.mu.Lock()
+	if e := c.prices[symbol]; e != nil {
+		c.totalPriceBars -= len(e.bars)
+		delete(c.prices, symbol)
+	}
+	c.mu.Unlock()
+}
+
+// invalidateFx drops a currency pair's cached bars so the next access reloads from the DB.
+func (c *marketCache) invalidateFx(base, quote string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	delete(c.fx, base+"|"+quote)
+	c.mu.Unlock()
+}
+
 // evictLocked enforces the memory bound: when total cached price bars exceed maxBars, it
 // evicts least-recently-used price entries until under it. Memory is thus a fixed,
 // predictable ceiling — no time-based idle eviction. Caller holds c.mu.

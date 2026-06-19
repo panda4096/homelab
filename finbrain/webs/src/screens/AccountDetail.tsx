@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, Icon, IconButton } from '../ds'
 import { KindBadge, Row, SectionHint, Td, Th } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import {
   KIND_TONE,
   native,
@@ -276,7 +277,7 @@ function BalanceSnapshots({ account }: { account: Account }) {
       void qc.invalidateQueries({ queryKey: ['balance-snapshots', account.id] })
       void qc.invalidateQueries({ queryKey: ['account', account.id] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('余额记录已删除')
       setDeleting(null)
     },
@@ -553,7 +554,7 @@ export function PositionHistory() {
       void qc.invalidateQueries({ queryKey: ['position-snapshots', accountId] })
       void qc.invalidateQueries({ queryKey: ['account', accountId] })
       void qc.invalidateQueries({ queryKey: ['accounts'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('持仓记录已删除')
       setDeleting(null)
     },

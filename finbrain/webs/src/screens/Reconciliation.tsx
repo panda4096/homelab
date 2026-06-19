@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Select } from '../ds'
+import { Button, Select } from '../ds'
 import { getAccountReconciliation, listAccounts } from '../api'
 import { native, quantity } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
@@ -90,6 +90,11 @@ export function Reconciliation() {
             </div>
           ) : null}
         </>
+      ) : recon.isError ? (
+        <div className="fb-card" style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 12, color: 'var(--text-secondary)' }}>
+          <span>对账数据加载失败：{recon.error instanceof Error ? recon.error.message : '后端未连接'}</span>
+          <Button size="sm" variant="ghost" onClick={() => void recon.refetch()}>重试</Button>
+        </div>
       ) : (
         <div className="fb-card" style={{ padding: 24, color: 'var(--text-tertiary)' }}>加载中…</div>
       )}

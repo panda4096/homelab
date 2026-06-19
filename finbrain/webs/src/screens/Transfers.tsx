@@ -11,8 +11,9 @@ import {
   type CreateTransferInput,
   type Transfer,
 } from '../api'
-import { native, todayISO } from '../lib/format'
+import { native, supportsBalanceSnapshots, todayISO } from '../lib/format'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 import { usePrefStore } from '../store'
@@ -32,7 +33,7 @@ export function Transfers() {
     mutationFn: deleteTransfer,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transfers'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('转账已删除')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
@@ -67,7 +68,7 @@ export function Transfers() {
         </table>
       </div>
       <SectionHint>转账不改变净资产，仅影响账户 / 币种分布（§6.18）；跨币种请分别填两侧实际到账金额，系统不算汇率。</SectionHint>
-      {editor ? <TransferModal item={editor.item} accounts={(accounts.data ?? []).filter((a) => !a.is_archived)} onClose={() => setEditor(null)} /> : null}
+      {editor ? <TransferModal item={editor.item} accounts={accounts.data ?? []} onClose={() => setEditor(null)} /> : null}
     </Page>
   )
 }
@@ -76,8 +77,12 @@ function TransferModal({ item, accounts, onClose }: { item?: Transfer; accounts:
   const qc = useQueryClient()
   const toast = useToast()
   const timezone = usePrefStore((s) => s.timezone)
-  const [fromId, setFromId] = useState(item ? String(item.from_account_id) : accounts[0] ? String(accounts[0].id) : '')
-  const [toId, setToId] = useState(item ? String(item.to_account_id) : accounts[1] ? String(accounts[1].id) : '')
+  // Active accounts plus any this transfer already references — so editing a transfer that touches
+  // an archived account still lists and keeps it (otherwise the Select option vanishes and the
+  // archived-account currency can't be resolved, breaking the same-currency detection below).
+  const selectable = accounts.filter((a) => !a.is_archived || a.id === item?.from_account_id || a.id === item?.to_account_id)
+  const [fromId, setFromId] = useState(item ? String(item.from_account_id) : selectable[0] ? String(selectable[0].id) : '')
+  const [toId, setToId] = useState(item ? String(item.to_account_id) : selectable[1] ? String(selectable[1].id) : '')
   const [date, setDate] = useState(item?.transfer_date ?? todayISO(timezone))
   const [fromAmt, setFromAmt] = useState(item?.from_amount ?? '')
   const [toAmt, setToAmt] = useState(item?.to_amount ?? '')
@@ -97,7 +102,7 @@ function TransferModal({ item, accounts, onClose }: { item?: Transfer; accounts:
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transfers'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success(item ? '已更新' : '已记录')
       onClose()
     },
@@ -105,6 +110,12 @@ function TransferModal({ item, accounts, onClose }: { item?: Transfer; accounts:
   })
 
   const invalid = touched && (!fromId || !toId || fromId === toId || !fromAmt.trim() || (!sameCcy && !toAmt.trim()))
+
+  // Transfer endpoints (matches backend): OUT must be a cash-type account; IN may be cash-type or a
+  // credit card (a repayment). Keep the currently-selected account in its list even if it no longer
+  // qualifies, so editing an older transfer still shows its value instead of a blank Select.
+  const fromOptions = selectable.filter((a) => supportsBalanceSnapshots(a.kind) || String(a.id) === fromId)
+  const toOptions = selectable.filter((a) => supportsBalanceSnapshots(a.kind) || a.kind === 'credit_card' || String(a.id) === toId)
 
   return (
     <Modal
@@ -115,10 +126,10 @@ function TransferModal({ item, accounts, onClose }: { item?: Transfer; accounts:
     >
       <div className="fb-form form-4">
         <Field label="转出账户" error={invalid && fromId === toId ? '不能相同' : undefined}>
-          <Select value={fromId} onChange={(e) => setFromId(e.target.value)} options={accounts.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name + ' (' + a.currency + ')' }))} />
+          <Select value={fromId} onChange={(e) => setFromId(e.target.value)} options={fromOptions.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name + ' (' + a.currency + ')' }))} />
         </Field>
         <Field label="转入账户" error={invalid && fromId === toId ? '不能相同' : undefined}>
-          <Select value={toId} onChange={(e) => setToId(e.target.value)} options={accounts.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name + ' (' + a.currency + ')' }))} />
+          <Select value={toId} onChange={(e) => setToId(e.target.value)} options={toOptions.map((a) => ({ value: String(a.id), label: a.institution + '·' + a.name + ' (' + a.currency + ')' + (a.kind === 'credit_card' ? ' · 还款' : '') }))} />
         </Field>
         <Field label="转账日期"><DateField value={date} onChange={setDate} /></Field>
         <Field label={`转出额 ${fromAcct ? '(' + fromAcct.currency + ')' : ''}`} error={invalid && !fromAmt.trim() ? '必填' : undefined}>

@@ -22,6 +22,7 @@ import {
 import { ACCOUNT_CURRENCIES, marketLabel, MARKET_TONE, native, todayISO } from '../lib/format'
 import { LineChart, type LineSeriesPoint } from '../lib/finance'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
+import { invalidatePortfolio } from '../lib/invalidate'
 import { Modal } from '../shell/Modal'
 import { useToast } from '../shell/Toast'
 import { usePrefStore } from '../store'
@@ -145,7 +146,7 @@ export function MarketData() {
     mutationFn: deletePrice,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['prices'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('价格已删除')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
@@ -154,7 +155,7 @@ export function MarketData() {
     mutationFn: deleteFxRate,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['fx-rates'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('汇率已删除')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败'),
@@ -163,7 +164,7 @@ export function MarketData() {
     mutationFn: deleteInstrument,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['instruments'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('标的已删除')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '删除失败；已被持仓或价格引用的标的不能删除'),
@@ -172,7 +173,7 @@ export function MarketData() {
     mutationFn: (symbol: string) => updateInstrument(symbol, { is_benchmark: false }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['instruments'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success('已移出基准')
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : '移出基准失败'),
@@ -1003,7 +1004,7 @@ function PriceModal({
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['prices'] })
       void qc.invalidateQueries({ queryKey: ['instruments'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success(item ? '价格已更新' : '价格已新增')
       onClose()
     },
@@ -1083,7 +1084,7 @@ function FxModal({ item, onClose }: { item?: FxRate; onClose: () => void }) {
         : upsertFxRate({ base_currency: base, quote_currency: quote, rate_date: rateDate, rate, source, note }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['fx-rates'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success(item ? '汇率已更新' : '汇率已新增')
       onClose()
     },
@@ -1193,7 +1194,7 @@ function InstrumentModal({
     mutationFn: () => (item ? updateInstrument(item.symbol, payload) : upsertInstrument({ symbol: symbol.trim().toUpperCase(), ...payload })),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['instruments'] })
-      void qc.invalidateQueries({ queryKey: ['valuation'] })
+      invalidatePortfolio(qc)
       toast.success(item ? '标的已更新' : '标的已新增')
       onClose()
     },

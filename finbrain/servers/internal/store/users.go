@@ -8,6 +8,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// AnyUserExists reports whether at least one user row exists. Used to allow first-owner
+// bootstrap registration even when public signup is disabled.
+func (s *Store) AnyUserExists(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users)`).Scan(&exists)
+	return exists, err
+}
+
 func (s *Store) CreateUser(ctx context.Context, username, displayName, passwordHash string) (User, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
