@@ -395,12 +395,17 @@ function positionToRow(p: ValuationPosition, totalPositionValue: number): Holdin
   const netCost = p.net_cost ?? p.avg_cost
   const plValue = marketValue != null && costValue != null ? marketValue - costValue : num(p.unrealized_pl_display)
   const plPct = costValue && costValue !== 0 && plValue != null ? (plValue / costValue) * 100 : num(p.unrealized_pl_pct)
+  const market = p.market ?? 'UNKNOWN'
+  // The market badge is shown inline before the symbol now, so drop a trailing account label that
+  // just repeats the market (e.g. an account literally named 港股/美股) to avoid duplicating it.
+  const subtitleParts = [p.display_name ?? p.symbol, p.institution]
+  if (p.account_name && p.account_name !== marketLabel(market)) subtitleParts.push(p.account_name)
   return {
     key: `${p.account_id}:${p.symbol}`,
     symbol: p.symbol,
     name: p.display_name ?? p.symbol,
-    subtitle: `${p.display_name ?? p.symbol} · ${p.institution} · ${p.account_name}`,
-    market: p.market ?? 'UNKNOWN',
+    subtitle: subtitleParts.filter(Boolean).join(' · '),
+    market,
     quoteCurrency: p.quote_currency ?? p.price_currency ?? p.cost_currency,
     costCurrency: p.cost_currency,
     quantity: p.quantity,
