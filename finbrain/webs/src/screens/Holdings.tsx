@@ -364,7 +364,7 @@ function buildRows(positions: ValuationPosition[], group: string, totalPositionV
     if (group === 'market') return r.market
     return r.quoteCurrency
   }
-  const map = new Map<string, HoldingRow & { count: number }>()
+  const map = new Map<string, HoldingRow>()
   for (const r of base) {
     const key = keyOf(r) || 'UNKNOWN'
     const cur = map.get(key)
@@ -378,11 +378,9 @@ function buildRows(positions: ValuationPosition[], group: string, totalPositionV
         quantity: group === 'symbol' ? r.quantity : null,
         avgCost: group === 'symbol' ? r.avgCost : null,
         price: group === 'symbol' ? r.price : null,
-        count: 1,
       })
       continue
     }
-    cur.count += 1
     cur.marketValue = addNullable(cur.marketValue, r.marketValue)
     cur.costValue = addNullable(cur.costValue, r.costValue)
     cur.plValue = addNullable(cur.plValue, r.plValue)
@@ -392,7 +390,6 @@ function buildRows(positions: ValuationPosition[], group: string, totalPositionV
       const q = (num(cur.quantity) ?? 0) + (num(r.quantity) ?? 0)
       cur.quantity = String(q)
     }
-    cur.subtitle = group === 'symbol' ? `${cur.count} 个账户` : cur.subtitle
   }
   return [...map.values()].map((r) => {
     const plPct = r.costValue && r.costValue !== 0 && r.plValue != null ? (r.plValue / r.costValue) * 100 : null
