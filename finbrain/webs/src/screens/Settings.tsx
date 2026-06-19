@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Card, Icon, Input, Segmented, Select } from '../ds'
+import { Badge, Button, Card, Icon, Input, Segmented } from '../ds'
 import { usePrefStore } from '../store'
 import { useAuthStore } from '../authStore'
-import { ApiError, activateLLMProvider, avatarUrl, changePassword, createLLMProvider, deleteLLMProvider, getLLMStatus, listLLMModels, listLLMProviders, updateLLMProvider, updateProfile, uploadAvatar } from '../api'
+import { ApiError, avatarUrl, changePassword, createLLMProvider, deleteLLMProvider, listLLMProviders, testLLMProvider, updateLLMProvider, updateProfile, uploadAvatar } from '../api'
 import { useToast } from '../shell/Toast'
+import { Modal } from '../shell/Modal'
 import type {
-  DisplayCurrency,
   FxMode,
   LLMProvider,
   LLMProviderInput,
@@ -77,30 +77,19 @@ function Row({ label, hint, children }: RowProps) {
 // PUT /api/preferences (the store handles the request + merge).
 export function Settings() {
   const {
-    displayCurrency,
     fxMode,
     marketConvention,
     timeAggregationDefault,
     timezone,
-    setDisplayCurrency,
     setFxMode,
     setMarketConvention,
     setTimeAggregationDefault,
     setTimezone,
   } = usePrefStore()
-  const llm = useQuery({ queryKey: ['llm-status'], queryFn: () => getLLMStatus() })
 
   return (
     <div style={{ padding: 22, maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card eyebrow="PREFERENCES" title="显示偏好" subtitle="更改后立即写入后端 · 单用户全局生效">
-        <Row label="显示货币" hint="所有金额折算到该货币展示">
-          <Segmented
-            size="sm"
-            options={['CNY', 'HKD', 'USD']}
-            value={displayCurrency}
-            onChange={(v) => void setDisplayCurrency(v as DisplayCurrency)}
-          />
-        </Row>
         <Row label="汇率口径" hint="历史记录使用当时汇率，或统一用当前汇率重估">
           <Segmented
             size="sm"
@@ -152,25 +141,9 @@ export function Settings() {
         </Row>
       </Card>
 
-      <Card eyebrow="DATA & AI" title="数据与智能">
-        <Row label="自然语言能力" hint="⌘K 录入 / 查询 / 阶段总结，默认 DeepSeek（DEEPSEEK_API_KEY）">
-          {llm.data?.configured
-            ? <Badge tone="success" dot>{llm.data.provider} · {llm.data.model}</Badge>
-            : <Badge tone="neutral">未配置</Badge>}
-        </Row>
-        <Row label="全量数据导出" hint="所有业务表打包为 CSV（zip）">
-          <Button size="sm" variant="secondary" iconLeft={<Icon name="download" size={14} />} onClick={() => { window.location.href = '/api/export' }}>导出 CSV</Button>
-        </Row>
-        <Row label="关于 finbrain" hint="个人资产快照管理 · 自托管">
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>P0–P7</span>
-        </Row>
-      </Card>
-
       <CopilotConfigCard />
 
       <ProfileCard />
-
-      <ChangePasswordCard />
     </div>
   )
 }
@@ -187,77 +160,43 @@ function CopilotConfigCard() {
   const toast = useToast()
   const qc = useQueryClient()
   const providers = useQuery({ queryKey: ['llm-providers'], queryFn: listLLMProviders })
-  const status = useQuery({ queryKey: ['llm-status'], queryFn: () => getLLMStatus() })
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [label, setLabel] = useState('')
   const [provider, setProvider] = useState('deepseek')
   const [baseUrl, setBaseUrl] = useState('')
-  const [model, setModel] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState(false)
-  const [probing, setProbing] = useState(false)
-  const [models, setModels] = useState<string[]>([])
-  const [loadingModels, setLoadingModels] = useState(false)
+  const [testingId, setTestingId] = useState<number | null>(null)
+  const [testResults, setTestResults] = useState<Record<number, { ok: boolean; msg: string }>>({})
 
   const items = providers.data?.items ?? []
   const editingHasKey = typeof editing === 'number' && (items.find((p) => p.id === editing)?.has_key ?? false)
-  // keep the current model selectable even if it isn't in the freshly-fetched list
-  const modelOptions = model && !models.includes(model) ? [model, ...models] : models
 
   function refresh() {
-    return Promise.all([
-      qc.invalidateQueries({ queryKey: ['llm-providers'] }),
-      qc.invalidateQueries({ queryKey: ['llm-status'] }),
-    ])
+    return qc.invalidateQueries({ queryKey: ['llm-providers'] })
   }
   function openNew() {
     setEditing('new')
     setLabel('')
     setProvider('deepseek')
     setBaseUrl(LLM_DEFAULT_URL.deepseek)
-    setModel('')
     setApiKey('')
-    setModels([])
   }
   function openEdit(p: LLMProvider) {
     setEditing(p.id)
     setLabel(p.label)
     setProvider(p.provider)
     setBaseUrl(p.base_url || LLM_DEFAULT_URL[p.provider] || '')
-    setModel(p.model)
     setApiKey('')
-    setModels([])
   }
   function changeProvider(v: string) {
     setProvider(v)
     setBaseUrl(LLM_DEFAULT_URL[v] ?? '') // show the provider's default url, still editable
-    setModels([])
-  }
-  async function fetchModels() {
-    setLoadingModels(true)
-    try {
-      const res = await listLLMModels({
-        provider,
-        base_url: baseUrl.trim(),
-        api_key: apiKey.trim() || undefined,
-        id: typeof editing === 'number' ? editing : undefined,
-      })
-      setModels(res.models)
-      if (res.models.length === 0) toast.error('未返回模型列表')
-      else {
-        if (!model || !res.models.includes(model)) setModel(res.models[0])
-        toast.success(`获取到 ${res.models.length} 个模型`)
-      }
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : '获取模型失败')
-    } finally {
-      setLoadingModels(false)
-    }
   }
   async function save() {
     setBusy(true)
     try {
-      const input: LLMProviderInput = { label: label.trim(), provider, base_url: baseUrl.trim(), model: model.trim() }
+      const input: LLMProviderInput = { label: label.trim(), provider, base_url: baseUrl.trim() }
       if (apiKey.trim()) input.api_key = apiKey.trim()
       if (editing === 'new') await createLLMProvider(input)
       else if (typeof editing === 'number') await updateLLMProvider(editing, input)
@@ -270,15 +209,6 @@ function CopilotConfigCard() {
       setBusy(false)
     }
   }
-  async function activate(id: number) {
-    try {
-      await activateLLMProvider(id)
-      await refresh()
-      toast.success('已切换启用')
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : '切换失败')
-    }
-  }
   async function remove(id: number) {
     try {
       await deleteLLMProvider(id)
@@ -289,35 +219,24 @@ function CopilotConfigCard() {
       toast.error(e instanceof ApiError ? e.message : '删除失败')
     }
   }
-  async function test() {
-    setProbing(true)
+  async function testProvider(p: LLMProvider) {
+    setTestingId(p.id)
     try {
-      const st = await getLLMStatus(true)
-      qc.setQueryData(['llm-status'], st)
-      if (st.available) toast.success(`连接正常 · ${st.provider} · ${st.model}`)
-      else toast.error(st.error || '连接不可用')
+      const r = await testLLMProvider(p.id)
+      setTestResults((prev) => ({ ...prev, [p.id]: { ok: r.available, msg: r.available ? '连接正常' : (r.error || '不可用') } }))
+      if (r.available) toast.success(`${p.label || p.provider} · 连接正常`)
+      else toast.error(`${p.label || p.provider} · ${r.error || '连接不可用'}`)
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : '测试失败')
+      const msg = e instanceof ApiError ? e.message : '测试失败'
+      setTestResults((prev) => ({ ...prev, [p.id]: { ok: false, msg } }))
+      toast.error(msg)
     } finally {
-      setProbing(false)
+      setTestingId(null)
     }
   }
 
   return (
-    <Card eyebrow="COPILOT" title="大模型配置" subtitle="可添加多个服务商（DeepSeek / OpenAI 中转站等）· 密钥加密存库 · 仅本人可用 · 选一个启用">
-      <Row label="当前启用" hint="保存后点「测试连接」校验当前启用的配置">
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          {status.data?.available ? (
-            <Badge tone="success" dot>{status.data.provider} · {status.data.model}</Badge>
-          ) : status.data?.configured ? (
-            <Badge tone="warning" dot>{status.data.error || '已配置 · 未测试'}</Badge>
-          ) : (
-            <Badge tone="neutral">未启用</Badge>
-          )}
-          <Button size="sm" variant="secondary" disabled={probing || !status.data?.configured} onClick={test}>{probing ? '测试中…' : '测试连接'}</Button>
-        </div>
-      </Row>
-
+    <Card eyebrow="COPILOT" title="大模型配置" subtitle="可添加多个服务商（DeepSeek / OpenAI 中转站等）· 密钥加密存库 · 仅本人可用 · 在 Copilot 面板切换启用哪个与模型">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items.length === 0 ? (
           <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>还没有配置。未配置时 Copilot 使用服务端默认 Key（若有）。</div>
@@ -328,15 +247,16 @@ function CopilotConfigCard() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{p.label || p.provider}</span>
                 <Badge tone="neutral">{p.provider}</Badge>
-                {p.is_active ? <Badge tone="success" dot>启用中</Badge> : null}
+                {p.is_active ? <Badge tone="gold" dot>默认</Badge> : null}
                 {!p.has_key ? <Badge tone="warning">无密钥</Badge> : null}
+                {testResults[p.id] ? <Badge tone={testResults[p.id].ok ? 'success' : 'danger'} dot>{testResults[p.id].msg}</Badge> : null}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {p.model || '默认模型'} · {p.base_url || LLM_DEFAULT_URL[p.provider] || '默认地址'}
+                {p.base_url || LLM_DEFAULT_URL[p.provider] || '默认地址'}
               </div>
             </div>
             <div style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>
-              {!p.is_active ? <Button size="sm" variant="ghost" onClick={() => activate(p.id)}>启用</Button> : null}
+              {p.has_key ? <Button size="sm" variant="ghost" disabled={testingId === p.id} onClick={() => testProvider(p)}>{testingId === p.id ? '测试中…' : '测试'}</Button> : null}
               <Button size="sm" variant="ghost" onClick={() => openEdit(p)}>编辑</Button>
               <Button size="sm" variant="ghost" onClick={() => remove(p.id)}>删除</Button>
             </div>
@@ -352,28 +272,18 @@ function CopilotConfigCard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 12, background: 'var(--surface-inset)', borderRadius: 'var(--radius-md)' }}>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-strong)' }}>{editing === 'new' ? '新增配置' : '编辑配置'}</div>
           <Row label="名称" hint="如「DeepSeek 官方」「我的中转站」">
-            <Input value={label} placeholder={provider} onChange={(e) => setLabel(e.target.value)} style={{ maxWidth: 240 }} />
+            <Input value={label} placeholder={provider} onChange={(e) => setLabel(e.target.value)} wrapStyle={{ width: 260 }} />
           </Row>
-          <Row label="服务商" hint="决定默认接口地址 / 模型；均走 OpenAI 兼容协议">
+          <Row label="服务商" hint="决定默认接口地址；均走 OpenAI 兼容协议">
             <Segmented size="sm" value={provider} onChange={changeProvider} options={[{ value: 'deepseek', label: 'DeepSeek' }, { value: 'openai', label: 'OpenAI' }]} />
           </Row>
           <Row label="接口地址" hint="默认填好官方地址，可改成你的中转站地址">
-            <Input value={baseUrl} placeholder={LLM_DEFAULT_URL[provider]} onChange={(e) => setBaseUrl(e.target.value)} style={{ maxWidth: 360 }} />
-          </Row>
-          <Row label="模型" hint="填好接口地址与 Key 后点「获取模型」从服务商拉取并选择；也可手填">
-            <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              {modelOptions.length > 0 ? (
-                <Select value={model} onChange={(e) => setModel(e.target.value)} options={modelOptions.map((m) => ({ value: m, label: m }))} />
-              ) : (
-                <Input value={model} placeholder={provider === 'openai' ? 'gpt-4o-mini' : 'deepseek-chat'} onChange={(e) => setModel(e.target.value)} style={{ maxWidth: 220 }} />
-              )}
-              <Button size="sm" variant="ghost" disabled={loadingModels} onClick={fetchModels}>{loadingModels ? '获取中…' : '获取模型'}</Button>
-            </div>
+            <Input value={baseUrl} placeholder={LLM_DEFAULT_URL[provider]} onChange={(e) => setBaseUrl(e.target.value)} wrapStyle={{ width: 380 }} />
           </Row>
           <Row label="API Key" hint={editingHasKey ? '留空则保留原 Key' : '该服务商的密钥'}>
-            <Input type="password" value={apiKey} placeholder={editingHasKey ? '••••••••（已保存）' : 'sk-...'} onChange={(e) => setApiKey(e.target.value)} style={{ maxWidth: 280 }} />
+            <Input type="password" value={apiKey} placeholder={editingHasKey ? '••••••••（已保存）' : 'sk-...'} onChange={(e) => setApiKey(e.target.value)} wrapStyle={{ width: 320 }} />
           </Row>
-          <Row label="操作" hint="密钥加密保存到数据库，使用时解密">
+          <Row label="操作" hint="密钥加密保存到数据库，使用时解密；模型在 Copilot 面板选择">
             <div style={{ display: 'inline-flex', gap: 8 }}>
               <Button size="sm" variant="primary" disabled={busy} onClick={save}>{busy ? '保存中…' : '保存'}</Button>
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>取消</Button>
@@ -395,6 +305,7 @@ function ProfileCard() {
   const [name, setName] = useState(user?.display_name ?? '')
   const [savingName, setSavingName] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
   const dirty = name.trim().length > 0 && name.trim() !== (user?.display_name ?? '')
 
   async function saveName() {
@@ -434,7 +345,8 @@ function ProfileCard() {
 
   const initial = (user?.display_name ?? '用').trim().charAt(0).toUpperCase()
   return (
-    <Card eyebrow="PROFILE" title="个人资料" subtitle="昵称与头像 · 登录用户名不在此修改">
+    <>
+    <Card eyebrow="PROFILE" title="个人资料" subtitle="昵称、头像、登录密码与数据导出 · 登录用户名不在此修改">
       <Row label="头像" hint="上传 PNG / JPEG，自动裁剪为方形（≤512KB）">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
@@ -478,14 +390,22 @@ function ProfileCard() {
       <Row label="登录用户名" hint="用于登录；如需修改请联系管理员">
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{user?.username || '—'}</span>
       </Row>
+      <Row label="登录密码" hint="修改后其他设备的登录会自动退出">
+        <Button size="sm" variant="secondary" onClick={() => setPwOpen(true)}>修改密码</Button>
+      </Row>
+      <Row label="全量数据导出" hint="所有业务表打包为 CSV（zip）">
+        <Button size="sm" variant="secondary" iconLeft={<Icon name="download" size={14} />} onClick={() => { window.location.href = '/api/export' }}>导出 CSV</Button>
+      </Row>
     </Card>
+    {pwOpen ? <ChangePasswordModal onClose={() => setPwOpen(false)} /> : null}
+    </>
   )
 }
 
 // Self-service password change for the logged-in user. Verifies the current password,
 // sets the new one, and (server-side) revokes all other sessions. Forgotten-password
 // recovery is admin-side (finbrain-admin set-password), not self-service — see PRD §9.3.
-function ChangePasswordCard() {
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const toast = useToast()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -500,10 +420,8 @@ function ChangePasswordCard() {
     setBusy(true)
     try {
       await changePassword(current, next)
-      setCurrent('')
-      setNext('')
-      setConfirm('')
       toast.success('密码已更新，其他设备上的登录已退出')
+      onClose()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : '修改密码失败')
     } finally {
@@ -511,31 +429,28 @@ function ChangePasswordCard() {
     }
   }
 
+  const field = (label: string, node: React.ReactNode, hint?: string) => (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{label}{hint ? <span style={{ color: 'var(--text-tertiary)', marginLeft: 6, fontSize: 12 }}>{hint}</span> : null}</span>
+      {node}
+    </label>
+  )
+
   return (
-    <Card eyebrow="ACCOUNT" title="账号与安全" subtitle="修改登录密码 · 保存后其他会话将自动退出">
-      <form onSubmit={submit}>
-        <Row label="当前密码">
-          <div style={{ width: 220 }}>
-            <Input type="password" value={current} autoComplete="current-password" onChange={(e) => setCurrent(e.target.value)} />
-          </div>
-        </Row>
-        <Row label="新密码" hint="至少 8 位">
-          <div style={{ width: 220 }}>
-            <Input type="password" value={next} invalid={mismatch} autoComplete="new-password" onChange={(e) => setNext(e.target.value)} />
-          </div>
-        </Row>
-        <Row label="确认新密码">
-          <div style={{ width: 220 }}>
-            <Input type="password" value={confirm} invalid={mismatch} autoComplete="new-password" onChange={(e) => setConfirm(e.target.value)} />
-          </div>
-        </Row>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingTop: 14 }}>
-          {mismatch ? <span style={{ fontSize: 12, color: 'var(--danger)' }}>两次输入的新密码不一致</span> : null}
+    <Modal title="修改登录密码" onClose={onClose} width={420}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {field('当前密码', <Input type="password" value={current} autoComplete="current-password" onChange={(e) => setCurrent(e.target.value)} />)}
+        {field('新密码', <Input type="password" value={next} invalid={mismatch} autoComplete="new-password" onChange={(e) => setNext(e.target.value)} />, '至少 8 位')}
+        {field('确认新密码', <Input type="password" value={confirm} invalid={mismatch} autoComplete="new-password" onChange={(e) => setConfirm(e.target.value)} />)}
+        {mismatch ? <span style={{ fontSize: 12, color: 'var(--danger)' }}>两次输入的新密码不一致</span> : null}
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>保存后，其他设备上的登录会自动退出。</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingTop: 4 }}>
+          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>取消</Button>
           <Button type="submit" variant="primary" disabled={!valid || busy} iconLeft={<Icon name="check" size={14} />}>
             {busy ? '保存中…' : '保存新密码'}
           </Button>
         </div>
       </form>
-    </Card>
+    </Modal>
   )
 }

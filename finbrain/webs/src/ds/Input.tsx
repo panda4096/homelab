@@ -10,11 +10,13 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   iconLeft?: ReactNode
   size?: 'sm' | 'md'
   wrapClassName?: string
+  /** style for the bordered wrapper (e.g. width) — the inner <input> still takes `style` via rest */
+  wrapStyle?: React.CSSProperties
 }
 
 /** Text input shell — maps to .fb-input-wrap / .fb-input class hooks. */
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { numeric, invalid, prefix, suffix, iconLeft, size = 'md', className, wrapClassName, ...rest },
+  { numeric, invalid, prefix, suffix, iconLeft, size = 'md', className, wrapClassName, wrapStyle, ...rest },
   ref,
 ) {
   const wrapCls = [
@@ -28,7 +30,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     .join(' ')
   const inputCls = ['fb-input', numeric && 'fb-input--num', className].filter(Boolean).join(' ')
   return (
-    <div className={wrapCls}>
+    <div className={wrapCls} style={wrapStyle}>
       {iconLeft ? <span className="fb-input__icon">{iconLeft}</span> : null}
       {prefix ? <span className="fb-input__affix">{prefix}</span> : null}
       <input ref={ref} className={inputCls} {...rest} />

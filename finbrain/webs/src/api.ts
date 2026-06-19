@@ -1239,6 +1239,19 @@ export function activateLLMProvider(id: number): Promise<LLMProviderList> {
   return request<LLMProviderList>(`/api/llm/providers/${id}/activate`, { method: 'POST' })
 }
 
+export interface LLMTestResult {
+  available: boolean
+  error: string
+  provider: string
+  model: string
+}
+
+// Probe one saved provider (by id) with its own key/endpoint/model — used by the per-provider
+// "测试" button so any configured provider can be verified, not only the active one.
+export function testLLMProvider(id: number): Promise<LLMTestResult> {
+  return request<LLMTestResult>(`/api/llm/providers/${id}/test`, { method: 'POST' })
+}
+
 // Fetch the upstream model list (OpenAI-compatible /models) for a draft (api_key) or existing (id)
 // provider, so the model can be picked from a dropdown rather than typed.
 export function listLLMModels(input: { provider?: string; base_url?: string; api_key?: string; id?: number }): Promise<{ models: string[] }> {
@@ -1383,7 +1396,8 @@ export interface AgentPlanResult {
 }
 
 export interface AgentPlanOptions {
-  model?: 'deepseek-v4-flash' | 'deepseek-v4-pro'
+  // any model id the active provider serves (empty = the provider's configured default)
+  model?: string
   thinking?: boolean
   history?: AgentChatMessage[]
 }

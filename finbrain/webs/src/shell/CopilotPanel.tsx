@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Badge, Button, Icon } from '../ds'
-import { applySkill, getLLMStatus, streamAgent, type AgentChatMessage, type AgentStep, type AgentUsage, type LLMStatus } from '../api'
+import { Badge, Button, Icon, Select } from '../ds'
+import { activateLLMProvider, applySkill, getLLMStatus, listFxRates, listLLMModels, listLLMProviders, streamAgent, type AgentChatMessage, type AgentStep, type AgentUsage, type DisplayCurrency, type LLMProvider, type LLMStatus } from '../api'
+import { usePrefStore } from '../store'
 import { useToast } from './Toast'
 
 // Copilot is a bounded skill-agent chat: natural language → model picks registered
@@ -23,7 +24,8 @@ type Msg = {
   state?: 'idle' | 'written' | 'ignored'
 }
 
-type AgentModel = 'deepseek-v4-flash' | 'deepseek-v4-pro'
+// any model id the active provider serves ('' = the provider's configured default)
+type AgentModel = string
 type AgentRunSettings = { model: AgentModel; thinking: boolean }
 
 export function CopilotPanel({ onClose }: { onClose: () => void }) {
@@ -36,11 +38,17 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [llm, setLLM] = useState<{ state: 'checking' | 'ready' | 'disabled'; status?: LLMStatus; reason?: string }>({ state: 'checking' })
-  const [agentModel, setAgentModel] = useState<AgentModel>('deepseek-v4-flash')
+  const [agentModel, setAgentModel] = useState<AgentModel>('')
+  const [models, setModels] = useState<string[]>([])
+  const [providers, setProviders] = useState<LLMProvider[]>([])
+  const [activeId, setActiveId] = useState<number | null>(null)
   const [thinking, setThinking] = useState(false)
   const [currentPhase, setCurrentPhase] = useState<AgentStep | null>(null)
   const [streamingAnswer, setStreamingAnswer] = useState('')
   const [sessionUsage, setSessionUsage] = useState<AgentUsage | null>(null)
+  const displayCurrency = usePrefStore((s) => s.displayCurrency)
+  const [costRate, setCostRate] = useState(1) // USD → displayCurrency
+  const [costCcy, setCostCcy] = useState<DisplayCurrency>('USD')
   const [msgs, setMsgs] = useState<Msg[]>([
     { id: 0, role: 'assistant', text: '我是 finbrain Copilot。你可以直接问资产、持仓、对账，也可以用一句话记账；涉及写入时我会先整理草稿，等你确认后才入账。' },
   ])
@@ -48,13 +56,24 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let alive = true
     getLLMStatus(true)
-      .then((status) => {
+      .then(async (status) => {
         if (!alive) return
         if (status.configured && status.available !== false) {
           setLLM({ state: 'ready', status })
-          if (status.model === 'deepseek-v4-pro' || status.model === 'deepseek-v4-flash') {
-            setAgentModel(status.model)
-          }
+          if (status.model) setAgentModel(status.model)
+          // load the user's providers (for the provider switcher) + the active one's model list.
+          try {
+            const list = await listLLMProviders()
+            if (!alive) return
+            setProviders(list.items)
+            setActiveId(list.items.find((p) => p.is_active)?.id ?? null)
+          } catch { /* best-effort */ }
+          try {
+            const r = await listLLMModels({})
+            if (!alive) return
+            setModels(r.models)
+            setAgentModel((prev) => (prev && r.models.includes(prev) ? prev : r.models[0] ?? prev))
+          } catch { /* best-effort */ }
         } else {
           const reason = status.error || (status.configured ? '模型不可用' : '未配置 LLM API Key')
           setLLM({ state: 'disabled', status, reason })
@@ -71,6 +90,20 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [msgs, busy, currentPhase, streamingAnswer])
+  // Token cost is estimated in USD; convert it to the top-bar display currency (latest USD→ccy rate).
+  useEffect(() => {
+    if (displayCurrency === 'USD') { setCostRate(1); setCostCcy('USD'); return }
+    let alive = true
+    listFxRates({ base: 'USD', quote: displayCurrency, sort: 'date_desc' })
+      .then((res) => {
+        if (!alive) return
+        const r = Number(res.items[0]?.rate)
+        if (Number.isFinite(r) && r > 0) { setCostRate(r); setCostCcy(displayCurrency) }
+        else { setCostRate(1); setCostCcy('USD') } // no rate on file → fall back to USD
+      })
+      .catch(() => { if (alive) { setCostRate(1); setCostCcy('USD') } })
+    return () => { alive = false }
+  }, [displayCurrency])
 
   function push(m: Omit<Msg, 'id'>) {
     setMsgs((prev) => [...prev, { ...m, id: nextId() }])
@@ -79,6 +112,7 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
   async function send(text?: string) {
     const t = (text ?? input).trim()
     if (!t || busy || llm.state !== 'ready') return
+    setInput('') // clear immediately on send, before any further work
     const runSettings = { model: agentModel, thinking }
     if (shouldShowSettingsNotice(runSettings, lastSentSettingsRef.current, settingsTouchedRef.current)) {
       push({ role: 'notice', text: settingsNotice(runSettings) })
@@ -88,7 +122,6 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
     const history = buildAgentHistory(msgs)
     const startedAt = performance.now()
     push({ role: 'user', text: t })
-    setInput('')
     setBusy(true)
     setStreamingAnswer('')
     setCurrentPhase({ key: 'understand', label: '理解问题', status: 'pending', detail: '正在读取你的问题' })
@@ -147,7 +180,31 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // Switch which provider Copilot uses (activates it server-side), then refetch that provider's models.
+  async function switchProvider(id: number) {
+    if (id === activeId) return
+    settingsTouchedRef.current = true
+    setActiveId(id)
+    setModels([])
+    try {
+      await activateLLMProvider(id)
+    } catch {
+      toast.error('切换服务商失败')
+      return
+    }
+    try {
+      const r = await listLLMModels({})
+      setModels(r.models)
+      setAgentModel(r.models[0] ?? '')
+    } catch {
+      setAgentModel('')
+    }
+  }
+
   const canSend = llm.state === 'ready' && !busy && input.trim().length > 0
+  // thinking is DeepSeek-v4 only; keep the current model selectable even if not in the fetched list
+  const supportsThinking = agentModel.startsWith('deepseek-v4-')
+  const modelOpts = agentModel && !models.includes(agentModel) ? [agentModel, ...models] : models
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -209,26 +266,32 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
           </div>
         ) : null}
         <div style={modelControls}>
-          <div style={modelControlLeft}>
-            <div role="tablist" aria-label="模型" style={segmented}>
-              {([
-                ['deepseek-v4-flash', 'Flash'],
-                ['deepseek-v4-pro', 'Pro'],
-              ] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  disabled={busy || llm.state !== 'ready'}
-                  onClick={() => {
-                    if (value !== agentModel) settingsTouchedRef.current = true
-                    setAgentModel(value)
-                  }}
-                  style={segButton(agentModel === value, busy || llm.state !== 'ready')}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          {providers.length > 1 ? (
+            <Select
+              size="sm"
+              aria-label="服务商"
+              value={activeId != null ? String(activeId) : ''}
+              disabled={busy || llm.state !== 'ready'}
+              onChange={(e) => void switchProvider(Number(e.target.value))}
+              options={providers.map((p) => ({ value: String(p.id), label: p.label || p.provider }))}
+              wrapStyle={{ maxWidth: 130 }}
+            />
+          ) : null}
+          <Select
+            size="sm"
+            aria-label="模型"
+            value={agentModel}
+            disabled={busy || llm.state !== 'ready' || modelOpts.length === 0}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v !== agentModel) settingsTouchedRef.current = true
+              setAgentModel(v)
+              if (!v.startsWith('deepseek-v4-')) setThinking(false)
+            }}
+            options={modelOpts.map((m) => ({ value: m, label: m }))}
+            wrapStyle={{ maxWidth: 170 }}
+          />
+          {supportsThinking ? (
             <button
               type="button"
               aria-pressed={thinking}
@@ -243,14 +306,16 @@ export function CopilotPanel({ onClose }: { onClose: () => void }) {
               <Icon name="sparkles" size={11} />
               思考
             </button>
+          ) : null}
+          <div style={{ marginLeft: 'auto' }}>
+            <UsageBadge usage={sessionUsage} currency={costCcy} rate={costRate} />
           </div>
-          <UsageBadge usage={sessionUsage} />
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, background: 'var(--surface-inset)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '7px 8px 7px 11px' }}>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }}
             rows={1}
             disabled={llm.state !== 'ready'}
             placeholder={llm.state === 'ready' ? '问数据 / 记一笔…（Enter 发送）' : llm.state === 'checking' ? '正在检查模型状态…' : 'Copilot 未启用'}
@@ -301,11 +366,12 @@ function llmBadge(llm: { state: 'checking' | 'ready' | 'disabled'; status?: LLMS
 }
 
 function modelShort(model: AgentModel) {
-  return model === 'deepseek-v4-pro' ? 'pro' : 'flash'
+  const m = model.replace('deepseek-v4-', '').replace('deepseek-', '')
+  return m || '默认'
 }
 
 function modelLabel(model: AgentModel) {
-  return model === 'deepseek-v4-pro' ? 'Pro' : 'Flash'
+  return model || '默认模型'
 }
 
 function shouldShowSettingsNotice(current: AgentRunSettings, previous: AgentRunSettings | null, touched: boolean) {
@@ -407,20 +473,20 @@ function AnswerMeta({ durationMs }: { durationMs?: number }) {
   return <div style={answerMeta}>用时 {formatDuration(durationMs)}</div>
 }
 
-function UsageBadge({ usage }: { usage: AgentUsage | null }) {
+function UsageBadge({ usage, currency, rate }: { usage: AgentUsage | null; currency: DisplayCurrency; rate: number }) {
   const total = usage?.total_tokens ?? 0
   const hit = usage?.prompt_cache_hit_tokens ?? 0
   const miss = usage?.prompt_cache_miss_tokens ?? 0
   const prompt = hit + miss || usage?.prompt_tokens || 0
   const cacheRate = prompt > 0 ? hit / prompt : null
   const title = usage
-    ? `本会话模型用量\n调用 ${usage.calls ?? 0} 次\n输入 ${formatCompactInt(usage.prompt_tokens ?? prompt)} tokens\nCache 命中 ${formatCompactInt(hit)} / 未命中 ${formatCompactInt(miss)}\n输出 ${formatCompactInt(usage.completion_tokens ?? 0)} tokens${usage.reasoning_tokens ? `\n思考 ${formatCompactInt(usage.reasoning_tokens)} tokens` : ''}\n估算花费 ${formatUSD(usage.cost_usd ?? 0)}`
+    ? `本会话模型用量\n调用 ${usage.calls ?? 0} 次\n输入 ${formatCompactInt(usage.prompt_tokens ?? prompt)} tokens\nCache 命中 ${formatCompactInt(hit)} / 未命中 ${formatCompactInt(miss)}\n输出 ${formatCompactInt(usage.completion_tokens ?? 0)} tokens${usage.reasoning_tokens ? `\n思考 ${formatCompactInt(usage.reasoning_tokens)} tokens` : ''}\n估算花费 ${formatCost(usage.cost_usd ?? 0, currency, rate)}`
     : '本会话模型用量'
   return (
     <div style={usageBadge} title={title}>
       <span>{formatCompactInt(total)} tok</span>
       <span>Cache {cacheRate == null ? '—' : `${Math.round(cacheRate * 100)}%`}</span>
-      <span>{formatUSD(usage?.cost_usd ?? 0)}</span>
+      <span>{formatCost(usage?.cost_usd ?? 0, currency, rate)}</span>
     </div>
   )
 }
@@ -450,11 +516,16 @@ function formatCompactInt(n: number) {
   return String(Math.round(n))
 }
 
-function formatUSD(n: number) {
-  if (!Number.isFinite(n) || n <= 0) return '$0.0000'
-  if (n < 0.0001) return '<$0.0001'
-  if (n < 0.01) return `$${n.toFixed(4)}`
-  return `$${n.toFixed(3)}`
+const CCY_SYMBOL: Record<DisplayCurrency, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
+
+// cost is estimated in USD; rate converts USD → the given display currency (1 when currency is USD).
+function formatCost(usd: number, currency: DisplayCurrency, rate: number) {
+  const sym = CCY_SYMBOL[currency] ?? '$'
+  const v = (Number.isFinite(rate) && rate > 0 ? rate : 1) * usd
+  if (!Number.isFinite(v) || v <= 0) return `${sym}0.0000`
+  if (v < 0.0001) return `<${sym}0.0001`
+  if (v < 0.01) return `${sym}${v.toFixed(4)}`
+  return `${sym}${v.toFixed(3)}`
 }
 
 function ResultView({ result }: { result: unknown }) {
@@ -516,25 +587,23 @@ const card: React.CSSProperties = { background: 'var(--surface-inset)', border: 
 const hint: React.CSSProperties = { fontSize: 11.5, color: 'var(--text-tertiary)', marginTop: 4 }
 const phaseLine: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, padding: '6px 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', background: 'rgba(255,255,255,0.018)', marginBottom: 7 }
 const answerMeta: React.CSSProperties = { marginTop: 8, color: 'var(--text-tertiary)', fontSize: 10.5, lineHeight: 1.4 }
-const modelControls: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }
-const modelControlLeft: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }
-const segmented: React.CSSProperties = { display: 'inline-flex', border: '1px solid var(--border-default)', borderRadius: 8, padding: 2, background: 'var(--surface-inset)' }
+const modelControls: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: 8 }
 const usageBadge: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: 220, overflow: 'hidden', whiteSpace: 'nowrap', border: '1px solid var(--border-default)', borderRadius: 8, background: 'rgba(255,255,255,0.018)', color: 'var(--text-tertiary)', fontSize: 10.5, fontFamily: 'var(--font-mono)', padding: '4px 7px' }
-function segButton(active: boolean, disabled: boolean): React.CSSProperties {
-  return { border: 'none', borderRadius: 6, background: active ? 'var(--surface-raised)' : 'transparent', color: active ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 11, fontWeight: active ? 700 : 600, padding: '3px 9px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }
-}
 function thinkButton(active: boolean, disabled: boolean): React.CSSProperties {
   return {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 5,
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
+    height: 'var(--control-sm)',
     border: `1px solid ${active ? 'rgba(201,168,106,0.48)' : 'var(--border-default)'}`,
     borderRadius: 8,
     background: active ? 'rgba(201,168,106,0.16)' : 'var(--surface-inset)',
     color: active ? 'var(--accent)' : 'var(--text-tertiary)',
     fontSize: 11,
     fontWeight: 700,
-    padding: '5px 8px',
+    padding: '0 10px',
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1,
   }
