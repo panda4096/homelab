@@ -194,10 +194,10 @@ export function Holdings() {
 
       <Card padded={false}>
         <div style={{ overflowX: 'auto', width: '100%' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1220 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
             <thead>
               <tr>
-                <SortableTh w="210px" sortKey="symbol" sort={sort} onSort={onSort}>标的 / 账户</SortableTh>
+                <SortableTh w="172px" sortKey="symbol" sort={sort} onSort={onSort}>标的 / 账户</SortableTh>
                 <SortableTh>市场</SortableTh>
                 <SortableTh right sortKey="quantity" sort={sort} onSort={onSort}>数量</SortableTh>
                 <SortableTh right sortKey="avgCost" sort={sort} onSort={onSort}>{costMode === 'net' ? '净持有成本' : '加权买入'}</SortableTh>
@@ -307,7 +307,7 @@ function SortableTh({
       onClick={sortKey ? () => onSort?.(sortKey) : undefined}
       style={{
         textAlign: right ? 'right' : 'left',
-        padding: '9px 12px',
+        padding: '9px 8px',
         fontSize: 11,
         fontWeight: 500,
         color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
@@ -344,7 +344,7 @@ function Td({
     <td
       style={{
         textAlign: right ? 'right' : 'left',
-        padding: '10px 12px',
+        padding: '10px 8px',
         fontSize: 12.5,
         fontFamily: mono ? 'var(--font-num)' : 'var(--font-sans)',
         fontVariantNumeric: mono ? 'tabular-nums' : undefined,
