@@ -66,8 +66,6 @@ export function Holdings() {
         : buildRows(data.positions, group, num(data.position_value) ?? 0, costMode)
     next = next.filter((h) => {
       if (filter === 'all') return true
-      if (filter === 'profit') return (h.plPct ?? 0) > 0
-      if (filter === 'noprice') return h.missingPrice
       return h.market === filter
     })
     next = [...next].sort((a, b) => {
@@ -175,12 +173,6 @@ export function Holdings() {
               {marketLabel(market)} {count}
             </Tag>
           ))}
-          <Tag clickable active={filter === 'profit'} onClick={() => setFilter('profit')}>
-            盈利中
-          </Tag>
-          <Tag clickable active={filter === 'noprice'} onClick={() => setFilter('noprice')}>
-            无价格
-          </Tag>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>截至</span>
