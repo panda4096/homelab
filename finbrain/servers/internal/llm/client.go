@@ -152,16 +152,22 @@ func NewExplicit(provider, apiKey, baseURL, model string) *Client {
 		model:    strings.TrimSpace(model),
 	}
 	if c.baseURL == "" {
-		if c.provider == "anthropic" {
+		switch c.provider {
+		case "anthropic":
 			c.baseURL = "https://api.anthropic.com/v1/messages"
-		} else {
+		case "openai":
+			c.baseURL = "https://api.openai.com/v1/chat/completions"
+		default:
 			c.baseURL = "https://api.deepseek.com/chat/completions"
 		}
 	}
 	if c.model == "" {
-		if c.provider == "anthropic" {
+		switch c.provider {
+		case "anthropic":
 			c.model = "claude-sonnet-4-6"
-		} else {
+		case "openai":
+			c.model = "gpt-4o-mini"
+		default:
 			c.model = "deepseek-v4-flash"
 		}
 	}

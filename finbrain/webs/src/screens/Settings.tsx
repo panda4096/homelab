@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, Icon, Input, Segmented } from '../ds'
 import { usePrefStore } from '../store'
 import { useAuthStore } from '../authStore'
-import { ApiError, avatarUrl, changePassword, deleteLLMConfig, getLLMConfig, getLLMStatus, putLLMConfig, updateProfile, uploadAvatar } from '../api'
+import { ApiError, activateLLMProvider, avatarUrl, changePassword, createLLMProvider, deleteLLMProvider, getLLMStatus, listLLMProviders, updateLLMProvider, updateProfile, uploadAvatar } from '../api'
 import { useToast } from '../shell/Toast'
 import type {
   DisplayCurrency,
   FxMode,
-  LLMConfigInput,
+  LLMProvider,
+  LLMProviderInput,
   MarketConvention,
   TimeAggregation,
 } from '../api'
@@ -174,46 +175,94 @@ export function Settings() {
   )
 }
 
-// Per-user Copilot/LLM config: the API key is encrypted at rest server-side and never returned —
-// the form only knows whether one is set (has_key). Leaving the key blank on save keeps the
-// existing one. "测试连接" probes the saved credentials.
+const LLM_DEFAULT_URL: Record<string, string> = {
+  deepseek: 'https://api.deepseek.com/chat/completions',
+  openai: 'https://api.openai.com/v1/chat/completions',
+}
+
+// Multi-provider Copilot/LLM manager: a user can store several endpoints (DeepSeek official, an
+// OpenAI relay/中转站, …), each with its own base URL / model / encrypted key, and activate one.
+// Keys are encrypted server-side and never returned (the list only exposes has_key).
 function CopilotConfigCard() {
   const toast = useToast()
   const qc = useQueryClient()
-  const cfg = useQuery({ queryKey: ['llm-config'], queryFn: getLLMConfig })
+  const providers = useQuery({ queryKey: ['llm-providers'], queryFn: listLLMProviders })
   const status = useQuery({ queryKey: ['llm-status'], queryFn: () => getLLMStatus() })
-  const [model, setModel] = useState('')
+  const [editing, setEditing] = useState<number | 'new' | null>(null)
+  const [label, setLabel] = useState('')
+  const [provider, setProvider] = useState('deepseek')
   const [baseUrl, setBaseUrl] = useState('')
+  const [model, setModel] = useState('')
   const [apiKey, setApiKey] = useState('')
-  const [busy, setBusy] = useState<'' | 'save' | 'test' | 'clear'>('')
-  useEffect(() => {
-    if (cfg.data) {
-      setModel(cfg.data.model)
-      setBaseUrl(cfg.data.base_url)
-    }
-  }, [cfg.data])
-  const hasKey = cfg.data?.has_key ?? false
+  const [busy, setBusy] = useState(false)
+  const [probing, setProbing] = useState(false)
 
+  const items = providers.data?.items ?? []
+  const editingHasKey = typeof editing === 'number' && (items.find((p) => p.id === editing)?.has_key ?? false)
+
+  function refresh() {
+    return Promise.all([
+      qc.invalidateQueries({ queryKey: ['llm-providers'] }),
+      qc.invalidateQueries({ queryKey: ['llm-status'] }),
+    ])
+  }
+  function openNew() {
+    setEditing('new')
+    setLabel('')
+    setProvider('deepseek')
+    setBaseUrl(LLM_DEFAULT_URL.deepseek)
+    setModel('')
+    setApiKey('')
+  }
+  function openEdit(p: LLMProvider) {
+    setEditing(p.id)
+    setLabel(p.label)
+    setProvider(p.provider)
+    setBaseUrl(p.base_url || LLM_DEFAULT_URL[p.provider] || '')
+    setModel(p.model)
+    setApiKey('')
+  }
+  function changeProvider(v: string) {
+    setProvider(v)
+    setBaseUrl(LLM_DEFAULT_URL[v] ?? '') // show the provider's default url, still editable
+  }
   async function save() {
-    setBusy('save')
+    setBusy(true)
     try {
-      const input: LLMConfigInput = { provider: 'deepseek', model: model.trim(), base_url: baseUrl.trim() }
+      const input: LLMProviderInput = { label: label.trim(), provider, base_url: baseUrl.trim(), model: model.trim() }
       if (apiKey.trim()) input.api_key = apiKey.trim()
-      await putLLMConfig(input)
-      setApiKey('')
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ['llm-config'] }),
-        qc.invalidateQueries({ queryKey: ['llm-status'] }),
-      ])
+      if (editing === 'new') await createLLMProvider(input)
+      else if (typeof editing === 'number') await updateLLMProvider(editing, input)
+      await refresh()
+      setEditing(null)
       toast.success('已保存')
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '保存失败')
     } finally {
-      setBusy('')
+      setBusy(false)
+    }
+  }
+  async function activate(id: number) {
+    try {
+      await activateLLMProvider(id)
+      await refresh()
+      toast.success('已切换启用')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '切换失败')
+    }
+  }
+  async function remove(id: number) {
+    try {
+      await deleteLLMProvider(id)
+      if (editing === id) setEditing(null)
+      await refresh()
+      toast.success('已删除')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '删除失败')
     }
   }
   async function test() {
-    setBusy('test')
+    setProbing(true)
     try {
       const st = await getLLMStatus(true)
       qc.setQueryData(['llm-status'], st)
@@ -222,55 +271,81 @@ function CopilotConfigCard() {
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : '测试失败')
     } finally {
-      setBusy('')
-    }
-  }
-  async function clear() {
-    setBusy('clear')
-    try {
-      await deleteLLMConfig()
-      setApiKey('')
-      setModel('')
-      setBaseUrl('')
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ['llm-config'] }),
-        qc.invalidateQueries({ queryKey: ['llm-status'] }),
-      ])
-      toast.success('已清除，恢复默认')
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : '清除失败')
-    } finally {
-      setBusy('')
+      setProbing(false)
     }
   }
 
   return (
-    <Card eyebrow="COPILOT" title="大模型 · API Key" subtitle="自配 DeepSeek（OpenAI 兼容）密钥与模型 · 加密存库 · 仅本人可用">
-      <Row label="状态" hint="保存后点「测试连接」校验密钥是否可用">
-        {status.data?.available ? (
-          <Badge tone="success" dot>{status.data.provider} · {status.data.model}</Badge>
-        ) : status.data?.configured ? (
-          <Badge tone="warning" dot>{status.data.error || '已配置 · 未测试'}</Badge>
-        ) : (
-          <Badge tone="neutral">未配置</Badge>
-        )}
-      </Row>
-      <Row label="模型" hint="如 deepseek-chat / deepseek-reasoner">
-        <Input value={model} placeholder="deepseek-chat" onChange={(e) => setModel(e.target.value)} style={{ maxWidth: 240 }} />
-      </Row>
-      <Row label="API Key" hint={hasKey ? '已配置 · 留空则保留原 Key' : '从 DeepSeek 开放平台获取'}>
-        <Input type="password" value={apiKey} placeholder={hasKey ? '••••••••（已保存）' : 'sk-...'} onChange={(e) => setApiKey(e.target.value)} style={{ maxWidth: 280 }} />
-      </Row>
-      <Row label="接口地址" hint="可选 · 默认 DeepSeek 官方；可填任意 OpenAI 兼容端点">
-        <Input value={baseUrl} placeholder="https://api.deepseek.com/chat/completions" onChange={(e) => setBaseUrl(e.target.value)} style={{ maxWidth: 360 }} />
-      </Row>
-      <Row label="操作" hint="密钥加密保存到数据库，使用时解密">
-        <div style={{ display: 'inline-flex', gap: 8 }}>
-          <Button size="sm" variant="primary" disabled={busy !== ''} onClick={save}>{busy === 'save' ? '保存中…' : '保存'}</Button>
-          <Button size="sm" variant="secondary" disabled={busy !== '' || !status.data?.configured} onClick={test}>{busy === 'test' ? '测试中…' : '测试连接'}</Button>
-          {hasKey ? <Button size="sm" variant="ghost" disabled={busy !== ''} onClick={clear}>清除</Button> : null}
+    <Card eyebrow="COPILOT" title="大模型配置" subtitle="可添加多个服务商（DeepSeek / OpenAI 中转站等）· 密钥加密存库 · 仅本人可用 · 选一个启用">
+      <Row label="当前启用" hint="保存后点「测试连接」校验当前启用的配置">
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {status.data?.available ? (
+            <Badge tone="success" dot>{status.data.provider} · {status.data.model}</Badge>
+          ) : status.data?.configured ? (
+            <Badge tone="warning" dot>{status.data.error || '已配置 · 未测试'}</Badge>
+          ) : (
+            <Badge tone="neutral">未启用</Badge>
+          )}
+          <Button size="sm" variant="secondary" disabled={probing || !status.data?.configured} onClick={test}>{probing ? '测试中…' : '测试连接'}</Button>
         </div>
       </Row>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {items.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>还没有配置。未配置时 Copilot 使用服务端默认 Key（若有）。</div>
+        ) : null}
+        {items.map((p) => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface-inset)', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{p.label || p.provider}</span>
+                <Badge tone="neutral">{p.provider}</Badge>
+                {p.is_active ? <Badge tone="success" dot>启用中</Badge> : null}
+                {!p.has_key ? <Badge tone="warning">无密钥</Badge> : null}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.model || '默认模型'} · {p.base_url || LLM_DEFAULT_URL[p.provider] || '默认地址'}
+              </div>
+            </div>
+            <div style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>
+              {!p.is_active ? <Button size="sm" variant="ghost" onClick={() => activate(p.id)}>启用</Button> : null}
+              <Button size="sm" variant="ghost" onClick={() => openEdit(p)}>编辑</Button>
+              <Button size="sm" variant="ghost" onClick={() => remove(p.id)}>删除</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {editing === null ? (
+        <div>
+          <Button size="sm" variant="secondary" iconLeft={<Icon name="plus" size={14} />} onClick={openNew}>添加配置</Button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 12, background: 'var(--surface-inset)', borderRadius: 'var(--radius-md)' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-strong)' }}>{editing === 'new' ? '新增配置' : '编辑配置'}</div>
+          <Row label="名称" hint="如「DeepSeek 官方」「我的中转站」">
+            <Input value={label} placeholder={provider} onChange={(e) => setLabel(e.target.value)} style={{ maxWidth: 240 }} />
+          </Row>
+          <Row label="服务商" hint="决定默认接口地址 / 模型；均走 OpenAI 兼容协议">
+            <Segmented size="sm" value={provider} onChange={changeProvider} options={[{ value: 'deepseek', label: 'DeepSeek' }, { value: 'openai', label: 'OpenAI' }]} />
+          </Row>
+          <Row label="接口地址" hint="默认填好官方地址，可改成你的中转站地址">
+            <Input value={baseUrl} placeholder={LLM_DEFAULT_URL[provider]} onChange={(e) => setBaseUrl(e.target.value)} style={{ maxWidth: 360 }} />
+          </Row>
+          <Row label="模型" hint={provider === 'openai' ? '如 gpt-4o-mini' : '如 deepseek-chat / deepseek-reasoner'}>
+            <Input value={model} placeholder={provider === 'openai' ? 'gpt-4o-mini' : 'deepseek-chat'} onChange={(e) => setModel(e.target.value)} style={{ maxWidth: 240 }} />
+          </Row>
+          <Row label="API Key" hint={editingHasKey ? '留空则保留原 Key' : '该服务商的密钥'}>
+            <Input type="password" value={apiKey} placeholder={editingHasKey ? '••••••••（已保存）' : 'sk-...'} onChange={(e) => setApiKey(e.target.value)} style={{ maxWidth: 280 }} />
+          </Row>
+          <Row label="操作" hint="密钥加密保存到数据库，使用时解密">
+            <div style={{ display: 'inline-flex', gap: 8 }}>
+              <Button size="sm" variant="primary" disabled={busy} onClick={save}>{busy ? '保存中…' : '保存'}</Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>取消</Button>
+            </div>
+          </Row>
+        </div>
+      )}
     </Card>
   )
 }

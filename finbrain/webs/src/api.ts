@@ -1196,31 +1196,47 @@ export function getLLMStatus(probe = false): Promise<LLMStatus> {
   return request<LLMStatus>(`/api/llm/status${probe ? '?probe=1' : ''}`)
 }
 
-export interface LLMConfig {
+export interface LLMProvider {
+  id: number
+  label: string
   provider: string
   base_url: string
   model: string
   has_key: boolean
+  is_active: boolean
 }
 
 // api_key omitted = keep existing; '' = clear; value = set. The key is never returned by the API.
-export interface LLMConfigInput {
+export interface LLMProviderInput {
+  label?: string
   provider?: string
   base_url?: string
   model?: string
   api_key?: string
 }
 
-export function getLLMConfig(): Promise<LLMConfig> {
-  return request<LLMConfig>('/api/llm/config')
+interface LLMProviderList {
+  items: LLMProvider[]
 }
 
-export function putLLMConfig(input: LLMConfigInput): Promise<LLMConfig> {
-  return request<LLMConfig>('/api/llm/config', { method: 'PUT', body: JSON.stringify(input) })
+export function listLLMProviders(): Promise<LLMProviderList> {
+  return request<LLMProviderList>('/api/llm/providers')
 }
 
-export function deleteLLMConfig(): Promise<void> {
-  return request<void>('/api/llm/config', { method: 'DELETE' })
+export function createLLMProvider(input: LLMProviderInput): Promise<LLMProviderList> {
+  return request<LLMProviderList>('/api/llm/providers', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function updateLLMProvider(id: number, input: LLMProviderInput): Promise<LLMProviderList> {
+  return request<LLMProviderList>(`/api/llm/providers/${id}`, { method: 'PUT', body: JSON.stringify(input) })
+}
+
+export function deleteLLMProvider(id: number): Promise<void> {
+  return request<void>(`/api/llm/providers/${id}`, { method: 'DELETE' })
+}
+
+export function activateLLMProvider(id: number): Promise<LLMProviderList> {
+  return request<LLMProviderList>(`/api/llm/providers/${id}/activate`, { method: 'POST' })
 }
 
 export function listSummaries(): Promise<Summary[]> {

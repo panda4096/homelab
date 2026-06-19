@@ -30,7 +30,7 @@ type llmProbeCache struct {
 // llmFor returns the LLM client for a user: their saved (decrypted) config when present, otherwise
 // the env-configured default client. The result may be unconfigured (Configured()==false).
 func (s *Server) llmFor(ctx context.Context, userID int64) *llm.Client {
-	if cfg, err := s.store.GetLLMConfig(ctx, userID); err == nil && cfg.HasKey {
+	if cfg, err := s.store.GetActiveLLMConfig(ctx, userID); err == nil && cfg.HasKey {
 		return llm.NewExplicit(cfg.Provider, cfg.APIKey, cfg.BaseURL, cfg.Model)
 	}
 	return s.llm

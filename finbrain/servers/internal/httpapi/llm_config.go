@@ -8,32 +8,94 @@ import (
 	"github.com/panda4096/homelab/finbrain/servers/internal/store"
 )
 
-// llmConfigResponse is the safe, client-facing view of a user's LLM config — it NEVER includes the
-// API key (only whether one is set).
-func llmConfigResponse(c store.LLMConfig) map[string]any {
+// providerResponse is the safe, client-facing view of an LLM provider — it NEVER includes the API
+// key (only whether one is set).
+func providerResponse(p store.LLMProvider) map[string]any {
 	return map[string]any{
-		"provider": orElse(c.Provider, "deepseek"),
-		"base_url": c.BaseURL,
-		"model":    c.Model,
-		"has_key":  c.HasKey,
+		"id":        p.ID,
+		"label":     p.Label,
+		"provider":  p.Provider,
+		"base_url":  p.BaseURL,
+		"model":     p.Model,
+		"has_key":   p.HasKey,
+		"is_active": p.IsActive,
 	}
 }
 
-func (s *Server) getLLMConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetLLMConfig(r.Context(), userOf(r))
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusOK, llmConfigResponse(store.LLMConfig{Provider: "deepseek"}))
-		return
+// validateProviderInput normalizes + validates the shared provider fields. Returns (provider,
+// baseURL, model, label, errMsg).
+func validateProviderInput(label, provider, baseURL, model string) (string, string, string, string, string) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "deepseek"
 	}
+	if provider != "deepseek" && provider != "openai" {
+		return "", "", "", "", "provider 仅支持 deepseek / openai"
+	}
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL != "" && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		return "", "", "", "", "base_url 必须是 http(s) 地址"
+	}
+	model = strings.TrimSpace(model)
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = provider
+	}
+	if len([]rune(label)) > 40 {
+		return "", "", "", "", "名称需在 40 字以内"
+	}
+	return provider, baseURL, model, label, ""
+}
+
+func (s *Server) getLLMProviders(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListLLMProviders(r.Context(), userOf(r))
 	if err != nil {
 		writeInternal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, llmConfigResponse(cfg))
+	out := make([]map[string]any, 0, len(items))
+	for _, p := range items {
+		out = append(out, providerResponse(p))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
-func (s *Server) putLLMConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) createLLMProvider(w http.ResponseWriter, r *http.Request) {
 	var body struct {
+		Label    string  `json:"label"`
+		Provider string  `json:"provider"`
+		BaseURL  string  `json:"base_url"`
+		Model    string  `json:"model"`
+		APIKey   *string `json:"api_key"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	provider, baseURL, model, label, msg := validateProviderInput(body.Label, body.Provider, body.BaseURL, body.Model)
+	if msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
+		return
+	}
+	key := ""
+	if body.APIKey != nil {
+		key = strings.TrimSpace(*body.APIKey)
+	}
+	if _, err := s.store.CreateLLMProvider(r.Context(), userOf(r), label, provider, baseURL, model, key); err != nil {
+		writeStorageError(w, r, err)
+		return
+	}
+	s.invalidateLLMProbe(userOf(r))
+	s.getLLMProviders(w, r)
+}
+
+func (s *Server) updateLLMProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
+		return
+	}
+	var body struct {
+		Label    string  `json:"label"`
 		Provider string  `json:"provider"`
 		BaseURL  string  `json:"base_url"`
 		Model    string  `json:"model"`
@@ -42,52 +104,63 @@ func (s *Server) putLLMConfig(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	provider := strings.ToLower(strings.TrimSpace(body.Provider))
-	if provider == "" {
-		provider = "deepseek"
-	}
-	// We currently ship DeepSeek (OpenAI-compatible) only; reject unknown providers to avoid
-	// silently mis-routing (anthropic uses a different wire format and isn't user-selectable yet).
-	if provider != "deepseek" && provider != "openai" {
-		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "provider 仅支持 deepseek")
+	provider, baseURL, model, label, msg := validateProviderInput(body.Label, body.Provider, body.BaseURL, body.Model)
+	if msg != "" {
+		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", msg)
 		return
 	}
-	baseURL := strings.TrimSpace(body.BaseURL)
-	if baseURL != "" && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		writeError(w, http.StatusUnprocessableEntity, "business_rule_violated", "base_url 必须是 http(s) 地址")
-		return
-	}
-	model := strings.TrimSpace(body.Model)
 	var apiKey *string
 	if body.APIKey != nil {
 		trimmed := strings.TrimSpace(*body.APIKey)
 		apiKey = &trimmed
 	}
-	if err := s.store.UpsertLLMConfig(r.Context(), userOf(r), provider, baseURL, model, apiKey); err != nil {
+	if err := s.store.UpdateLLMProvider(r.Context(), userOf(r), id, label, provider, baseURL, model, apiKey); errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "配置不存在")
+		return
+	} else if err != nil {
 		writeStorageError(w, r, err)
 		return
 	}
-	// A config change invalidates the cached probe result for this user.
-	s.llmProbeMu.Lock()
-	delete(s.llmProbe, userOf(r))
-	s.llmProbeMu.Unlock()
-	s.getLLMConfig(w, r)
+	s.invalidateLLMProbe(userOf(r))
+	s.getLLMProviders(w, r)
 }
 
-func (s *Server) deleteLLMConfig(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteLLMConfig(r.Context(), userOf(r)); err != nil {
+func (s *Server) deleteLLMProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
+		return
+	}
+	if err := s.store.DeleteLLMProvider(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "配置不存在")
+		return
+	} else if err != nil {
 		writeStorageError(w, r, err)
 		return
 	}
-	s.llmProbeMu.Lock()
-	delete(s.llmProbe, userOf(r))
-	s.llmProbeMu.Unlock()
+	s.invalidateLLMProbe(userOf(r))
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func orElse(v, def string) string {
-	if strings.TrimSpace(v) == "" {
-		return def
+func (s *Server) activateLLMProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "invalid id")
+		return
 	}
-	return v
+	if err := s.store.SetActiveLLMProvider(r.Context(), userOf(r), id); errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "配置不存在")
+		return
+	} else if err != nil {
+		writeStorageError(w, r, err)
+		return
+	}
+	s.invalidateLLMProbe(userOf(r))
+	s.getLLMProviders(w, r)
+}
+
+func (s *Server) invalidateLLMProbe(userID int64) {
+	s.llmProbeMu.Lock()
+	delete(s.llmProbe, userID)
+	s.llmProbeMu.Unlock()
 }
