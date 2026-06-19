@@ -27,6 +27,7 @@ interface HoldingRow {
   costCurrency: string
   quantity: string | null
   avgCost: string | null
+  netCost: string | null
   price: string | null
   priceCurrency: string | null
   marketValue: number | null
@@ -46,7 +47,6 @@ export function Holdings() {
   const timezone = usePrefStore((s) => s.timezone)
   const [group, setGroup] = useState('symbol')
   const [filter, setFilter] = useState('all')
-  const [costMode, setCostMode] = useState<'weighted' | 'net'>('weighted')
   const [sort, setSort] = useState<{ key: SortKey | null; dir: number }>({ key: null, dir: 1 })
   const today = todayISO(timezone)
   const [asOf, setAsOf] = useState(today)
@@ -61,10 +61,10 @@ export function Holdings() {
     let next =
       group === 'symbol'
         ? (data.position_groups?.length ? data.position_groups : data.positions).map((p) => ({
-            ...positionToRow(p, num(data.position_value) ?? 0, costMode),
+            ...positionToRow(p, num(data.position_value) ?? 0),
             subtitle: p.display_name ?? p.symbol, // merged across accounts → show just the instrument name (no "· 多账户 · 合并")
           }))
-        : buildRows(data.positions, group, num(data.position_value) ?? 0, costMode)
+        : buildRows(data.positions, group, num(data.position_value) ?? 0)
     next = next.filter((h) => {
       if (filter === 'all') return true
       return h.market === filter
@@ -76,7 +76,7 @@ export function Holdings() {
       return compareHolding(a, b, sort.key) * sort.dir
     })
     return next
-  }, [costMode, data, filter, group, sort])
+  }, [data, filter, group, sort])
 
   const marketCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -118,8 +118,8 @@ export function Holdings() {
       <div className="fb-grid fb-grid--g14 kpi-5">
         <StatCard label="持仓总市值" value={data.position_value} currency={data.display_currency} compact />
         <StatCard
-          label={costMode === 'net' ? '净持有成本' : '持仓总成本'}
-          value={costMode === 'net' ? data.position_net_cost : data.position_cost}
+          label="持仓总成本"
+          value={data.position_cost}
           currency={data.display_currency}
           compact
         />
@@ -178,17 +178,6 @@ export function Holdings() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>截至</span>
           <DateField size="sm" value={asOf} max={today} onChange={setAsOf} style={{ maxWidth: 150 }} />
-          <div style={{ width: 1, height: 22, background: 'var(--divider)' }} />
-          <Icon name="columns-3" size={14} color="var(--text-tertiary)" />
-          <Segmented
-            size="sm"
-            value={costMode}
-            onChange={(v) => setCostMode(v as 'weighted' | 'net')}
-            options={[
-              { value: 'weighted', label: '加权买入' },
-              { value: 'net', label: '净持有成本' },
-            ]}
-          />
         </div>
       </div>
 
@@ -198,9 +187,9 @@ export function Holdings() {
             <thead>
               <tr>
                 <SortableTh w="172px" sortKey="symbol" sort={sort} onSort={onSort}>标的 / 账户</SortableTh>
-                <SortableTh>市场</SortableTh>
                 <SortableTh right sortKey="quantity" sort={sort} onSort={onSort}>数量</SortableTh>
-                <SortableTh right sortKey="avgCost" sort={sort} onSort={onSort}>{costMode === 'net' ? '净持有成本' : '加权买入'}</SortableTh>
+                <SortableTh right sortKey="avgCost" sort={sort} onSort={onSort}>加权买入</SortableTh>
+                <SortableTh right>净持有成本</SortableTh>
                 <SortableTh right sortKey="price" sort={sort} onSort={onSort}>现价</SortableTh>
                 <SortableTh right sortKey="marketValue" sort={sort} onSort={onSort}>持仓市值</SortableTh>
                 <SortableTh right sortKey="plPct" sort={sort} onSort={onSort}>浮动盈亏率</SortableTh>
@@ -231,6 +220,10 @@ export function Holdings() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span className="fb-badge fb-badge--neutral" style={{ flexShrink: 0, color: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }}>
+                              <span className="fb-badge__dot" style={{ background: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }} />
+                              {marketLabel(h.market)}
+                            </span>
                             <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-strong)', fontSize: 13 }}>
                               {h.symbol}
                             </span>
@@ -241,14 +234,9 @@ export function Holdings() {
                         </div>
                       </div>
                     </Td>
-                    <Td>
-                      <span className="fb-badge fb-badge--neutral" style={{ color: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }}>
-                        <span className="fb-badge__dot" style={{ background: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }} />
-                        {marketLabel(h.market)}
-                      </span>
-                    </Td>
                     <Td right mono>{h.quantity == null ? '—' : quantity(h.quantity)}</Td>
                     <Td right mono dim>{h.avgCost == null ? '—' : native(h.avgCost, h.costCurrency, 4)}</Td>
+                    <Td right mono dim>{h.netCost == null ? '—' : native(h.netCost, h.costCurrency, 4)}</Td>
                     <Td right mono color={h.price ? 'var(--text-strong)' : 'var(--text-tertiary)'}>
                       {h.price && h.priceCurrency ? native(h.price, h.priceCurrency, 4) : '—'}
                     </Td>
@@ -307,7 +295,7 @@ function SortableTh({
       onClick={sortKey ? () => onSort?.(sortKey) : undefined}
       style={{
         textAlign: right ? 'right' : 'left',
-        padding: '9px 8px',
+        padding: '9px 7px',
         fontSize: 11,
         fontWeight: 500,
         color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
@@ -344,7 +332,7 @@ function Td({
     <td
       style={{
         textAlign: right ? 'right' : 'left',
-        padding: '10px 8px',
+        padding: '10px 7px',
         fontSize: 12.5,
         fontFamily: mono ? 'var(--font-num)' : 'var(--font-sans)',
         fontVariantNumeric: mono ? 'tabular-nums' : undefined,
@@ -357,8 +345,8 @@ function Td({
   )
 }
 
-function buildRows(positions: ValuationPosition[], group: string, totalPositionValue: number, costMode: 'weighted' | 'net'): HoldingRow[] {
-  const base = positions.map((p) => positionToRow(p, totalPositionValue, costMode))
+function buildRows(positions: ValuationPosition[], group: string, totalPositionValue: number): HoldingRow[] {
+  const base = positions.map((p) => positionToRow(p, totalPositionValue))
   if (group === 'account') return base
   const keyOf = (r: HoldingRow) => {
     if (group === 'symbol') return r.symbol
@@ -378,6 +366,7 @@ function buildRows(positions: ValuationPosition[], group: string, totalPositionV
         subtitle: group === 'symbol' ? r.name : group === 'market' ? '按市场合并' : '按计价币种合并',
         quantity: group === 'symbol' ? r.quantity : null,
         avgCost: group === 'symbol' ? r.avgCost : null,
+        netCost: group === 'symbol' ? r.netCost : null,
         price: group === 'symbol' ? r.price : null,
       })
       continue
@@ -399,12 +388,11 @@ function buildRows(positions: ValuationPosition[], group: string, totalPositionV
   })
 }
 
-function positionToRow(p: ValuationPosition, totalPositionValue: number, costMode: 'weighted' | 'net'): HoldingRow {
+function positionToRow(p: ValuationPosition, totalPositionValue: number): HoldingRow {
   const marketValue = num(p.market_value_display)
-  const weightedCostValue = num(p.cost_value_display)
-  const netCostValue = num(p.net_cost_value_display)
-  const costValue = costMode === 'net' ? (netCostValue ?? weightedCostValue) : weightedCostValue
-  const avgCost = costMode === 'net' ? (p.net_cost ?? p.avg_cost) : p.avg_cost
+  const costValue = num(p.cost_value_display)
+  const avgCost = p.avg_cost
+  const netCost = p.net_cost ?? p.avg_cost
   const plValue = marketValue != null && costValue != null ? marketValue - costValue : num(p.unrealized_pl_display)
   const plPct = costValue && costValue !== 0 && plValue != null ? (plValue / costValue) * 100 : num(p.unrealized_pl_pct)
   return {
@@ -417,6 +405,7 @@ function positionToRow(p: ValuationPosition, totalPositionValue: number, costMod
     costCurrency: p.cost_currency,
     quantity: p.quantity,
     avgCost,
+    netCost,
     price: p.price,
     priceCurrency: p.price_currency,
     marketValue,
