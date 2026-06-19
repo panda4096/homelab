@@ -39,6 +39,11 @@ interface HoldingRow {
   holdingDays: number | null
   missingPrice: boolean
   fxFallback: boolean
+  // 按账户 accordion: an account header row that expands to its holdings.
+  rowKind?: 'account' | 'holding'
+  accountId?: number
+  expanded?: boolean
+  holdingCount?: number
 }
 
 export function Holdings() {
@@ -48,6 +53,7 @@ export function Holdings() {
   const [group, setGroup] = useState('symbol')
   const [filter, setFilter] = useState('all')
   const [sort, setSort] = useState<{ key: SortKey | null; dir: number }>({ key: null, dir: 1 })
+  const [expandedAccounts, setExpandedAccounts] = useState<Record<number, boolean>>({})
   const today = todayISO(timezone)
   const [asOf, setAsOf] = useState(today)
 
@@ -58,6 +64,12 @@ export function Holdings() {
 
   const rows = useMemo(() => {
     if (!data) return []
+    if (group === 'account') {
+      // Accordion: group holdings under their account; click a header to expand. The market filter
+      // applies to the underlying holdings, and accounts are ordered by market value.
+      const positions = filter === 'all' ? data.positions : data.positions.filter((p) => (p.market ?? 'UNKNOWN') === filter)
+      return buildAccountGroups(positions, num(data.position_value) ?? 0, expandedAccounts)
+    }
     let next =
       group === 'symbol'
         ? (data.position_groups?.length ? data.position_groups : data.positions).map((p) => ({
@@ -76,7 +88,7 @@ export function Holdings() {
       return compareHolding(a, b, sort.key) * sort.dir
     })
     return next
-  }, [data, filter, group, sort])
+  }, [data, filter, group, sort, expandedAccounts])
 
   const marketCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -116,6 +128,7 @@ export function Holdings() {
   // Market / quote-currency views aggregate across instruments, so the per-instrument columns
   // (quantity, cost, price, holding period, asset weight) are meaningless — hide them.
   const aggregated = group === 'market' || group === 'quote'
+  const toggleAccount = (id: number) => setExpandedAccounts((m) => ({ ...m, [id]: !m[id] }))
 
   return (
     <Page>
@@ -205,57 +218,73 @@ export function Holdings() {
             </thead>
             <tbody>
               {rows.length ? (
-                rows.map((h) => (
+                rows.map((h) => {
+                  const isAcct = h.rowKind === 'account'
+                  const dash = isAcct ? '' : '—' // account headers leave per-instrument cells blank
+                  return (
                   <tr
                     key={h.key}
+                    onClick={isAcct ? () => toggleAccount(h.accountId!) : undefined}
                     style={{
                       borderBottom: '1px solid var(--divider)',
-                      background: h.missingPrice ? 'var(--surface-inset)' : 'transparent',
+                      background: isAcct || h.missingPrice ? 'var(--surface-inset)' : 'transparent',
                       transition: 'var(--transition-control)',
+                      cursor: isAcct ? 'pointer' : 'default',
                     }}
                     onMouseEnter={(e) => {
-                      if (!h.missingPrice) e.currentTarget.style.background = 'var(--surface-raised)'
+                      e.currentTarget.style.background = 'var(--surface-raised)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = h.missingPrice ? 'var(--surface-inset)' : 'transparent'
+                      e.currentTarget.style.background = isAcct || h.missingPrice ? 'var(--surface-inset)' : 'transparent'
                     }}
                   >
                     <Td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                            <span className="fb-badge fb-badge--neutral" style={{ flexShrink: 0, color: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }}>
-                              <span className="fb-badge__dot" style={{ background: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }} />
-                              {marketLabel(h.market)}
-                            </span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-strong)', fontSize: 13 }}>
-                              {h.symbol}
-                            </span>
-                            {h.fxFallback ? <Badge tone="warning">汇率暂估</Badge> : null}
-                            {h.missingPrice ? <Badge tone="danger">无价格</Badge> : null}
+                      {isAcct ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Icon name={h.expanded ? 'chevron-down' : 'chevron-right'} size={15} color="var(--text-tertiary)" />
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)' }}>{h.name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>{h.subtitle}</div>
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>{h.subtitle}</div>
                         </div>
-                      </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, paddingLeft: group === 'account' ? 23 : 0 }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              <span className="fb-badge fb-badge--neutral" style={{ flexShrink: 0, color: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }}>
+                                <span className="fb-badge__dot" style={{ background: MARKET_TONE[h.market] ?? 'var(--text-secondary)' }} />
+                                {marketLabel(h.market)}
+                              </span>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-strong)', fontSize: 13 }}>
+                                {h.symbol}
+                              </span>
+                              {h.fxFallback ? <Badge tone="warning">汇率暂估</Badge> : null}
+                              {h.missingPrice ? <Badge tone="danger">无价格</Badge> : null}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>{h.subtitle}</div>
+                          </div>
+                        </div>
+                      )}
                     </Td>
-                    {!aggregated && <Td right mono>{h.quantity == null ? '—' : quantity(h.quantity)}</Td>}
-                    {!aggregated && <Td right mono dim>{h.avgCost == null ? '—' : native(h.avgCost, h.costCurrency, 4)}</Td>}
-                    {!aggregated && <Td right mono dim>{h.netCost == null ? '—' : native(h.netCost, h.costCurrency, 4)}</Td>}
+                    {!aggregated && <Td right mono>{h.quantity == null ? dash : quantity(h.quantity)}</Td>}
+                    {!aggregated && <Td right mono dim>{h.avgCost == null ? dash : native(h.avgCost, h.costCurrency, 4)}</Td>}
+                    {!aggregated && <Td right mono dim>{h.netCost == null ? dash : native(h.netCost, h.costCurrency, 4)}</Td>}
                     {!aggregated && (
                       <Td right mono color={h.price ? 'var(--text-strong)' : 'var(--text-tertiary)'}>
-                        {h.price && h.priceCurrency ? native(h.price, h.priceCurrency, 4) : '—'}
+                        {h.price && h.priceCurrency ? native(h.price, h.priceCurrency, 4) : dash}
                       </Td>
                     )}
                     <Td right mono color="var(--text-strong)">{native(h.marketValue, data.display_currency, 2)}</Td>
-                    <Td right>{h.plPct == null ? <span style={{ color: 'var(--text-tertiary)' }}>—</span> : <DeltaValue percent={h.plPct} />}</Td>
+                    <Td right>{h.plPct == null ? <span style={{ color: 'var(--text-tertiary)' }}>{dash}</span> : <DeltaValue percent={h.plPct} />}</Td>
                     <Td right mono color={(h.plValue ?? 0) > 0 ? 'var(--gain)' : (h.plValue ?? 0) < 0 ? 'var(--loss)' : 'var(--text-tertiary)'}>
-                      {h.plValue == null ? '—' : native(h.plValue, data.display_currency, 2)}
+                      {h.plValue == null ? dash : native(h.plValue, data.display_currency, 2)}
                     </Td>
-                    <Td right mono>{h.weight == null ? '—' : `${h.weight.toFixed(2)}%`}</Td>
-                    {!aggregated && <Td right mono>{h.assetWeight == null ? '—' : `${h.assetWeight.toFixed(2)}%`}</Td>}
-                    {!aggregated && <Td right mono>{durationLabel(h.holdingDays)}</Td>}
+                    <Td right mono>{h.weight == null ? dash : `${h.weight.toFixed(2)}%`}</Td>
+                    {!aggregated && <Td right mono>{h.assetWeight == null ? dash : `${h.assetWeight.toFixed(2)}%`}</Td>}
+                    {!aggregated && <Td right mono>{isAcct ? '' : durationLabel(h.holdingDays)}</Td>}
                   </tr>
-                ))
+                  )
+                })
               ) : (
                 <tr>
                   <Td dim>没有匹配的持仓</Td>
@@ -349,6 +378,66 @@ function Td({
       {children}
     </td>
   )
+}
+
+// buildAccountGroups produces the 按账户 accordion: one header row per account (with that
+// account's aggregated market value / cost / P&L / weight), followed by its holding rows when the
+// account is expanded. Accounts are ordered by market value; holdings within by market value.
+function buildAccountGroups(
+  positions: ValuationPosition[],
+  totalPositionValue: number,
+  expanded: Record<number, boolean>,
+): HoldingRow[] {
+  type Group = { id: number; label: string; market: string; children: HoldingRow[]; mv: number; cost: number; pl: number }
+  const groups = new Map<number, Group>()
+  for (const p of positions) {
+    const child = positionToRow(p, totalPositionValue)
+    let g = groups.get(p.account_id)
+    if (!g) {
+      const label = [p.institution, p.account_name].filter(Boolean).join(' · ') || '账户'
+      g = { id: p.account_id, label, market: p.market ?? 'UNKNOWN', children: [], mv: 0, cost: 0, pl: 0 }
+      groups.set(p.account_id, g)
+    } else if (g.market !== (p.market ?? 'UNKNOWN')) {
+      g.market = 'UNKNOWN' // multi-market account → no single badge
+    }
+    g.children.push({ ...child, rowKind: 'holding', accountId: p.account_id, subtitle: child.name })
+    g.mv += child.marketValue ?? 0
+    g.cost += child.costValue ?? 0
+    g.pl += child.plValue ?? 0
+  }
+  const out: HoldingRow[] = []
+  for (const g of [...groups.values()].sort((a, b) => b.mv - a.mv)) {
+    const isOpen = !!expanded[g.id]
+    out.push({
+      key: `acct:${g.id}`,
+      rowKind: 'account',
+      accountId: g.id,
+      expanded: isOpen,
+      holdingCount: g.children.length,
+      symbol: g.label,
+      name: g.label,
+      subtitle: `${g.children.length} 个持仓`,
+      market: g.market,
+      quoteCurrency: '',
+      costCurrency: '',
+      quantity: null,
+      avgCost: null,
+      netCost: null,
+      price: null,
+      priceCurrency: null,
+      marketValue: g.mv,
+      costValue: g.cost,
+      plValue: g.pl,
+      plPct: g.cost !== 0 ? (g.pl / g.cost) * 100 : null,
+      weight: totalPositionValue ? (g.mv / totalPositionValue) * 100 : null,
+      assetWeight: null,
+      holdingDays: null,
+      missingPrice: false,
+      fxFallback: false,
+    })
+    if (isOpen) out.push(...[...g.children].sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0)))
+  }
+  return out
 }
 
 function buildRows(positions: ValuationPosition[], group: string, totalPositionValue: number): HoldingRow[] {
