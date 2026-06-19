@@ -219,6 +219,8 @@ export interface LineBenchmark {
   color?: string
 }
 
+export type TradeMark = { date: string; action: 'buy' | 'sell' }
+
 export function LineChart({
   series,
   benchmarks = [],
@@ -227,6 +229,7 @@ export function LineChart({
   tooltipDelta = false,
   tooltipRows,
   baseline,
+  trades = [],
 }: {
   series: LineSeriesPoint[]
   benchmarks?: LineBenchmark[]
@@ -236,6 +239,8 @@ export function LineChart({
   tooltipDelta?: boolean
   /** draw a labelled horizontal reference line at this value (e.g. 100 = the rebase/excess 0% baseline) */
   baseline?: number
+  /** buy/sell markers (B/S) plotted on the line at each trade's date (snapped to the nearest point) */
+  trades?: TradeMark[]
   /** rich multi-line hover tooltip: given the hovered date, return a caption + one row per
    *  visible line. When rows is non-empty it replaces the default single-value tooltip. */
   tooltipRows?: (date: string) => { caption?: string; rows: { label: string; value: string; color: string; valueColor?: string }[] }
@@ -367,6 +372,29 @@ export function LineChart({
         )
       })}
       <path d={path} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {trades.length > 0
+        ? trades
+            // only markers within the visible window; snap each to the point on/just before its date
+            .filter((t) => t.date >= data[0].m && t.date <= data[data.length - 1].m)
+            .map((t, k) => {
+              let idx = 0
+              for (let j = 0; j < data.length; j++) {
+                if (data[j].m <= t.date) idx = j
+                else break
+              }
+              const cx = x(idx)
+              const cy = y(data[idx].v)
+              const buy = t.action === 'buy'
+              return (
+                <g key={`bs-${k}`} style={{ pointerEvents: 'none' }}>
+                  <circle cx={cx} cy={cy} r="6.5" fill={buy ? 'var(--gain)' : 'var(--loss)'} stroke="var(--surface-base)" strokeWidth="1.5" />
+                  <text x={cx} y={cy + 3} textAnchor="middle" fontSize="8.5" fontWeight={700} fill="#fff">
+                    {buy ? 'B' : 'S'}
+                  </text>
+                </g>
+              )
+            })
+        : null}
       {hover != null && hoverPoint ? (
         <g>
           <line x1={x(hover)} y1={padT} x2={x(hover)} y2={padT + ih} stroke="var(--border-strong)" />

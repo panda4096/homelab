@@ -7,6 +7,7 @@ import {
   listFxRates,
   listInstruments,
   listPrices,
+  listTransactions,
   resolveInstrument,
   updateFxRate,
   updateInstrument,
@@ -17,7 +18,7 @@ import {
   type Price,
 } from '../api'
 import { ACCOUNT_CURRENCIES, marketLabel, MARKET_TONE, native, todayISO } from '../lib/format'
-import { LineChart, type LineSeriesPoint } from '../lib/finance'
+import { LineChart, type LineSeriesPoint, type TradeMark } from '../lib/finance'
 import { Row, SectionHint, Td, Th } from '../lib/ui'
 import { invalidatePortfolio } from '../lib/invalidate'
 import { Modal } from '../shell/Modal'
@@ -370,6 +371,15 @@ function InstrumentManager({
   const series = priceSeries(historyRows)
   const latest = latestPrice(historyRows)
   const currency = latest?.currency ?? cur?.quote_currency ?? 'USD'
+  // buy/sell trades for this instrument → B/S markers on the price chart
+  const txns = useQuery({
+    queryKey: ['transactions', selectedSymbol],
+    queryFn: () => listTransactions({ symbol: selectedSymbol }),
+    enabled: !!cur,
+  })
+  const trades: TradeMark[] = (txns.data?.items ?? [])
+    .filter((t) => t.action === 'buy' || t.action === 'sell')
+    .map((t) => ({ date: t.trade_date, action: t.action as 'buy' | 'sell' }))
 
   return (
     <MasterDetail
@@ -404,6 +414,7 @@ function InstrumentManager({
             loading={loading}
             emptyText={series.length === 0 ? '暂无历史价格' : '历史价格不足 2 点,无法绘制走势 — 用批量导入 API §4.10.1 补足'}
             pointLabel="价格点"
+            trades={trades}
           />
         </>
       ) : (
@@ -694,14 +705,18 @@ function HistoryChart({
   emptyText,
   pointLabel,
   loading = false,
+  trades = [],
 }: {
   series: LineSeriesPoint[]
   yFmt: (v: number) => string
   emptyText: string
   pointLabel: string
   loading?: boolean
+  /** buy/sell markers to overlay (instrument price chart only) */
+  trades?: TradeMark[]
 }) {
   const [range, setRange] = useState('1y')
+  const [showBS, setShowBS] = useState(true)
   const hints = historyHints(series, pointLabel)
   const view = useMemo(() => sliceByRange(series, range), [series, range])
   const stats = rangeStats(view)
@@ -711,7 +726,25 @@ function HistoryChart({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {hasData && !loading ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <Segmented size="sm" value={range} onChange={setRange} options={RANGE_OPTIONS} />
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Segmented size="sm" value={range} onChange={setRange} options={RANGE_OPTIONS} />
+            {trades.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowBS((v) => !v)}
+                title={showBS ? '隐藏买卖点' : '显示买卖点'}
+                style={{
+                  height: 'var(--control-sm)', padding: '0 10px', borderRadius: 8, cursor: 'pointer',
+                  fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap',
+                  border: `1px solid ${showBS ? 'rgba(201,168,106,0.48)' : 'var(--border-default)'}`,
+                  background: showBS ? 'rgba(201,168,106,0.16)' : 'var(--surface-inset)',
+                  color: showBS ? 'var(--accent)' : 'var(--text-tertiary)',
+                }}
+              >
+                买卖点
+              </button>
+            ) : null}
+          </div>
           {stats ? (
             <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', fontSize: 11.5 }}>
               <ChartStat label="现价" value={yFmt(stats.last)} />
@@ -743,7 +776,7 @@ function HistoryChart({
           加载中…
         </div>
       ) : hasData ? (
-        <LineChart series={view} height={210} yFmt={yFmt} tooltipDelta />
+        <LineChart series={view} height={210} yFmt={yFmt} tooltipDelta trades={showBS ? trades : []} />
       ) : (
         <div
           style={{
