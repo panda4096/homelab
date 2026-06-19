@@ -6,17 +6,7 @@ import { marketLabel, MARKET_TONE, native, quantity, todayISO } from '../lib/for
 import { CurrencyValue, DeltaValue, StatCard, Tag, VIZ, num } from '../lib/finance'
 import { usePrefStore } from '../store'
 
-type SortKey =
-  | 'symbol'
-  | 'quantity'
-  | 'avgCost'
-  | 'price'
-  | 'marketValue'
-  | 'plPct'
-  | 'plValue'
-  | 'weight'
-  | 'assetWeight'
-  | 'holdingDays'
+type SortKey = 'marketValue' | 'plPct' | 'plValue'
 
 interface HoldingRow {
   key: string
@@ -204,17 +194,17 @@ export function Holdings() {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
             <thead>
               <tr>
-                <SortableTh w="172px" sortKey="symbol" sort={sort} onSort={onSort}>标的 / 账户</SortableTh>
-                {!aggregated && <SortableTh right sortKey="quantity" sort={sort} onSort={onSort}>数量</SortableTh>}
-                {!aggregated && <SortableTh right sortKey="avgCost" sort={sort} onSort={onSort}>加权买入</SortableTh>}
+                <SortableTh w="172px">标的 / 账户</SortableTh>
+                {!aggregated && <SortableTh right>数量</SortableTh>}
+                {!aggregated && <SortableTh right>加权买入</SortableTh>}
                 {!aggregated && <SortableTh right>净持有成本</SortableTh>}
-                {!aggregated && <SortableTh right sortKey="price" sort={sort} onSort={onSort}>现价</SortableTh>}
+                {!aggregated && <SortableTh right>现价</SortableTh>}
                 <SortableTh right sortKey="marketValue" sort={sort} onSort={onSort}>持仓市值</SortableTh>
                 <SortableTh right sortKey="plPct" sort={sort} onSort={onSort}>浮动盈亏率</SortableTh>
                 <SortableTh right sortKey="plValue" sort={sort} onSort={onSort}>浮动盈亏</SortableTh>
-                <SortableTh right sortKey="weight" sort={sort} onSort={onSort}>仓位权重</SortableTh>
-                {!aggregated && <SortableTh right sortKey="assetWeight" sort={sort} onSort={onSort}>资产权重</SortableTh>}
-                {!aggregated && <SortableTh right sortKey="holdingDays" sort={sort} onSort={onSort}>持仓时长</SortableTh>}
+                <SortableTh right>仓位权重</SortableTh>
+                {!aggregated && <SortableTh right>资产权重</SortableTh>}
+                {!aggregated && <SortableTh right>持仓时长</SortableTh>}
               </tr>
             </thead>
             <tbody>
@@ -533,7 +523,6 @@ function addNullable(a: number | null, b: number | null) {
 }
 
 function compareHolding(a: HoldingRow, b: HoldingRow, key: SortKey) {
-  if (key === 'symbol') return a.symbol.localeCompare(b.symbol)
   const av = holdingSortValue(a, key)
   const bv = holdingSortValue(b, key)
   if (av == null) return 1
@@ -543,24 +532,12 @@ function compareHolding(a: HoldingRow, b: HoldingRow, key: SortKey) {
 
 function holdingSortValue(r: HoldingRow, key: SortKey) {
   switch (key) {
-    case 'quantity':
-      return num(r.quantity)
-    case 'avgCost':
-      return num(r.avgCost)
-    case 'price':
-      return num(r.price)
     case 'marketValue':
       return r.marketValue
     case 'plPct':
       return r.plPct
     case 'plValue':
       return r.plValue
-    case 'weight':
-      return r.weight
-    case 'assetWeight':
-      return r.assetWeight
-    case 'holdingDays':
-      return r.holdingDays
     default:
       return null
   }
