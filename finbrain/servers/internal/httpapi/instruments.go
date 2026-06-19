@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -52,8 +55,16 @@ func (s *Server) upsertInstrument(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, r, err)
 		return
 	}
-	// New instrument → fetch its full price history right away (idempotent, non-blocking).
 	if s.market != nil {
+		// Fetch the latest price synchronously (bounded, best-effort) so a just-added instrument
+		// shows a price immediately rather than only after the next scheduler tick. Non-fatal: if
+		// the feed is slow/unreachable the periodic refresh + backfill below will catch up.
+		rctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		if err := s.market.RefreshSymbol(rctx, out.Symbol); err != nil {
+			log.Printf("refresh-symbol %s: %v", out.Symbol, err)
+		}
+		cancel()
+		// Then fetch its full price history in the background (idempotent, non-blocking).
 		s.market.TriggerEnsureBackfilled(out.Symbol)
 	}
 	writeJSON(w, http.StatusOK, out)

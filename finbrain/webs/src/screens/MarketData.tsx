@@ -1194,6 +1194,7 @@ function InstrumentModal({
     mutationFn: () => (item ? updateInstrument(item.symbol, payload) : upsertInstrument({ symbol: symbol.trim().toUpperCase(), ...payload })),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['instruments'] })
+      void qc.invalidateQueries({ queryKey: ['prices'] }) // the create handler fetches the latest price synchronously
       invalidatePortfolio(qc)
       toast.success(item ? '标的已更新' : '标的已新增')
       onClose()

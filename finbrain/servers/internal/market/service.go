@@ -508,6 +508,36 @@ func (s *Service) TriggerEnsureBackfilled(symbol string) {
 	}()
 }
 
+// RefreshSymbol fetches and persists the LATEST price for one instrument (and the latest FX rate
+// for its currency) synchronously. Used right after an instrument is created so it shows a price
+// immediately, instead of waiting for the next scheduler tick; the full history backfill still runs
+// in the background via TriggerEnsureBackfilled. Best-effort — the caller bounds it with a timeout
+// and treats any upstream error as non-fatal (the periodic refresh/backfill will catch up).
+func (s *Service) RefreshSymbol(ctx context.Context, symbol string) error {
+	if s == nil {
+		return nil
+	}
+	inst, err := s.store.GetInstrument(ctx, symbol)
+	if err != nil {
+		return err
+	}
+	ps, err := s.latestForInstrument(ctx, inst)
+	if err != nil {
+		return err
+	}
+	if len(ps) > 0 {
+		if _, err := s.store.BatchUpsertAutoPrices(ctx, ps); err != nil {
+			return err
+		}
+	}
+	if cur := s.currencyOf(inst); cur != "" && cur != "CNY" {
+		if rates := s.latestFx(ctx, map[string]struct{}{cur: {}}); len(rates) > 0 {
+			_, _ = s.store.BatchUpsertAutoFxRates(ctx, rates)
+		}
+	}
+	return nil
+}
+
 // EnsureAllBackfilled backfills any instrument not yet marked as backfilled. Runs each
 // tick; a no-op (one cheap marker query per symbol) for those already done, and a retry
 // for any whose earlier attempt failed. Upstream requests are paced by each client.
