@@ -1,0 +1,18 @@
+# 在 NUC k3s 的默认 Traefik 上启用 Gateway API provider + 创建 GatewayClass(nuc-traefik)。
+# k3s helm-controller 会把 valuesContent 合并进 traefik HelmChart 的默认 values 并重部署 Traefik。
+# 不动 entrypoint 端口(web 仍 :8000),不关 kubernetesIngress(默认保留)。
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesGateway:
+        enabled: true
+    gatewayClass:
+      enabled: true
+      name: nuc-traefik
+    gateway:
+      enabled: false

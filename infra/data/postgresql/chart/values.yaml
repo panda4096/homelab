@@ -1,0 +1,50 @@
+# 共享 PostgreSQL 基础值（gz / nuc-dev 共用,差异在 values-<env>.yaml 覆盖）。
+# 命名空间 data 与 Secret(postgresql-admin / postgresql-init-scripts)不由本 chart 管理:
+#   - namespace.yaml 单独 apply
+#   - Secret 由 scripts/apply-secrets.sh(主)/ nuc-dev/scripts/apply-admin-secret.sh(NUC)生成
+name: postgresql
+namespace: data
+image: postgres:17-alpine
+
+# admin 密码来源 Secret(env POSTGRES_PASSWORD)
+adminSecret: postgresql-admin
+
+# 共享调优:为受限/共享节点设计(shared_buffers 等),两环境一致,改一处两边生效。
+tuning:
+  shared_buffers: 128MB
+  effective_cache_size: 384MB
+  work_mem: 8MB
+  maintenance_work_mem: 64MB
+  max_connections: "50"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+persistence:
+  storageClass: local-path
+  size: 1Gi              # 注意:StatefulSet 的 volumeClaimTemplate 不可改;各环境须与现存 PVC 一致
+
+nodeSelector: {}
+
+# NodePort（家用内网直连;主集群关闭）
+nodePort:
+  enabled: false
+  port: 30432
+
+# 限制性 NetworkPolicy（只放行指定 app namespace;主集群开,NUC 关）
+networkPolicy:
+  enabled: false
+  allowedNamespaces:
+    - firefly
+    - ghostfolio
+    - finbrain
+
+# 首次 init 建应用库/用户(挂 Secret 到 /docker-entrypoint-initdb.d;主集群开,NUC 关)
+initScripts:
+  enabled: false
+  secretName: postgresql-init-scripts

@@ -14,7 +14,7 @@
 
 - `infra/apps/firefly/`：Firefly III 账本与信用卡/理财现金流
 - `infra/apps/ghostfolio/`：Ghostfolio 证券持仓与收益分析
-- `infra/apps/finbrain/`：自研 ingest-agent / review UI / dashboard 部署资产
+- `infra/apps/finbrain/`：自研个人资产管理控制台（console-web + Go API，源码 `MoneySeek/`）部署 Runbook 与 values
 
 ## 与 `platform/` 的区别
 

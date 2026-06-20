@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgresql
+description: homelab 共享 PostgreSQL（纯 manifest 封装的小 chart，非 bitnami）。多环境共用,差异走 values。
+type: application
+version: 0.1.0
+appVersion: "17"

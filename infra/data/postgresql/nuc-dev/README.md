@@ -2,14 +2,14 @@
 
 本文档记录在家里 NUC 的独立 k3s 集群上部署开发调试用 PostgreSQL 的方式。
 
-这套配置只用于开发调试，不作为生产数据源。它与主集群共享数据库配置的差异如下：
+本环境与云端**共用 `../chart`**,差异只在 `../values-nuc-dev.yaml`:
 
-- 不使用 `region=gz` 节点选择器，直接运行在 NUC 单节点上。
-- 资源较低：request 为 `25m CPU / 96Mi`，limit 为 `250m CPU / 256Mi`。
-- PVC 较小：`512Mi`，使用 NUC k3s 默认的 `local-path` StorageClass。
-- 不下发主集群共享数据库的限制性 NetworkPolicy，方便 NUC 集群里的调试 Pod 连接。
-- 额外提供 `NodePort`，方便家里内网机器直接访问。
-- 不预创建任何应用数据库或应用用户；后续应用需要数据库时，由应用自己的初始化流程处理。
+- 无 `region=gz` 节点选择器(NUC 单节点)。
+- PVC `512Mi`(云端 1Gi);StorageClass `local-path`。
+- 额外 `NodePort`(30432),方便家里内网直连。
+- 不下发限制性 NetworkPolicy,方便 NUC 内调试 Pod 连接。
+- 不预创建应用库/用户(init 关);应用自理。
+- image / 调优 args / resources / 探针等共享配置在 `../chart/values.yaml`,与云端一致(改一处两边生效)。
 
 ## 部署
 
@@ -23,8 +23,9 @@ kubectl --context nuc apply -f infra/data/postgresql/namespace.yaml
 # 只写入 postgres 管理员密码 Secret，不创建应用库和应用用户。
 bash infra/data/postgresql/nuc-dev/scripts/apply-admin-secret.sh
 
-# 部署 PostgreSQL、ClusterIP Service 和 NodePort Service。
-kubectl --context nuc apply -f infra/data/postgresql/nuc-dev/postgresql.yaml
+# 部署 PostgreSQL(ClusterIP + NodePort Service):共享 chart + NUC 覆盖值。
+helm --kube-context nuc upgrade --install postgresql infra/data/postgresql/chart \
+  -n data -f infra/data/postgresql/values-nuc-dev.yaml
 
 # 等待 StatefulSet 就绪。
 kubectl --context nuc -n data rollout status statefulset/postgresql --timeout=5m
@@ -89,8 +90,9 @@ nc -vz 192.168.100.29 30432
 ## 卸载
 
 ```bash
-kubectl --context nuc delete -f infra/data/postgresql/nuc-dev/postgresql.yaml
+helm --kube-context nuc -n data uninstall postgresql
+# PVC retentionPolicy=Retain,卸载后数据仍保留;要彻底清数据再手动删 PVC:
+# kubectl --context nuc -n data delete pvc data-postgresql-0
 ```
 
-注意：删除 StatefulSet 和 PVC 后，`local-path` 对应的数据目录也会按 PV 的
-`Delete` 回收策略清理。开发调试库不要存放唯一数据。
+注意：删除 PVC 后,`local-path` 对应的数据目录也会按 PV 回收策略清理。开发调试库不要存放唯一数据。

@@ -1,0 +1,16 @@
+# NUC 的公共 Gateway:绑定 Traefik 的 web entrypoint(:8000,对外经 svc :80)。
+# 不写 hostname、allowedRoutes from All —— 与云端一致:按路径区分、跨 namespace 挂 HTTPRoute。
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: nuc-gateway
+  namespace: kube-system
+spec:
+  gatewayClassName: nuc-traefik
+  listeners:
+    - name: web
+      protocol: HTTP
+      port: 8000
+      allowedRoutes:
+        namespaces:
+          from: All

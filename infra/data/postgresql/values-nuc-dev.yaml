@@ -1,0 +1,12 @@
+# NUC 家用 dev 覆盖值。部署:
+#   kubectl --context nuc apply -f infra/data/postgresql/namespace.yaml
+#   bash infra/data/postgresql/nuc-dev/scripts/apply-admin-secret.sh   # 需先切到 nuc
+#   helm --kube-context nuc upgrade --install postgresql \
+#     infra/data/postgresql/chart -n data -f infra/data/postgresql/values-nuc-dev.yaml
+persistence:
+  size: 512Mi          # 与现存 PVC 一致(StatefulSet VCT 不可改)
+nodePort:
+  enabled: true        # 家里内网直连 192.168.100.29:30432
+# networkPolicy: 关(默认)—— 方便 NUC 内调试 Pod 连接
+# initScripts: 关(默认)—— NUC 不预建应用库/用户
+# nodeSelector: 空(默认)—— NUC 单节点

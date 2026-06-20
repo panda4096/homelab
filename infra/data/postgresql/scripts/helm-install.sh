@@ -1,29 +1,26 @@
 #!/usr/bin/env bash
 #
-# Deploy the shared PostgreSQL instance into namespace `data`.
-# Uses plain manifests + official postgres:17-alpine image (no Helm).
+# Deploy the shared PostgreSQL via the local Helm chart (chart/) with the gz overlay.
+# 用官方 postgres:17-alpine（chart 里只是纯 manifest 封装,不是 bitnami——bitnami 镜像墙内拉不到)。
 #
 # Prerequisites:
-#   - namespace `data` already created
-#   - Secrets `postgresql-admin` and `postgresql-init-scripts` already applied
-#     (run `scripts/apply-secrets.sh` first)
+#   - 切到主集群 context:kubectl config use-context homelab-default
+#   - namespace data 已建:kubectl apply -f infra/data/postgresql/namespace.yaml
+#   - Secrets postgresql-admin + postgresql-init-scripts 已生成:bash scripts/apply-secrets.sh
 #
-# The vendored bitnami chart under `charts/` is kept for reference but NOT used,
-# because docker.io/bitnami/postgresql images were removed post-Broadcom acquisition
-# and registry.bitnami.com is unreachable from China-based nodes.
+# 全新集群直接跑本脚本即可。若是【接管已有的裸 kubectl apply 资源】(Helm 4 server-side-apply
+# 会和 kubectl-client-side-apply 冲突),先删掉 StatefulSet/Service(PVC retentionPolicy=Retain,
+# 数据保留)再跑:
+#   kubectl -n data delete statefulset/postgresql service/postgresql
+#   # NUC 还有 service/postgresql-nodeport
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-CHART_DIR="${REPO_ROOT}/infra/data/postgresql"
+PG="${REPO_ROOT}/infra/data/postgresql"
 NAMESPACE="data"
 
-echo "applying postgresql manifests into namespace ${NAMESPACE}"
-
-kubectl apply -f "${CHART_DIR}/namespace.yaml"
-kubectl apply -f "${CHART_DIR}/postgresql-service.yaml"
-kubectl apply -f "${CHART_DIR}/postgresql-statefulset.yaml"
-kubectl apply -f "${CHART_DIR}/networkpolicy.yaml"
+helm upgrade --install postgresql "${PG}/chart" -n "${NAMESPACE}" -f "${PG}/values-gz.yaml"
 
 echo "waiting for postgresql-0 to be ready..."
 kubectl -n "${NAMESPACE}" rollout status statefulset/postgresql --timeout=5m

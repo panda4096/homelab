@@ -1,12 +1,13 @@
+{{- if .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: postgresql-from-apps-only
-  namespace: data
+  name: {{ .Values.name }}-from-apps-only
+  namespace: {{ .Values.namespace }}
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/name: {{ .Values.name }}
   policyTypes:
     - Ingress
   ingress:
@@ -16,9 +17,10 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values:
-                  - firefly
-                  - ghostfolio
-                  - finbrain
+                  {{- range .Values.networkPolicy.allowedNamespaces }}
+                  - {{ . }}
+                  {{- end }}
       ports:
         - protocol: TCP
           port: 5432
+{{- end }}

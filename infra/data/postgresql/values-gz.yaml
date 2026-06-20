@@ -1,0 +1,14 @@
+# 云端主集群(gz)覆盖值。部署:
+#   kubectl --context homelab-default apply -f infra/data/postgresql/namespace.yaml
+#   bash infra/data/postgresql/scripts/apply-secrets.sh           # 需先切到 homelab-default
+#   helm --kube-context homelab-default upgrade --install postgresql \
+#     infra/data/postgresql/chart -n data -f infra/data/postgresql/values-gz.yaml
+nodeSelector:
+  region: gz            # 只跑 gz
+persistence:
+  size: 1Gi            # 与现存 PVC 一致(StatefulSet VCT 不可改)
+networkPolicy:
+  enabled: true        # 只放行 firefly/ghostfolio/finbrain
+initScripts:
+  enabled: true        # 首次建三个应用库/用户
+# nodePort: 关(主集群只用 ClusterIP)
