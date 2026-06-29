@@ -98,7 +98,7 @@
 - 在 `infra/02-集群搭建.md` 写清：
   - Gateway API CRD 版本
   - Traefik chart 版本锁定策略
-  - `public-gateway` / HTTPRoute 的维护入口
+  - `public-gateway` / HTTPRoute 的维护入口：`deploy/traefik-public-gateway`
 
 ## H. 备份脚本演练（至少跑通一次）
 

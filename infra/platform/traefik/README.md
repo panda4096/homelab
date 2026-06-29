@@ -8,12 +8,17 @@
 - `hostPort`
 - 仅调度到 `edge.role=ingress` 节点
 
-当前第一阶段不依赖 DNS，统一通过 `gz` 公网 IP + 路径前缀访问：
+发布边界拆成两层：
 
-- `https://106.55.163.135/auth/`
-- `https://106.55.163.135/grafana/`
+- Traefik 控制器：使用 vendored upstream chart + `infra/platform/traefik/values.yaml`
+- 公网 Gateway：使用本仓库 Helm chart `deploy/traefik-public-gateway`
 
-后续有稳定 DNS 后，再把访问面切换为独立域名。
+当前 Gateway TLS 已接入正式域名证书：
+
+- `codebear.fun`
+- `www.codebear.fun`
+
+`codebear.fun` 当前解析到 `gz` 公网 IP。认证与应用层仍有部分 IP-first 配置，完整域名化迁移应单独处理。
 
 ## 资产位置
 
@@ -21,8 +26,7 @@
 - chart：`infra/platform/traefik/charts/traefik-39.0.7.tgz`
 - Gateway API CRDs：`infra/platform/traefik/gateway-api/standard-install-v1.4.1.yaml`
 - namespace：`infra/platform/traefik/namespace.yaml`
-- Gateway：`infra/platform/traefik/public-gateway.yaml`
-- HTTP->HTTPS redirect：`infra/platform/traefik/http-redirect.yaml`
+- 公网 Gateway release：`deploy/traefik-public-gateway`
 
 ## 设计约束
 
@@ -39,16 +43,29 @@
 1. 安装 Gateway API CRDs
 2. 释放旧 `ingress-nginx` 对 `80/443` 的占用
 3. 安装 `Traefik`
-4. 创建 `public-gateway`
-5. 创建 TLS Secret
-6. 部署后续 `HTTPRoute`
+4. 安装公网 Gateway release
+   ```bash
+   helm upgrade --install traefik-public-gateway deploy/traefik-public-gateway \
+     -n traefik \
+     --wait --timeout 5m
+   ```
+5. 部署后续 `HTTPRoute`
+
+公网 Gateway release 维护：
+
+- `Gateway`：`traefik/public-gateway`
+- HTTP->HTTPS redirect：`traefik/redirect-to-https`
+- TLS Secret：`traefik/public-gateway-tls`
+- 正式证书文件：`deploy/traefik-public-gateway/files/public-gateway.crt`
+- 正式私钥文件：`deploy/traefik-public-gateway/files/public-gateway.key`
 
 ## 验证
 
 ```bash
 kubectl get gatewayclass,gateway,httproute -A
 kubectl -n traefik get pods,svc
-curl -kI --resolve 106.55.163.135:443:106.55.163.135 https://106.55.163.135/
+curl -I --resolve codebear.fun:443:106.55.163.135 https://codebear.fun/
+helm status traefik-public-gateway -n traefik
 ```
 
 ## 当前公共认证链路

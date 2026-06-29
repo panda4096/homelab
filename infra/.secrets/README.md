@@ -35,8 +35,8 @@
 - Traefik HTTPS 证书与私钥：
   - `infra/.secrets/traefik-public-ip.crt`
   - `infra/.secrets/traefik-public-ip.key`
-  - 这是当前基于公网 IP 的 HTTPS 入口所用的手工证书材料。
-  - 它们不是公开受信任 CA 签发的正式证书。
+  - 这是旧的基于公网 IP 的自签名证书材料，仅作为回滚参考。
+  - 当前正式公网入口证书已经进入 Helm release chart：`deploy/traefik-public-gateway/files/`。
 
 ## 密码与 2FA 的边界
 
@@ -110,9 +110,9 @@ app 层另外各自有一份 `<app>.env` 存放非数据库的应用密钥（`AP
 
 ## 当前限制
 
-当前基于 IP 的入口下，WebAuthn 不稳定：
+当前 Gateway 已接入 `codebear.fun` 证书，但认证与应用层 URL 仍有 IP-first 配置，WebAuthn 不稳定：
 
 - 当前认证入口使用的是 `https://106.55.163.135/...`
 - 浏览器的 WebAuthn 依赖有效的 relying party 域名，通常不会接受 IP 作为可信来源
 - 当前阶段优先使用 TOTP
-- 等后续接入正式域名后，再重新评估 WebAuthn
+- 等后续完成 Authelia / Portal / app URL 域名化后，再重新评估 WebAuthn

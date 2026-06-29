@@ -1,0 +1,32 @@
+gateway:
+  name: public-gateway
+  className: homelab-traefik
+  httpListenerName: web
+  httpsListenerName: websecure
+  httpPort: 80
+  httpsPort: 443
+  allowedRoutes:
+    namespacesFrom: All
+
+tls:
+  secretName: public-gateway-tls
+  certFile: files/public-gateway.crt
+  keyFile: files/public-gateway.key
+  certificate:
+    commonName: codebear.fun
+    dnsNames:
+      - codebear.fun
+      - www.codebear.fun
+    issuer: "C=CN, O=TrustAsia Technologies, Inc., CN=TrustAsia DV TLS RSA CA 2024"
+    notBefore: "2026-06-29T23:00:00+08:00"
+    notAfter: "2026-09-27T22:59:59+08:00"
+    notAfterDisplay: "2026-09-27 22:59:59"
+    notAfterTimezone: Asia/Shanghai
+    notAfterUTC: "2026-09-27T14:59:59Z"
+    fingerprintSHA256: "14:FA:32:C1:22:8B:34:21:D7:AF:C8:16:FA:FC:4F:09:CB:17:2D:65:47:61:DD:CF:7C:FC:AE:30:92:A6:0C:57"
+
+redirect:
+  enabled: true
+  name: redirect-to-https
+  scheme: https
+  statusCode: 301

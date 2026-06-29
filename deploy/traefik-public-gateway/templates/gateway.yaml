@@ -1,0 +1,26 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gateway.name | quote }}
+  labels:
+    {{- include "traefik-public-gateway.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ .Values.gateway.className | quote }}
+  listeners:
+    - name: {{ .Values.gateway.httpListenerName | quote }}
+      protocol: HTTP
+      port: {{ .Values.gateway.httpPort }}
+      allowedRoutes:
+        namespaces:
+          from: {{ .Values.gateway.allowedRoutes.namespacesFrom | quote }}
+    - name: {{ .Values.gateway.httpsListenerName | quote }}
+      protocol: HTTPS
+      port: {{ .Values.gateway.httpsPort }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ .Values.tls.secretName | quote }}
+      allowedRoutes:
+        namespaces:
+          from: {{ .Values.gateway.allowedRoutes.namespacesFrom | quote }}
